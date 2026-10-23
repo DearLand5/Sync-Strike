@@ -4788,7 +4788,9 @@ class CombatSystem {
     g.camera.kick(perfect ? 0.02 : 0.008);
     if (killed) this._onKill(e, act);
     // особо зрелищные моменты — замедление времени
-    if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered)) {
+    // зрелищные: вихрь на сильной доле, усиленное убийство, точное убийство на сильной доле дропа/кульминации
+    const peak = g.clock.kind === "drop" || g.clock.kind === "climax";
+    if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered) || (killed && perfect && j.strong && peak)) {
       g.slowmo(0.4, 0.3, "flair");
       this.flashLabel(act.name === "slash3" ? "НОКС-ВИХРЬ" : "ФИНАЛ");
     } else if (act.name === "slash3") this.flashLabel("НОКС-ВИХРЬ");
@@ -4804,6 +4806,11 @@ class CombatSystem {
     g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 26 : 14, e.look.accent, 260);
     g.fx.shards(e.x, e.centerY, 6, "#0b0c10", 200);
     g.fx.ring(e.x, e.centerY, 6, e.kind === "brute" ? 60 : 36, e.look.accent, 0.4, 3);
+    // последний враг волны (в очереди никого): короткое замедление «на выдохе», кроме добивания (у него своё)
+    const w = g.waves;
+    if (!cinematic && w.mode === "waves" && !w.done && !w.queue.length && !g.enemies.some(x => x !== e && x.alive)) {
+      g.slowmo(0.45, 0.35, "takedown");
+    }
   }
 
   /* ---------- добивания (takedown) ---------- */
@@ -4962,7 +4969,9 @@ class CombatSystem {
       this.perfectDodges++;
       this.score += 300;
       p.counterT = 1.0;
-      g.slowmo(0.5, 0.3, "dodge");
+      // спасение на низком здоровье — дольше и глубже, чтобы игрок успел собраться
+      const low = p.hp <= p.maxHp * 0.3;
+      g.slowmo(low ? 0.7 : 0.5, low ? 0.25 : 0.3, "dodge");
       g.sfx("perfect");
       g.fx.ring(p.x, p.y - 16, 6, 44, p.skin.accent, 0.4, 3);
       this.flashLabel("ИДЕАЛЬНЫЙ УКЛОН");
@@ -6391,7 +6400,7 @@ class Game {
      в плотном бою они не накладывались и не съедали темп (раньше: 34% времени в замедлении). */
   get tfxMode() { return SLOWMO_MODES[this.settings.v.slowmoMode] || SLOWMO_MODES.rare; }
   resetTimeFx() {
-    this.timeScale = 1; this.tsFrom = 1; this.tsTo = 1; this.tsT = 1; this.tsDur = 1; this.afterStop = 1;
+    this.timeScale = 1; this.tsVel = 0; this.afterStop = 1;
     this.slowT = 0; this.slowScale = 1; this.slowPr = 0; this.hitstopT = 0;
     this.tfxClock = 0; this.slowEndAt = -99; this.lastStopAt = -99; this.stopChain = 0; this.lastStopLen = 0;
     this.slowBins = [0, 0, 0, 0, 0, 0, 0, 0]; this.slowBinT = 0;
@@ -6404,7 +6413,15 @@ class Game {
    * Возвращает true, если замедление действительно началось.
    */
   slowmo(dur, scale, priority = "flair") {
-    const pr = SLOW_PRIORITY[priority] || 1, mode = this.tfxMode;
+    const pr = SLOW_PRIORITY[priority] || 1, mode = this.tfxMode, ck = this.clock;
+    // музыкальный контекст: на дропе/кульминации замедление чуть глубже (зрелищнее), в остальное время не меняется
+    if (priority !== "takedown" && priority !== "finale" && (ck.kind === "drop" || ck.kind === "climax")) scale *= 0.9;
+    // выход из замедления «дышит» с музыкой: длительность подтягивается так, чтобы плавный выход начался на ближайшей доле
+    // (только вперёд на ≤ 0.3 с и назад на ≤ 0.06 с; сценарий добивания не укорачивается)
+    if (priority !== "finale" && this.audio.playing && ck.map) {
+      const now = this.songNow, b = ck.nextBeatAfter(now + dur - 0.06) - now;
+      if (b <= dur + 0.3 && b >= dur - 0.06 && (priority !== "takedown" || b >= dur)) dur = b;
+    }
     if (priority !== "finale") {
       if (this.slowT > 0) {
         if (pr <= this.slowPr) return false;
@@ -6412,9 +6429,11 @@ class Game {
         return true;
       }
       // идеальный уклон — защитная награда: кулдаун не действует, только общий бюджет
-      const gap = priority === "flair" ? mode.flairGap : priority === "dodge" ? 0 : mode.gap;
+      let gap = priority === "flair" ? mode.flairGap : priority === "dodge" ? 0 : mode.gap;
+      if (priority === "flair" && (ck.kind === "drop" || ck.kind === "climax")) gap *= 0.85;
       if (this.tfxClock - this.slowEndAt < gap) return false;
-      if (this.slowShare() + dur / 8 > mode.budget) return false;
+      // бюджет считает и мягкий выход (~0.45 с с замедленным масштабом), не только удержание
+      if (this.slowShare() + (dur + 0.45) / 8 > mode.budget) return false;
     }
     if (this.slowT <= 0) this.sfx("slowmo");
     this.slowScale = this.slowT > 0 ? Math.min(this.slowScale, scale) : scale;
@@ -6432,25 +6451,30 @@ class Game {
     this.hitstopT = Math.max(this.hitstopT, d);
   }
   /**
-   * Масштаб времени кадра. Вход в замедление — за 0.08 с, выход — за 0.35 с, по кривой easeInOut.
-   * После заметного стоп-кадра скорость коротко разгоняется с 50%.
+   * Масштаб времени кадра. Масштаб — состояние с непрерывной скоростью: критически демпфированная пружина
+   * к цели (замедление / 1). Вход быстрый (≈ 0.25 с), выход длинный и мягкий (≈ 0.65 с, ease-out): значение и его
+   * скорость никогда не прыгают, даже если замедление прервали, наложили или оно закончилось на полпути.
+   * Единственный разрыв — сам стоп-кадр; после него скорость плавно нарастает с 15% за ~0.12 с.
    */
   updateTimeScale(dtReal) {
     this.tfxClock += dtReal;
     if (this.slowT > 0) { this.slowT -= dtReal; if (this.slowT <= 0) { this.slowEndAt = this.tfxClock; this.slowPr = 0; } }
     const target = this.slowT > 0 ? this.slowScale : 1;
-    if (target !== this.tsTo) {
-      this.tsFrom = this.timeScale; this.tsTo = target; this.tsT = 0;
-      this.tsDur = target < this.timeScale ? 0.08 : 0.35;
+    const w = target < this.timeScale - 0.002 ? 17 : 7;       // частота пружины: вход / выход
+    // подшаги: устойчиво и при длинных кадрах
+    const n = Math.max(1, Math.ceil(dtReal / 0.008)), h = dtReal / n;
+    for (let i = 0; i < n; i++) {
+      const acc = w * w * (target - this.timeScale) - 2 * w * this.tsVel;
+      this.tsVel += acc * h; this.timeScale += this.tsVel * h;
     }
-    this.tsT += dtReal;
-    this.timeScale = lerp(this.tsFrom, this.tsTo, easeInOut(this.tsT / this.tsDur));
+    this.timeScale = clamp(this.timeScale, Math.min(target, this.slowScale || 1) * 0.9, 1);
+    if (Math.abs(target - this.timeScale) < 0.002 && Math.abs(this.tsVel) < 0.01) { this.timeScale = target; this.tsVel = 0; }
     // учёт доли замедления по секундным корзинам
     this.slowBinT += dtReal;
     if (this.slowBinT >= 1) { this.slowBinT -= 1; this.slowBins.shift(); this.slowBins.push(0); }
     if (this.timeScale < 0.9) this.slowBins[7] += dtReal;
-    if (this.hitstopT > 0) { this.hitstopT -= dtReal; this.afterStop = this.lastStopLen >= 0.05 ? 0 : 1; return 0; }
-    if (this.afterStop < 0.06) { this.afterStop += dtReal; return this.timeScale * lerp(0.5, 1, easeOut(this.afterStop / 0.06)); }
+    if (this.hitstopT > 0) { this.hitstopT -= dtReal; this.afterStop = this.lastStopLen >= 0.03 ? 0 : 1; return 0; }
+    if (this.afterStop < 0.12) { this.afterStop += dtReal; return this.timeScale * lerp(0.15, 1, easeOut(this.afterStop / 0.12)); }
     return this.timeScale;
   }
   /** Агрессивность врагов от музыки: <1 — чаще атакуют. */
