@@ -36,12 +36,14 @@ async function run(browser, diff, prof) {
           if (decided.get(key) && e.windDur - e.windT < 0.12) { inp.push("dodge"); decided.set(key, false); }
         }
         // атака около доли с разбросом
+        if (nextAttack > g.songNow + 1) nextAttack = 0; // трек зациклился — метка устарела
         if (nextAttack && g.songNow >= nextAttack) { inp.push("attack"); nextAttack = 0; }
         if (g.clock.idx !== lastBeat && !nextAttack) { lastBeat = g.clock.idx; if (Math.random() < P.attackP) nextAttack = g.clock.nextBeat + (Math.random() * 2 - 1) * P.jitter; }
       }, 16);
     });
   }, [diff, PROFILES[prof]]);
-  await page.waitForTimeout(secs * 1000);
+  // ждём конец боя (итоги) или лимит времени
+  for (let i = 0; i < secs; i++) { await page.waitForTimeout(1000); if (await page.evaluate(() => window.__game.state === "results")) break; }
   const r = await page.evaluate(() => { const g = window.__game; return { st: g.state, alive: g.player.alive, hp: Math.round(g.player.hp), maxHp: g.player.maxHp, wave: g.waves.wave, kills: g.combat.kills, dmg: Math.round(g.combat.damageTaken), t: Math.round(g.combat.time), waveT: window.__waveT.join(",") }; });
   await page.close();
   return { diff, prof, ...r, errors: errors.length };
@@ -49,8 +51,8 @@ async function run(browser, diff, prof) {
 (async () => {
   const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
   for (const diff of (process.argv[3] || "easy,normal,hard").split(",")) {
-    const res = await Promise.all(Object.keys(PROFILES).map(p => run(browser, diff, p)));
-    for (const r of res) console.log(JSON.stringify(r));
+    // профили по очереди: параллельные страницы грузят процессор, fps падает и бот играет хуже
+    for (const p of (process.env.PROFILES || Object.keys(PROFILES).join(",")).split(",")) console.log(JSON.stringify(await run(browser, diff, p)));
   }
   await browser.close();
 })();

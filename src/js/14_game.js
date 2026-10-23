@@ -17,16 +17,16 @@ const DIFFS = {
     waveSize: 0.7, eliteHp: 1.4,
   },
   normal: {
-    hp: 1, playerHp: 1, dmg: 0.7, playerDmg: 1, cd: 1.2, wind: 1.07, bolt: 0.95,
+    hp: 1.1, playerHp: 1, dmg: 0.6, playerDmg: 1, cd: 1.2, wind: 1.07, bolt: 0.95,
     hurtIF: 0.85, perfectDodge: 0.18, spawnGrace: 0.55, gap: 1.15, extra: 0,
-    tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), alive: n => 3 + Math.floor(n / 2), waveHeal: 0.15,
-    waveSize: 1, eliteHp: 1.8,
+    tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), alive: n => 3 + Math.floor(n / 2), waveHeal: 0.35,
+    waveSize: 0.8, eliteHp: 1.8,
   },
   hard: {
-    hp: 1.2, playerHp: 0.85, dmg: 1.15, playerDmg: 0.95, cd: 0.9, wind: 0.88, bolt: 1.1,
+    hp: 1.2, playerHp: 0.85, dmg: 1.0, playerDmg: 0.95, cd: 0.9, wind: 0.88, bolt: 1.1,
     hurtIF: 0.7, perfectDodge: 0.15, spawnGrace: 0.35, gap: 1, extra: 1,
-    tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), alive: n => 4 + Math.floor(n / 2), waveHeal: 0.08,
-    waveSize: 1.1, eliteHp: 2,
+    tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), alive: n => 4 + Math.floor(n / 2), waveHeal: 0.15,
+    waveSize: 1, eliteHp: 2,
   },
 };
 // Режимы замедлений (настройка «Замедления»): кулдаун после замедления (с), отдельно для зрелищных ударов,
