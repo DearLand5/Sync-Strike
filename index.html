@@ -4969,6 +4969,16 @@ class Enemy {
     this.hitKick = 0;         // визуальная реакция на удар (затухает), не влияет на геймплей
     this.deathStyle = null;   // split | slam | shot | topple — особая смерть после добивания
     this.deathDir = 1; this.deathRot = 0; this.tdPose = null;
+    this.elite = false; this.power = 1;
+  }
+
+  /** Элитный враг: больше HP и стойкости, сильнее бьёт, чуть крупнее; отмечен знаком над головой. */
+  makeElite() {
+    this.elite = true;
+    this.maxHp = Math.round(this.maxHp * this.diff.eliteHp); this.hp = this.maxHp;
+    this.poiseMax = Math.round(this.poiseMax * 1.5); this.poise = this.poiseMax;
+    this.power = 1.2;
+    this.scale *= 1.1;
   }
 
   get targetable() { return this.alive && this.state !== "spawn" && !this.executed; }
@@ -5170,7 +5180,7 @@ class Enemy {
       } else if (this.kind === "gunner") {
         const hp = CharacterRenderer.handWorld(this, 14);
         const ang = Math.atan2(this.aim.y - hp.y, this.aim.x - hp.x);
-        game.combat.spawnProjectile({ x: hp.x, y: hp.y, vx: Math.cos(ang) * T.bolt * this.diff.bolt, vy: Math.sin(ang) * T.bolt * this.diff.bolt, owner: "enemy", dmg: T.dmg * this.diff.dmg, r: 4, color: this.look.accent, life: 3, src: this });
+        game.combat.spawnProjectile({ x: hp.x, y: hp.y, vx: Math.cos(ang) * T.bolt * this.diff.bolt, vy: Math.sin(ang) * T.bolt * this.diff.bolt, owner: "enemy", dmg: T.dmg * this.diff.dmg * this.power, r: 4, color: this.look.accent, life: 3, src: this });
         game.fx.sparks(hp.x, hp.y, 5, this.look.accent, 160, ang, 0.8);
         game.sfx("enemyShot");
       } else if (this.kind === "brute") {
@@ -5180,7 +5190,7 @@ class Enemy {
         game.fx.shockwave(fx, this.y, this.look.accent, 150);
         game.fx.dust(fx, this.y, 12, "#2a2633");
         // ударные волны по полу в обе стороны (перепрыгиваются)
-        for (const d of [-1, 1]) game.combat.spawnProjectile({ x: fx, y: this.y - 5, vx: d * 300, vy: 0, owner: "enemy", dmg: T.dmg * 0.6 * this.diff.dmg, r: 6, color: this.look.accent, life: 1.1, wave: true, src: this });
+        for (const d of [-1, 1]) game.combat.spawnProjectile({ x: fx, y: this.y - 5, vx: d * 300, vy: 0, owner: "enemy", dmg: T.dmg * 0.6 * this.diff.dmg * this.power, r: 6, color: this.look.accent, life: 1.1, wave: true, src: this });
       }
     }
   }
@@ -5194,7 +5204,7 @@ class Enemy {
     if (this.kind !== "gunner") {
       const reach = this.kind === "brute" ? 46 : this.kind === "swift" ? 26 : 30;
       const box = { x: this.facing > 0 ? this.x : this.x - reach, y: this.y - this.h * this.scale, w: reach, h: this.h * this.scale };
-      game.combat.enemyHit(this, box, T.dmg * this.diff.dmg);
+      game.combat.enemyHit(this, box, T.dmg * this.diff.dmg * this.power);
     }
     if (this.stateT >= T.activeT) this.setState("recover");
   }
@@ -5732,7 +5742,7 @@ class CombatSystem {
   _onKill(e, act, cinematic = false) {
     const g = this.game;
     this.kills++;
-    this.score += Math.round(e.T.score * (1 + Math.min(this.combo, 40) / 40));
+    this.score += Math.round(e.T.score * (e.elite ? 2 : 1) * (1 + Math.min(this.combo, 40) / 40));
     g.sfx("death");
     if (!cinematic) {     // у добиваний свой финал (_finishTakedown) — без двойного салюта
       g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 20 : 11, e.look.accent, 240);
@@ -6178,13 +6188,16 @@ class AttackDirector {
 }
 
 /* ---------- WaveDirector ---------- */
+// Волна — несколько натисков (подкрепления). Тип с «+» — элитный враг (больше HP и стойкости, сильнее бьёт).
+// Следующий натиск приходит, когда на арене остаётся не больше одного врага, — на сильной доле.
+// Размер натисков на сложности — `DIFFS.waveSize` (лишние враги убираются с конца натиска).
 const WAVES = [
-  ["blade", "blade", "blade", "blade"],
-  ["blade", "blade", "gunner", "swift", "blade"],
-  ["blade", "swift", "gunner", "swift", "blade", "gunner", "blade"],
-  ["brute", "blade", "gunner", "blade", "swift", "blade", "swift"],
-  ["swift", "gunner", "blade", "swift", "gunner", "blade", "blade", "swift"],
-  ["brute", "swift", "gunner", "blade", "brute", "swift", "gunner", "blade", "blade"],
+  [["blade", "blade", "blade"], ["blade", "gunner", "blade"], ["swift", "blade", "blade", "gunner"]],
+  [["blade", "gunner", "swift", "blade"], ["blade", "blade", "gunner", "swift"], ["blade+", "swift", "gunner", "blade", "blade"]],
+  [["blade", "swift", "gunner", "swift"], ["brute", "blade", "gunner", "blade"], ["swift", "swift", "gunner", "blade+", "blade", "gunner"]],
+  [["brute", "blade", "gunner", "swift"], ["blade+", "swift", "gunner", "blade", "swift"], ["brute", "gunner+", "blade", "swift", "blade", "gunner"]],
+  [["swift", "gunner", "blade", "swift", "blade"], ["brute", "swift+", "gunner", "blade", "blade"], ["blade+", "gunner", "swift", "brute", "gunner", "blade", "swift"]],
+  [["brute", "swift", "gunner", "blade", "blade"], ["blade+", "swift", "gunner+", "blade", "swift", "blade"], ["brute+", "swift", "gunner", "blade", "swift", "gunner", "blade+"]],
 ];
 const PRACTICE_STEPS = [
   { text: "Двигайтесь: джойстик слева или A / D", check: g => g.player.moveDist > 220 },
@@ -6245,8 +6258,20 @@ class WaveDirector {
       return;
     }
     const maxAlive = g.diff.alive(this.wave);
-    if (this.queue.length && this.aliveCount() < maxAlive && this.spawnTimer <= 0 && (beat || this.spawnTimer < -1.2)) {
-      this.spawn(this.queue.shift());
+    if (this.queue[0] === "|") {
+      // подкрепление: поле почти пустое → следующий натиск на сильной доле (или через 1.5 с без неё)
+      if (this.aliveCount() <= 1) {
+        this.pushWait += dt;
+        if ((strongBeat && this.pushWait > 0.4) || this.pushWait > 1.5) {
+          this.queue.shift(); this.push++; this.pushWait = 0;
+          this.showBanner("ПОДКРЕПЛЕНИЕ", 1.4);
+          g.sfx("waveStart");
+          this.spawnTimer = 0.25;
+        }
+      }
+    } else if (this.queue.length && this.aliveCount() < maxAlive && this.spawnTimer <= 0 && (beat || this.spawnTimer < -1.2)) {
+      const k = this.queue.shift(), elite = k.endsWith("+");
+      this.spawn(elite ? k.slice(0, -1) : k, false, elite);
       this.spawnTimer = 0.35;
     }
     if (!this.queue.length && this.aliveCount() === 0) {
@@ -6263,7 +6288,8 @@ class WaveDirector {
   startWave(n) {
     const g = this.game;
     this.wave = n;
-    this.queue = WAVES[n - 1].slice();
+    this.queue = this.buildQueue(n);
+    this.push = 1; this.pushWait = 0;
     this.showBanner("ВОЛНА " + n + " / " + WAVES.length);
     g.sfx("waveStart");
     g.director.setLimits(clamp(g.diff.tokens(n), 1, 3), g.diff.ranged(n));
@@ -6271,10 +6297,23 @@ class WaveDirector {
     g.onWaveStart(n);
   }
 
-  showBanner(s) { this.banner = s; this.bannerT = 2.2; }
+  /** Очередь волны: натиски через "|", размер по сложности. */
+  buildQueue(n) {
+    const size = this.game.diff.waveSize, q = [];
+    WAVES[n - 1].forEach((push, i) => {
+      if (i) q.push("|");
+      q.push(...push.slice(0, Math.max(2, Math.round(push.length * size))));
+    });
+    return q;
+  }
+  get totalPushes() { return WAVES[Math.max(0, this.wave - 1)] ? WAVES[Math.max(0, this.wave - 1)].length : 1; }
+  /** Сколько врагов осталось в волне (на арене + в очереди). */
+  remaining() { return this.aliveCount() + this.queue.filter(k => k !== "|").length; }
+
+  showBanner(s, t = 2.2) { this.banner = s; this.bannerT = t; this.bannerDur = t; }
 
   /** Появление врага рядом с игроком (в кадре), с порталом. */
-  spawn(kind, passive = false) {
+  spawn(kind, passive = false, elite = false) {
     const g = this.game, p = g.player;
     const cands = [];
     for (const side of [-1, 1]) for (const d of [115, 150, 185, 220]) cands.push({ x: p.x + side * d, y: 0 });
@@ -6297,6 +6336,7 @@ class WaveDirector {
     if (!best) best = { x: clamp(p.x + 160, 60, WORLD.w - 60), y: 0 };
     const e = new Enemy(kind, best.x, best.y, g.diff);
     e.passive = passive;
+    if (elite) e.makeElite();
     e.facing = sign(p.x - e.x);
     e.attackCD += g.diff.spawnGrace;      // появились близко — даём время на реакцию
     g.enemies.push(e);
@@ -6381,7 +6421,10 @@ class HUD {
     ctx.font = "300 13px 'Oswald', 'Arial Narrow', sans-serif";
     ctx.fillStyle = "rgba(232,226,214,.8)";
     let line2 = "";
-    if (g.mode === "waves") line2 = "ВОЛНА " + Math.max(1, g.waves.wave) + "/" + WAVES.length;
+    if (g.mode === "waves") {
+      line2 = "ВОЛНА " + Math.max(1, g.waves.wave) + "/" + WAVES.length;
+      if (g.waves.wave > 0 && g.waves.between <= 0 && !g.waves.done) line2 += "   ·   ВРАГОВ " + g.waves.remaining();
+    }
     else if (g.mode === "track") line2 = "ДО ФИНАЛА " + fmtTime(Math.max(0, g.audio.duration - g.songNow));
     else line2 = "ПРАКТИКА";
     ctx.fillText(line2 + "   ·   ПОВЕРЖЕНО " + cb.kills, L, T + 38);
@@ -6457,7 +6500,7 @@ class HUD {
     // --- баннер волны ---
     const W = g.waves;
     if (W.bannerT > 0) {
-      const a = Math.min(1, W.bannerT * 1.5) * Math.min(1, (2.2 - W.bannerT) * 4);
+      const a = Math.min(1, W.bannerT * 1.5) * Math.min(1, ((W.bannerDur || 2.2) - W.bannerT) * 4);
       ctx.globalAlpha = a;
       ctx.textAlign = "center";
       ctx.font = "700 " + Math.round(Math.min(46, w * 0.06)) + "px 'Oswald', 'Arial Narrow', sans-serif";
@@ -6972,22 +7015,26 @@ class UIManager {
 //  hurtIF — неуязвимость после удара (с); perfectDodge — окно идеального уклона (с);
 //  spawnGrace — пауза перед первой атакой нового врага (с); gap — множитель паузы между атаками разных врагов;
 //  tokens(n)/ranged(n) — сколько врагов (и стрелков) может атаковать одновременно на волне n;
-//  alive(n) — сколько врагов одновременно на арене; waveHeal — лечение между волнами (доля от макс. HP).
+//  alive(n) — сколько врагов одновременно на арене; waveHeal — лечение между волнами (доля от макс. HP);
+//  waveSize — доля врагов в каждом натиске волны (WAVES); eliteHp — множитель HP элитных врагов («+» в WAVES).
 const DIFFS = {
   easy: {
     hp: 0.85, playerHp: 1.3, dmg: 0.5, playerDmg: 1.15, cd: 1.5, wind: 1.25, bolt: 0.85,
     hurtIF: 1.1, perfectDodge: 0.22, spawnGrace: 0.9, gap: 1.5, extra: -1,
     tokens: n => 1 + Math.floor(n / 5), ranged: n => 1, alive: n => 3 + Math.floor(n / 3), waveHeal: 0.25,
+    waveSize: 0.7, eliteHp: 1.4,
   },
   normal: {
     hp: 1, playerHp: 1, dmg: 0.7, playerDmg: 1, cd: 1.2, wind: 1.07, bolt: 0.95,
     hurtIF: 0.85, perfectDodge: 0.18, spawnGrace: 0.55, gap: 1.15, extra: 0,
     tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), alive: n => 3 + Math.floor(n / 2), waveHeal: 0.15,
+    waveSize: 1, eliteHp: 1.8,
   },
   hard: {
     hp: 1.2, playerHp: 0.85, dmg: 1.15, playerDmg: 0.95, cd: 0.9, wind: 0.88, bolt: 1.1,
     hurtIF: 0.7, perfectDodge: 0.15, spawnGrace: 0.35, gap: 1, extra: 1,
     tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), alive: n => 4 + Math.floor(n / 2), waveHeal: 0.08,
+    waveSize: 1.1, eliteHp: 2,
   },
 };
 // Режимы замедлений (настройка «Замедления»): кулдаун после замедления (с), отдельно для зрелищных ударов,

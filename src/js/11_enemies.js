@@ -49,6 +49,16 @@ class Enemy {
     this.hitKick = 0;         // визуальная реакция на удар (затухает), не влияет на геймплей
     this.deathStyle = null;   // split | slam | shot | topple — особая смерть после добивания
     this.deathDir = 1; this.deathRot = 0; this.tdPose = null;
+    this.elite = false; this.power = 1;
+  }
+
+  /** Элитный враг: больше HP и стойкости, сильнее бьёт, чуть крупнее; отмечен знаком над головой. */
+  makeElite() {
+    this.elite = true;
+    this.maxHp = Math.round(this.maxHp * this.diff.eliteHp); this.hp = this.maxHp;
+    this.poiseMax = Math.round(this.poiseMax * 1.5); this.poise = this.poiseMax;
+    this.power = 1.2;
+    this.scale *= 1.1;
   }
 
   get targetable() { return this.alive && this.state !== "spawn" && !this.executed; }
@@ -250,7 +260,7 @@ class Enemy {
       } else if (this.kind === "gunner") {
         const hp = CharacterRenderer.handWorld(this, 14);
         const ang = Math.atan2(this.aim.y - hp.y, this.aim.x - hp.x);
-        game.combat.spawnProjectile({ x: hp.x, y: hp.y, vx: Math.cos(ang) * T.bolt * this.diff.bolt, vy: Math.sin(ang) * T.bolt * this.diff.bolt, owner: "enemy", dmg: T.dmg * this.diff.dmg, r: 4, color: this.look.accent, life: 3, src: this });
+        game.combat.spawnProjectile({ x: hp.x, y: hp.y, vx: Math.cos(ang) * T.bolt * this.diff.bolt, vy: Math.sin(ang) * T.bolt * this.diff.bolt, owner: "enemy", dmg: T.dmg * this.diff.dmg * this.power, r: 4, color: this.look.accent, life: 3, src: this });
         game.fx.sparks(hp.x, hp.y, 5, this.look.accent, 160, ang, 0.8);
         game.sfx("enemyShot");
       } else if (this.kind === "brute") {
@@ -260,7 +270,7 @@ class Enemy {
         game.fx.shockwave(fx, this.y, this.look.accent, 150);
         game.fx.dust(fx, this.y, 12, "#2a2633");
         // ударные волны по полу в обе стороны (перепрыгиваются)
-        for (const d of [-1, 1]) game.combat.spawnProjectile({ x: fx, y: this.y - 5, vx: d * 300, vy: 0, owner: "enemy", dmg: T.dmg * 0.6 * this.diff.dmg, r: 6, color: this.look.accent, life: 1.1, wave: true, src: this });
+        for (const d of [-1, 1]) game.combat.spawnProjectile({ x: fx, y: this.y - 5, vx: d * 300, vy: 0, owner: "enemy", dmg: T.dmg * 0.6 * this.diff.dmg * this.power, r: 6, color: this.look.accent, life: 1.1, wave: true, src: this });
       }
     }
   }
@@ -274,7 +284,7 @@ class Enemy {
     if (this.kind !== "gunner") {
       const reach = this.kind === "brute" ? 46 : this.kind === "swift" ? 26 : 30;
       const box = { x: this.facing > 0 ? this.x : this.x - reach, y: this.y - this.h * this.scale, w: reach, h: this.h * this.scale };
-      game.combat.enemyHit(this, box, T.dmg * this.diff.dmg);
+      game.combat.enemyHit(this, box, T.dmg * this.diff.dmg * this.power);
     }
     if (this.stateT >= T.activeT) this.setState("recover");
   }

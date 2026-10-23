@@ -49,7 +49,10 @@ class HUD {
     ctx.font = "300 13px 'Oswald', 'Arial Narrow', sans-serif";
     ctx.fillStyle = "rgba(232,226,214,.8)";
     let line2 = "";
-    if (g.mode === "waves") line2 = "ВОЛНА " + Math.max(1, g.waves.wave) + "/" + WAVES.length;
+    if (g.mode === "waves") {
+      line2 = "ВОЛНА " + Math.max(1, g.waves.wave) + "/" + WAVES.length;
+      if (g.waves.wave > 0 && g.waves.between <= 0 && !g.waves.done) line2 += "   ·   ВРАГОВ " + g.waves.remaining();
+    }
     else if (g.mode === "track") line2 = "ДО ФИНАЛА " + fmtTime(Math.max(0, g.audio.duration - g.songNow));
     else line2 = "ПРАКТИКА";
     ctx.fillText(line2 + "   ·   ПОВЕРЖЕНО " + cb.kills, L, T + 38);
@@ -125,7 +128,7 @@ class HUD {
     // --- баннер волны ---
     const W = g.waves;
     if (W.bannerT > 0) {
-      const a = Math.min(1, W.bannerT * 1.5) * Math.min(1, (2.2 - W.bannerT) * 4);
+      const a = Math.min(1, W.bannerT * 1.5) * Math.min(1, ((W.bannerDur || 2.2) - W.bannerT) * 4);
       ctx.globalAlpha = a;
       ctx.textAlign = "center";
       ctx.font = "700 " + Math.round(Math.min(46, w * 0.06)) + "px 'Oswald', 'Arial Narrow', sans-serif";

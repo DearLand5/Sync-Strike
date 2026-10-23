@@ -16,6 +16,9 @@ async function run(browser, diff, prof) {
   await page.evaluate(([diff, P]) => {
     const g = window.__game;
     g.settings.set("difficulty", diff);
+    window.__waveT = [];
+    const ows = g.onWaveStart.bind(g);
+    g.onWaveStart = n => { window.__waveT.push(Math.round(g.combat.time)); return ows(n); };
     g.startBattle("waves").then(() => {
       const inp = g.input, decided = new Map();
       let nextAttack = 0, lastBeat = -1;
@@ -39,7 +42,7 @@ async function run(browser, diff, prof) {
     });
   }, [diff, PROFILES[prof]]);
   await page.waitForTimeout(secs * 1000);
-  const r = await page.evaluate(() => { const g = window.__game; return { st: g.state, alive: g.player.alive, hp: Math.round(g.player.hp), maxHp: g.player.maxHp, wave: g.waves.wave, kills: g.combat.kills, dmg: Math.round(g.combat.damageTaken), t: Math.round(g.combat.time) }; });
+  const r = await page.evaluate(() => { const g = window.__game; return { st: g.state, alive: g.player.alive, hp: Math.round(g.player.hp), maxHp: g.player.maxHp, wave: g.waves.wave, kills: g.combat.kills, dmg: Math.round(g.combat.damageTaken), t: Math.round(g.combat.time), waveT: window.__waveT.join(",") }; });
   await page.close();
   return { diff, prof, ...r, errors: errors.length };
 }
