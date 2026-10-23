@@ -107,6 +107,20 @@ spawnGrace/gap/tokens(n)/ranged(n)/alive(n)/waveHeal. Хардкод сложн�
 - Музыка никогда не замедляется; всё ритмическое считается от аудиочасов (`getOutputTimestamp`),
   нажатия переводятся в музыкальное время по `event.timeStamp`.
 
+## Android APK
+- `bash tools/build-apk.sh` → `dist/SyncStrike.apk` (dist/ и android/build/ в .gitignore). Без Gradle:
+  aapt2 → javac (-source/-target 1.8, bootclasspath android.jar) → d8 → zipalign → apksigner.
+  **build-tools 35.0.0 обязательно**: d8 8.2.2 из build-tools 34 падает с NPE на вложенных классах.
+- SDK ставится в `/root/android-sdk` (cmdline-tools → `sdkmanager --sdk_root=... "platforms;android-34" "build-tools;35.0.0"`);
+  в новой сессии контейнера его нужно ставить заново.
+- `android/src/.../MainActivity.java`: WebView с `file:///android_asset/index.html`, immersive fullscreen,
+  `sensorLandscape`, выбор файла (`GameChromeClient` → ACTION_GET_CONTENT audio/*), «Назад» через `window.__game`
+  (бой → пауза, экран → назад, меню → выход), `web.onPause()` → visibilitychange → пауза боя.
+- Подпись — `android/debug.keystore` (пароль android, alias syncstrike) закоммичен намеренно: одинаковый ключ
+  в каждой сборке, чтобы обновления ставились поверх без удаления (и без потери настроек). Для Google Play нужен свой ключ.
+- versionCode = число коммитов. Иконка — `tools/make-icon.js` (рендер скина «Тень» из игры) → `android/res/mipmap-*`.
+- Эмулятор в контейнере не запустить (нет /dev/kvm) — APK на устройстве не проверен, говорить об этом.
+
 ## Звуки
 - Записанные звуки Kenney.nl (CC0): манифест `tools/sounds.json` (событие → файлы паков, макс. длина).
   Пересборка: скачать паки (ссылки в `_packs` манифеста) в отдельную папку scratchpad, распаковать каждый в

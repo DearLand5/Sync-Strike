@@ -720,3 +720,4 @@ window.addEventListener("load", () => {
   }
 });
 window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS;
+window.SKINS_REF = SKINS; window.AnimStateRef = AnimState; window.CharacterRendererRef = CharacterRenderer;
