@@ -14,6 +14,7 @@ class InputManager {
     this.active = false;        // бой идёт — сенсорные кнопки активны
     this.usingTouch = false;    // было ли касание (показывать кнопки)
     this.touch = new TouchControls(settings);
+    this.rotated = false;       // интерфейс повёрнут на 90° (портретный телефон в режиме «горизонтально»)
     this.onPause = null;
     this._bind();
   }
@@ -47,6 +48,13 @@ class InputManager {
     document.addEventListener("dblclick", e => { if (e.target === cv) e.preventDefault(); });
   }
 
+  /** Координаты события в системе канваса с учётом поворота интерфейса. */
+  local(e) {
+    if (this.rotated) return { x: e.clientY, y: window.innerWidth - e.clientX };
+    const r = this.canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
   isTouchPath(e) { return e.pointerType === "touch" || e.pointerType === "pen" || this.settings.v.touchForce || this.touch.editing; }
 
   _down(e) {
@@ -55,7 +63,8 @@ class InputManager {
     if (this.isTouchPath(e)) {
       e.preventDefault();
       try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-      const act = this.touch.down(e.pointerId, e.offsetX, e.offsetY);
+      const q = this.local(e);
+      const act = this.touch.down(e.pointerId, q.x, q.y);
       if (act) this.push(act, e.timeStamp);
       if (act === "jump") this.jumpHeld = true;
     } else if (e.pointerType === "mouse") {
@@ -65,7 +74,8 @@ class InputManager {
   }
   _move(e) {
     if (!this.isTouchPath(e)) return;
-    this.touch.move(e.pointerId, e.offsetX, e.offsetY);
+    const q = this.local(e);
+    this.touch.move(e.pointerId, q.x, q.y);
   }
   _up(e) {
     if (!this.isTouchPath(e)) return;
@@ -128,8 +138,8 @@ class TouchControls {
   readSafeArea() {
     if (!this._probe) {
       const p = document.createElement("div");
-      p.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
-      document.body.appendChild(p);
+      p.style.cssText = "position:absolute;inset:0;visibility:hidden;pointer-events:none;padding:var(--sat) var(--sar) var(--sab) var(--sal)";
+      (document.getElementById("app") || document.body).appendChild(p);
       this._probe = p;
     }
     const cs = getComputedStyle(this._probe);

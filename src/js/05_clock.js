@@ -28,7 +28,8 @@ class RhythmClock {
     this.intensity = 0.4; this.intensitySmooth = 0.4;
     this.bands = { low: 0, mid: 0, high: 0 };
     this.sectionIdx = 0; this.section = null;
-    this.level = "mid";
+    this.level = "mid"; this.kind = "groove"; this.trend = 0; this.nextKind = null; this.timeToNext = 99;
+    this.bassy = false; this.bright = false;
     this._ptr = { low: 0, mid: 0, high: 0 };
     this._lastT = 0;
   }
@@ -118,9 +119,18 @@ class RhythmClock {
         const prevLevel = this.section ? this.section.level : "mid";
         this.sectionIdx = si;
         this.section = secs[si];
-        this.events.push({ type: "section", level: this.section.level, prevLevel, energy: this.section.energy });
+        this.events.push({ type: "section", level: this.section.level, prevLevel, energy: this.section.energy, kind: this.section.kind });
       }
       this.level = this.section ? this.section.level : "mid";
+      this.kind = this.section ? this.section.kind || "groove" : "groove";
+      this.bassy = !!(this.section && this.section.bassy);
+      this.bright = !!(this.section && this.section.bright);
+      // взгляд вперёд: рост энергии в ближайшие 3 с и скорая смена части
+      const ahead = clamp((t + 3) * m.envFps, 0, m.energy.length - 1);
+      this.trend = clamp(m.energy[Math.floor(ahead)] - eOff, -1, 1);
+      const nxt = secs[this.sectionIdx + 1];
+      this.nextKind = nxt ? nxt.kind : null;
+      this.timeToNext = nxt ? nxt.start - t : 99;
     }
 
     // события полос с порогом чувствительности

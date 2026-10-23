@@ -25,7 +25,7 @@ globalThis.fakeCtx = { sampleRate: Number(process_sr), createBuffer: (ch,n,sr)=>
     const barErr = strongIdx.slice(8, 16).map(t => (((t - DemoTrack.OFFSET) / (60/DemoTrack.BPM)) % 4 + 4) % 4);
     const segMed = Object.entries(segs).map(([k,v]) => k + ":" + v.sort((a,b)=>a-b)[v.length>>1]).join(" ");
     return { segMed, bounds: m.sections.map(s=>s.start.toFixed(2)).join(","), ms: m.ms, bpm: m.bpm, conf: m.confidence, mode: m.mode, n: m.beats.length, medErr: errs[errs.length>>1], p10: errs[Math.floor(errs.length*.1)], p90: errs[Math.floor(errs.length*.9)], maxAbs: Math.max(...errs.map(Math.abs)),
-      firstBeats: Array.from(m.beats.slice(0,6)).map(x=>x.toFixed(3)), strongPhaseInBar: barErr.map(x=>x.toFixed(2)), sections: m.sections.map(s=>s.start.toFixed(1)+':'+s.level), features: m.features };
+      firstBeats: Array.from(m.beats.slice(0,6)).map(x=>x.toFixed(3)), strongPhaseInBar: barErr.map(x=>x.toFixed(2)), sections: m.sections.map(s=>s.start.toFixed(1)+':'+s.level+':'+s.kind+':'+s.energy.toFixed(2)+'/'+s.slope.toFixed(2)), features: m.features };
   })()`, ctx);
   console.log(JSON.stringify(res, null, 1));
 })();

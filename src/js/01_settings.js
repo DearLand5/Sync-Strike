@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
   flashes: true,
   beatGuide: true,
   fullscreen: true,
+  forceLandscape: true,     // горизонтальный экран по умолчанию (поворот интерфейса в портрете)
   showFps: false,
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5

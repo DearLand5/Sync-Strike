@@ -1,11 +1,13 @@
 /* =====================================================================
    Game — главный цикл и связывание систем.
    ===================================================================== */
+// Баланс сложностей: HP игрока и врагов, урон, темп атак врагов, лимит одновременных атак.
 const DIFFS = {
-  easy:   { hp: 0.85, dmg: 0.6,  cd: 1.25, wind: 1.15, extra: -1, playerDmg: 1.15 },
-  normal: { hp: 1,    dmg: 1,    cd: 1,    wind: 1,    extra: 0,  playerDmg: 1 },
-  hard:   { hp: 1.2,  dmg: 1.35, cd: 0.85, wind: 0.85, extra: 1,  playerDmg: 0.95 },
+  easy:   { hp: 0.85, playerHp: 1.3,  dmg: 0.65, cd: 1.25, wind: 1.15, extra: -1, playerDmg: 1.15 },
+  normal: { hp: 1,    playerHp: 1,    dmg: 1,    cd: 1,    wind: 1,    extra: 0,  playerDmg: 1 },
+  hard:   { hp: 1.2,  playerHp: 0.85, dmg: 1.3,  cd: 0.85, wind: 0.85, extra: 1,  playerDmg: 0.95 },
 };
+const SECTION_NAMES = { intro: "ИНТРО", build: "НАРАСТАНИЕ", drop: "ДРОП", climax: "КУЛЬМИНАЦИЯ", break: "БРЕЙК", calm: "ЗАТИШЬЕ", groove: "ГРУВ", outro: "ФИНАЛ" };
 const MODE_NAMES = { waves: "Волны", track: "До конца трека", practice: "Практика" };
 const STEP = 1 / 120;
 const VIEW_H = 360;            // видимая высота мира в единицах
@@ -39,6 +41,8 @@ class Game {
     this.songNow = 0;
     this.acc = 0; this.hitstopT = 0; this.slowT = 0; this.slowDur = 0; this.slowScale = 1;
     this.hurtFlash = 0; this.endT = 0; this.endWin = false;
+    this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitle = ""; this.takedownTitleT = 0;
+    this.sectionTitle = ""; this.sectionTitleT = 0;
     this.fps = 60; this._ft = 16; this._slowFrames = 0; this.autoLow = false;
     this.effQuality = "high";
     this.loading = false;
@@ -55,6 +59,7 @@ class Game {
     this.settings.on("change", k => {
       if (k === "difficulty") this.diff = DIFFS[this.settings.v.difficulty];
       if (k === "latencyMs") this.clock.reset(this.audio.songTime());
+      if (k === "forceLandscape") { this.resize(); this.checkOrientation(); }
     });
 
     this.applyQuality();
@@ -74,9 +79,18 @@ class Game {
     this.fx.setQuality(this.effQuality);
     this.resize();
   }
+  /** Горизонталь по умолчанию: если телефон держат вертикально, поворачиваем интерфейс на 90°. */
+  applyRotation() {
+    const app = $("app"), iw = window.innerWidth, ih = window.innerHeight;
+    const rot = this.settings.v.forceLandscape && ih > iw * 1.05 && this.isTouchDevice();
+    this.input.rotated = rot;
+    app.classList.toggle("rot", rot);
+    if (rot) { app.style.width = ih + "px"; app.style.height = iw + "px"; app.style.transform = `translate(${iw}px,0) rotate(90deg)`; }
+    else { app.style.width = ""; app.style.height = ""; app.style.transform = ""; }
+  }
   resize() {
-    const r = this.canvas.getBoundingClientRect();
-    this.cssW = Math.max(1, r.width); this.cssH = Math.max(1, r.height);
+    this.applyRotation();
+    this.cssW = Math.max(1, this.canvas.clientWidth); this.cssH = Math.max(1, this.canvas.clientHeight);
     this.dpr = Math.min(window.devicePixelRatio || 1, this.effQuality === "low" ? 1.25 : 2);
     this.canvas.width = Math.round(this.cssW * this.dpr);
     this.canvas.height = Math.round(this.cssH * this.dpr);
@@ -85,13 +99,13 @@ class Game {
   }
   isTouchDevice() { return this.input.usingTouch || (window.matchMedia && matchMedia("(pointer: coarse)").matches); }
   checkOrientation() {
-    const portrait = this.cssH > this.cssW * 1.05;
+    const portrait = this.cssH > this.cssW * 1.05 && !this.input.rotated;
     const need = portrait && this.isTouchDevice() && (this.state === "battle" || this.state === "paused" || this.state === "editor");
     $("rotate").hidden = !need;
     if (need && this.state === "battle") this.pause();
   }
-  requestFullscreen() {
-    if (!this.settings.v.fullscreen) return;
+  requestFullscreen(force = false) {
+    if (!this.settings.v.fullscreen && !force) return;
     const el = document.documentElement;
     const fn = el.requestFullscreen || el.webkitRequestFullscreen;
     if (fn && !document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -195,8 +209,10 @@ class Game {
     this.mode = mode;
     this.diff = DIFFS[this.settings.v.difficulty] || DIFFS.normal;
     this.player.setSkin(this.settings.v.skin);
-    this.player.reset(WORLD.w / 2);
+    this.player.reset(WORLD.w / 2, this.diff.playerHp);
     this.player.dodgeCount = 0;
+    this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitleT = 0;
+    this.camera.release(); this.camera.fw = 0;
     this.enemies = [];
     this.combat.reset();
     this.director.reset();
@@ -243,6 +259,7 @@ class Game {
   returnToBattle() { this.resume(); }
 
   toMenu() {
+    this.combat.td = null; this.player.scripted = false; this.camera.release(); this.letterboxTarget = 0;
     this.battleActive = false;
     this.state = "menu";
     this.audio.pause();
@@ -426,7 +443,12 @@ class Game {
       this.acc -= STEP; steps++;
     }
     if (steps >= 8) this.acc = 0;
+    this.combat.updateTakedown(dtReal);
     this.enemies = this.enemies.filter(e => !e.dead);
+    this.letterbox = damp(this.letterbox, this.letterboxTarget, 8, dtReal);
+    this.flashT = Math.max(0, this.flashT - dtReal * 3);
+    this.takedownTitleT = Math.max(0, this.takedownTitleT - dtReal);
+    this.sectionTitleT = Math.max(0, this.sectionTitleT - dtReal);
     this.waves.update(dt);
     this.fx.update(dt);
     this._aiT -= dt;
@@ -435,8 +457,12 @@ class Game {
     this.afterimages = this.afterimages.filter(a => a.life > 0);
     this.hurtFlash = Math.max(0, this.hurtFlash - dtReal * 2.5);
 
-    // музыка в мире: толчок камеры на сильных долях, кольцо под ногами
+    // музыка в мире: толчок камеры на сильных долях, кольцо под ногами, смена частей трека
     for (const ev of this.clock.events) {
+      if (ev.type === "section" && SECTION_NAMES[ev.kind]) {
+        this.sectionTitle = SECTION_NAMES[ev.kind]; this.sectionTitleT = 2;
+        if (ev.kind === "drop" || ev.kind === "climax") { this.camera.kick(0.04); this.camera.shake(0.3); this.fx.shockwave(p.x, p.groundY, p.skin.accent, 220); }
+      }
       if (ev.type === "strongBeat") {
         this.camera.kick(0.006 * this.clock.intensitySmooth);
         this.fx.shockwave(p.x, p.groundY, p.skin.accent, 60 + 40 * this.clock.intensitySmooth);
@@ -459,7 +485,11 @@ class Game {
       intensity: c.intensitySmooth, beat: Math.max(0, c.idx), beatF: Math.max(0, c.idx) + c.phase, phase: c.phase,
       time: performance.now() / 1000, level: c.level,
       sectionEvent: c.events.some(e => e.type === "section"),
+      sectionKind: (c.events.find(e => e.type === "section") || {}).kind,
       strongEvent: c.events.some(e => e.type === "strongBeat"),
+      kind: c.kind, trend: c.trend, timeToNext: c.timeToNext, bassy: c.bassy, bright: c.bright,
+      dropSoon: (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0,
+      halfPulse: c.halfPulse, onsets: c.events.filter(e => e.type === "onset"),
     };
   }
 
@@ -470,7 +500,7 @@ class Game {
     const cam = this.camera;
     const zs = this.viewScale() * cam.zoom;
     const floorY = h / 2 + (0 - cam.y) * zs + cam.oy;
-    const v = { w, h, floorY, camX: cam.x, scale: zs };
+    const v = { w, h, floorY, camX: cam.x, scale: zs, playerX: (this.player.x - cam.x) * zs + w / 2 + cam.ox };
     const m = this.musicState(dt);
     const R = { dpr: this.tileDpr, dt, amount: this.effQuality === "low" ? 0.45 : 1, flashes: this.settings.v.flashes, amb: this.arena.amb };
     this.arena.drawBack(ctx, v, m, R);
@@ -506,6 +536,7 @@ class Game {
     ctx.restore();
 
     this.arena.drawFront(ctx, v, m, R);
+    if (this.flashT > 0) { ctx.fillStyle = rgba("#ffffff", this.flashT * (this.settings.v.flashes ? 0.55 : 0.2)); ctx.fillRect(0, 0, w, h); }
     if (this.battleActive || this.state === "results") this.hud.draw(ctx, w, h, dt);
     if (this.input.showTouch && (this.state === "battle" || this.state === "editor")) this.input.touch.draw(ctx, this.clock, this.player.skin.accent);
   }
@@ -569,3 +600,4 @@ window.addEventListener("load", () => {
     document.body.insertAdjacentHTML("beforeend", '<p style="position:fixed;inset:auto 16px 16px;color:#ff2d4a;font-family:monospace">Не удалось запустить игру: ' + String(e.message).replace(/</g, "&lt;") + "</p>");
   }
 });
+window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS;

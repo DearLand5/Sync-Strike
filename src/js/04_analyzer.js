@@ -449,6 +449,31 @@ class RhythmAnalyzer {
       const e = cnt ? acc / cnt : 0;
       sections.push({ start: a, end: b, energy: e, level: e < 0.38 ? "calm" : e > 0.66 ? "intense" : "mid" });
     }
+    /* ---- характер частей трека: интро, нарастание, дроп, кульминация, брейк, спокойно, грув, финал ----
+       по средней энергии, скачку относительно предыдущей части, наклону энергии внутри части
+       и доле низов/верхов в ней. */
+    const secMean = (arr, a, b) => { let acc = 0, cnt = 0; for (let i = Math.floor(a * envFps); i < Math.min(envN, b * envFps); i++) { acc += arr[i]; cnt++; } return cnt ? acc / cnt : 0; };
+    const maxE = Math.max(...sections.map(x => x.energy));
+    const gLow = secMean(bl, 0, duration), gHigh = secMean(bh, 0, duration);
+    sections.forEach((sc, i) => {
+      const len = sc.end - sc.start, q = Math.min(4, len * 0.25);
+      const slope = secMean(energy, sc.end - q, sc.end) - secMean(energy, sc.start, sc.start + q);
+      const prevE = i ? sections[i - 1].energy : sc.energy;
+      const delta = sc.energy - prevE;
+      sc.slope = slope; sc.delta = delta;
+      sc.bassy = secMean(bl, sc.start, sc.end) > gLow * 1.12;
+      sc.bright = secMean(bh, sc.start, sc.end) > gHigh * 1.12;
+      let kind;
+      if (i === 0 && sc.energy < 0.55) kind = "intro";
+      else if (i === sections.length - 1 && sections.length > 2 && delta < -0.1) kind = "outro";
+      else if (sc.energy >= maxE - 0.03 && sc.energy > 0.6) kind = "climax";
+      else if (delta > 0.2 && sc.energy > 0.55) kind = "drop";
+      else if (slope > 0.16) kind = "build";
+      else if (delta < -0.2) kind = "break";
+      else if (sc.energy < 0.38) kind = "calm";
+      else kind = "groove";
+      sc.kind = kind;
+    });
 
     /* ---- кандидаты событий по полосам (порог применяется во время игры) ---- */
     const onsets = { low: [], mid: [], high: [] };

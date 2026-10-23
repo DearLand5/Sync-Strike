@@ -67,6 +67,7 @@ class ParticleSystem {
     n = Math.max(1, Math.round(n * this.mult));
     for (let i = 0; i < n; i++) this.spawn("smoke", x + rand(-8, 8), y - 1, { vx: rand(-60, 60), vy: rand(-30, -5), life: rand(0.3, 0.6), size: rand(1.5, 3), size2: rand(4, 8), color, drag: 4 });
   }
+  line(x, y, x2, y2, color, width = 3, life = 0.2) { this.spawn("line", x, y, { a0: x2, a1: y2, color, size: width, life, add: true, drag: 0 }); }
   shockwave(x, y, color, reach = 140) { this.spawn("wave", x, y, { size: 4, size2: reach, color, life: 0.45, add: true }); }
 
   update(dt) {
@@ -114,6 +115,10 @@ class ParticleSystem {
           ctx.beginPath(); ctx.arc(p.x, p.y, p.size2, p.a0 + span * (1 - k) * 0.35, p.a1); ctx.stroke();
           break;
         }
+        case "line":
+          ctx.strokeStyle = p.color; ctx.lineWidth = p.size * k; ctx.lineCap = "round";
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.a0, p.a1); ctx.stroke();
+          break;
         case "wave": {
           const r = lerp(p.size2, p.size, k);
           ctx.strokeStyle = p.color; ctx.lineWidth = 3 * k;
@@ -135,22 +140,32 @@ class ParticleSystem {
 
 /* ---------- Камера ---------- */
 class Camera {
-  constructor() { this.x = 0; this.y = -108; this.zoom = 1; this.bump = 0; this.trauma = 0; this.t = 0; this.ox = 0; this.oy = 0; this.rot = 0; }
+  constructor() {
+    this.x = 0; this.y = -108; this.zoom = 1; this.bump = 0; this.trauma = 0; this.t = 0; this.ox = 0; this.oy = 0; this.rot = 0;
+    this.fx = 0; this.fy = 0; this.fz = 1; this.fw = 0; this.fTarget = 0; this.tilt = 0;
+  }
   shake(a) { this.trauma = Math.min(1, this.trauma + a); }
   kick(a) { this.bump = Math.min(0.06, this.bump + a); }
+  /** Кинематографичный фокус: камера наезжает на точку с приближением. */
+  focus(x, y, zoom) { this.fx = x; this.fy = y; this.fz = zoom; this.fTarget = 1; this.tilt = (Math.random() < 0.5 ? -1 : 1) * 0.035; }
+  release() { this.fTarget = 0; }
   update(dt, tx, ty, worldW, viewW, shakeAmount) {
     this.t += dt;
-    const half = viewW / 2;
-    const cx = worldW > viewW ? clamp(tx, half, worldW - half) : worldW / 2;
-    this.x = damp(this.x, cx, 6, dt);
-    this.y = damp(this.y, ty, 4, dt);
+    this.fw = damp(this.fw, this.fTarget, this.fTarget ? 9 : 4, dt);
+    const fz = 1 + (this.fz - 1) * this.fw;
+    const vw = viewW / fz;
+    const half = vw / 2;
+    const wantX = lerp(tx, this.fx, this.fw), wantY = lerp(ty, this.fy, this.fw);
+    const cx = worldW > vw ? clamp(wantX, half, worldW - half) : worldW / 2;
+    this.x = damp(this.x, cx, this.fTarget ? 10 : 6, dt);
+    this.y = damp(this.y, wantY, this.fTarget ? 10 : 4, dt);
     this.bump = damp(this.bump, 0, 7, dt);
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     const sh = this.trauma * this.trauma * shakeAmount;
     const t = this.t * 40;
     this.ox = sh * 9 * (Math.sin(t * 1.3) + Math.sin(t * 2.7) * 0.5);
     this.oy = sh * 7 * (Math.sin(t * 1.7 + 1) + Math.sin(t * 3.1) * 0.5);
-    this.rot = sh * 0.012 * Math.sin(t * 0.9);
-    this.zoom = 1 + this.bump;
+    this.rot = sh * 0.012 * Math.sin(t * 0.9) + this.tilt * this.fw;
+    this.zoom = fz + this.bump;
   }
 }

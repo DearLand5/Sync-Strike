@@ -19,7 +19,7 @@ const PL = {
   grav: 1650, fallMax: 640, jumpV: 505, airJumpV: 440,
   coyote: 0.08, jbuf: 0.11,
   dodgeV: 440, dodgeT: 0.22, dodgeIF: 0.2, dodgeCD: 0.42,
-  hurtT: 0.32, hurtIF: 0.75, maxHp: 100,
+  hurtT: 0.32, hurtIF: 0.75, maxHp: 130,
 };
 
 /** Общая физика тела с полом, стенами и односторонними платформами. */
@@ -60,11 +60,12 @@ class Player {
     this.scarfColor = this.skin.scarf;
     if (this.anim) this.anim.scarf = null;
   }
-  reset(x) {
+  reset(x, hpMult = 1) {
     this.x = x; this.y = 0; this.vx = 0; this.vy = 0;
+    this.scripted = false; this.dodgeType = "roll"; this.dodgeSync = false;
     this.w = PL.w; this.h = PL.h; this.scale = 1;
     this.facing = 1; this.onGround = true; this.platform = null; this.dropT = 0;
-    this.hp = PL.maxHp; this.maxHp = PL.maxHp;
+    this.maxHp = Math.round(PL.maxHp * hpMult); this.hp = this.maxHp;
     this.state = "idle"; this.stateT = 0;
     this.iframes = 0; this.coyoteT = 0; this.jumpBufT = 0; this.airJumps = 1;
     this.dodgeCD = 0; this.dodgeDir = 1;
@@ -79,7 +80,7 @@ class Player {
   }
 
   get alive() { return this.state !== "dead"; }
-  get canAct() { return !["dead", "victory", "hurt", "dodge"].includes(this.state); }
+  get canAct() { return !["dead", "victory", "hurt", "dodge", "takedown"].includes(this.state) && !this.scripted; }
   get invulnerable() { return this.iframes > 0 || (this.action && this.action.iframes); }
   get centerY() { return this.y - this.h * 0.55; }
 
@@ -89,21 +90,31 @@ class Player {
   pressJump() { this.jumpBufT = PL.jbuf; }
 
   tryDodge(game) {
-    if (!this.alive || this.state === "victory" || this.dodgeCD > 0 || this.state === "hurt") return false;
+    if (!this.alive || this.state === "victory" || this.dodgeCD > 0 || this.state === "hurt" || this.scripted) return false;
     // уклонение прерывает атаку только после фазы подготовки
     if (this.action && this.action.t < this.action.startup) return false;
     const mx = game.input.moveX;
-    this.dodgeDir = Math.abs(mx) > 0.2 ? sign(mx) : this.facing;
-    this.facing = this.dodgeDir;
+    // три вида: воздушный рывок, кувырок по направлению, сальто назад без направления
+    if (!this.onGround) { this.dodgeType = "air"; this.dodgeDir = Math.abs(mx) > 0.2 ? sign(mx) : this.facing; this.facing = this.dodgeDir; }
+    else if (Math.abs(mx) > 0.2) { this.dodgeType = "roll"; this.dodgeDir = sign(mx); this.facing = this.dodgeDir; }
+    else { this.dodgeType = "back"; this.dodgeDir = -this.facing; }
     this.action = null;
     this.dodgeCount = (this.dodgeCount || 0) + 1;
     this.setState("dodge");
-    this.iframes = PL.dodgeIF;
+    // уклон в такт: дольше неуязвимость и неоновый след
+    const j = game.clock.judge(game.songNow);
+    this.dodgeSync = j.rating === "perfect" || j.rating === "good";
+    this.iframes = PL.dodgeIF + (this.dodgeSync ? 0.08 : 0);
     this.dodgeCD = PL.dodgeCD;
-    this.vx = this.dodgeDir * PL.dodgeV;
-    if (!this.onGround) this.vy = Math.min(this.vy, -60);
+    this.vx = this.dodgeDir * PL.dodgeV * (this.dodgeType === "back" ? 0.8 : 1);
+    if (this.dodgeType === "back") { this.vy = -250; this.onGround = false; }
+    else if (!this.onGround) this.vy = Math.min(this.vy, -60);
     game.sfx("dodge");
     game.fx.dust(this.x, this.y, 5);
+    if (this.dodgeSync) {
+      game.fx.ring(this.x, this.y - 14, 4, 30, this.skin.accent, 0.3, 2);
+      game.fx.text(this.x, this.y - 48, "SYNC", this.skin.accent, 12, 0.5);
+    }
     return true;
   }
 
@@ -135,6 +146,7 @@ class Player {
     const wasGround = this.onGround;
     const st = this.state;
 
+    if (this.scripted) { this.iframes = Math.max(this.iframes, 0.1); this._pose(dt, game); return; }
     if (st === "dead" || st === "victory") {
       this.vx = damp(this.vx, 0, 6, dt);
       this.vy = Math.min(this.vy + PL.grav * dt, PL.fallMax);
@@ -178,7 +190,7 @@ class Player {
     }
 
     // ---- гравитация ----
-    const noGrav = st === "dodge" || (act && act.noGravity);
+    const noGrav = (st === "dodge" && this.dodgeType !== "back") || (act && act.noGravity);
     if (!noGrav) {
       let g = PL.grav;
       if (this.vy < 0 && !inp.jumpHeldAll && st === "jump") g *= 2.3;     // переменная высота прыжка
@@ -254,9 +266,33 @@ class Player {
         rate = 30;
         break;
       case "dodge": {
-        const k = t / PL.dodgeT;
-        Object.assign(P, { lean: 0.5, bodyY: 3, tuck: 0.6, legAmp: 0, armF: -1.3, elbowF: 0.4, armB: -1.5, sx: 1.12, sy: 0.86, cloak: -0.6, headTilt: 0.2 * (1 - k) });
-        rate = 30;
+        const k = clamp(t / PL.dodgeT, 0, 1);
+        if (this.dodgeType === "roll") {
+          // кувырок вперёд: группировка и полный оборот
+          Object.assign(P, { lean: 0.3, bodyY: 4, tuck: 1, legAmp: 0, armF: 2.2, elbowF: 1.2, armB: 1.6, sx: 0.95, sy: 0.82, cloak: -0.5, headTilt: 0.4, spin: TAU * easeInOut(k) });
+        } else if (this.dodgeType === "back") {
+          // сальто назад
+          Object.assign(P, { lean: -0.2, bodyY: 0, tuck: 0.8 * Math.sin(k * Math.PI), legAmp: 0, armF: 2.8, elbowF: 0.3, armB: 2.6, sx: 1, sy: 1, cloak: 0.4, headTilt: -0.3, spin: -TAU * easeInOut(k) });
+        } else {
+          // воздушный рывок: вытянутый силуэт
+          Object.assign(P, { lean: 0.65, bodyY: 1, tuck: 0.5, legAmp: 0, armF: -1.5, elbowF: 0.2, armB: -1.7, sx: 1.3, sy: 0.8, cloak: -1, headTilt: 0.15 });
+        }
+        rate = 32;
+        break;
+      }
+      case "takedown": {
+        const td = game.combat.td;
+        const ranged = td && td.kind === "volley";
+        if (ranged) {
+          const e = td.e, ang = Math.atan2(e.centerY - (this.y - 20), Math.abs(e.x - this.x));
+          const kick = Math.max(0, Math.sin(t * 40)) * 0.3;
+          Object.assign(P, { armF: Math.PI / 2 - ang - kick, elbowF: 0, armB: Math.PI / 2 - ang - kick, legSpread: 1.7, bodyY: 2, lean: 0.05 - kick * 0.3, wBlend: 0 });
+        } else {
+          // клинок наготове, низкая стойка, резкие смены позы при каждом ударе
+          const ph = Math.floor(t * 9) % 2;
+          Object.assign(P, { armF: ph ? 2.3 : -1.4, elbowF: 0.2, armB: -1.2, lean: 0.4, bodyY: 3, sx: 1.08, sy: 0.92, legSpread: 1.8, tuck: this.y < -10 ? 0.6 : 0, cloak: -1, headTilt: 0.15 });
+        }
+        rate = 45;
         break;
       }
       case "hurt":

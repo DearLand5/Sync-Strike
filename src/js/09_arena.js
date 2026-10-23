@@ -352,6 +352,9 @@ class ArenaRenderer {
     this.key = "";
     this.sectionFlash = 0;
     this.levelMix = 0.5;      // 0 спокойно .. 1 интенсивно (плавно)
+    // веса вариантов эффектов по характеру части трека (плавно смешиваются)
+    this.kw = { intro: 0, build: 0, drop: 0, climax: 0, break: 0, calm: 0, groove: 1, outro: 0 };
+    this.buildW = 0; this.dropFlash = 0; this.swap = 0; this.vfx = [];
   }
   setTheme(id) {
     const t = THEMES.find(x => x.id === id) || THEMES[0];
@@ -391,6 +394,9 @@ class ArenaRenderer {
     const target = m.level === "intense" ? 1 : m.level === "calm" ? 0 : 0.5;
     this.levelMix = damp(this.levelMix, target, 0.7, R.dt);
     m.I = clamp(0.45 + 0.55 * (m.intensity * 0.6 + this.levelMix * 0.4), 0, 1);
+    this.updateVariants(m, R.dt);
+    const kw = this.kw;
+    m.I = clamp(m.I + 0.25 * (kw.drop + kw.climax) - 0.2 * (kw.break + kw.calm + kw.intro + kw.outro), 0.25, 1);
 
     // небо
     const g = ctx.createLinearGradient(0, 0, 0, v.floorY);
@@ -403,6 +409,7 @@ class ArenaRenderer {
       for (let x = off; x < v.w; x += this.tileW) ctx.drawImage(t.cv, x, v.floorY - this.tileH, this.tileW, this.tileH);
     }
     th.mid(ctx, v, m, pal, R);
+    this.variantBack(ctx, v, m, R);
     // пол
     const fg = ctx.createLinearGradient(0, v.floorY, 0, v.h);
     fg.addColorStop(0, pal.floor); fg.addColorStop(1, "#000000");
@@ -449,6 +456,7 @@ class ArenaRenderer {
       else ctx.fillRect(a.x, a.y, a.mote ? 1.5 : 2, a.mote ? 1.5 : 2);
     }
     if (amb.length > 160) amb.splice(0, amb.length - 160);
+    this.variantFront(ctx, v, m, R);
     // виньетка с пульсом
     if (!this._vig || this._vigW !== v.w || this._vigH !== v.h) {
       this._vigW = v.w; this._vigH = v.h;
@@ -468,6 +476,132 @@ class ArenaRenderer {
       const g = ctx.createLinearGradient(x - 160, 0, x + 160, 0);
       g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(0.5, rgba(pal.glow, 0.14 * this.sectionFlash)); g.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = g; ctx.fillRect(x - 160, 0, 320, v.h);
+    }
+  }
+
+  /* ---------- варианты эффектов по частям трека ---------- */
+  updateVariants(m, dt) {
+    const kw = this.kw, kind = m.kind || "groove";
+    for (const k in kw) kw[k] = damp(kw[k], k === kind ? 1 : 0, 1.4, dt);
+    // нарастание: сама часть «build», рост энергии впереди или скорый дроп
+    const soon = m.dropSoon ? clamp(1 - m.timeToNext / 4, 0, 1) : 0;
+    this.buildW = damp(this.buildW, Math.max(kw.build, soon, clamp((m.trend || 0) * 2.2, 0, 1) * 0.7), 3, dt);
+    if (m.sectionEvent && (m.sectionKind === "drop" || m.sectionKind === "climax")) { this.dropFlash = 1; this.swapTarget = this.swapTarget ? 0 : 1; }
+    this.dropFlash = Math.max(0, this.dropFlash - dt * 1.4);
+    this.swap = damp(this.swap, this.swapTarget || 0, 2, dt);
+  }
+  /** Неон с учётом перестановки цветов на дропах. */
+  neon(i) {
+    const p = this.theme.pal;
+    return i ? mixHex(p.neonB, p.neonA, this.swap) : mixHex(p.neonA, p.neonB, this.swap);
+  }
+
+  variantBack(ctx, v, m, R) {
+    const kw = this.kw;
+    const hot = kw.drop + kw.climax;
+    // лазеры из верхних углов — дроп и кульминация
+    if (hot > 0.05) {
+      ctx.save(); ctx.globalCompositeOperation = "lighter";
+      const n = R.amount < 1 ? 2 : 4;
+      for (let i = 0; i < n; i++) {
+        const left = i % 2 === 0, ox = left ? 0 : v.w;
+        const ang = (left ? 0.35 : Math.PI - 0.35) + Math.sin(m.beatF * Math.PI / 2 + i * 1.3) * 0.45 * (left ? 1 : -1);
+        const len = Math.hypot(v.w, v.h);
+        const a = hot * (0.1 + 0.18 * m.pulse);
+        ctx.fillStyle = rgba(this.neon(i % 2), a);
+        ctx.beginPath(); ctx.moveTo(ox, -4);
+        ctx.lineTo(ox + Math.cos(ang - 0.012) * len, Math.sin(ang - 0.012) * len);
+        ctx.lineTo(ox + Math.cos(ang + 0.012) * len, Math.sin(ang + 0.012) * len);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    // нарастание: свечение горизонта усиливается
+    if (this.buildW > 0.05) {
+      const g = ctx.createLinearGradient(0, v.floorY - v.h * 0.35, 0, v.floorY);
+      g.addColorStop(0, rgba(this.neon(0), 0)); g.addColorStop(1, rgba(this.neon(0), 0.28 * this.buildW * (0.6 + 0.4 * (m.halfPulse || 0))));
+      ctx.fillStyle = g; ctx.fillRect(0, v.floorY - v.h * 0.35, v.w, v.h * 0.35);
+    }
+    // брейк: прожектор на героя
+    if (kw.break > 0.05 && v.playerX != null) {
+      const g = ctx.createLinearGradient(0, 0, 0, v.floorY);
+      g.addColorStop(0, rgba("#e8e2d6", 0.0)); g.addColorStop(1, rgba("#e8e2d6", 0.14 * kw.break));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(v.playerX - 20, 0); ctx.lineTo(v.playerX + 20, 0); ctx.lineTo(v.playerX + 70, v.floorY); ctx.lineTo(v.playerX - 70, v.floorY); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  variantFront(ctx, v, m, R) {
+    const kw = this.kw, dt = R.dt, fx = this.vfx, amt = R.amount;
+    const hot = kw.drop + kw.climax, calm = kw.calm + kw.intro + kw.outro;
+    // --- рождение частиц ---
+    if (this.buildW > 0.1 && rand() < this.buildW * 0.9 * amt) {
+      fx.push({ t: "rise", x: rand(0, v.w), y: v.floorY + rand(0, 20), vx: 0, vy: -rand(150, 300) * (1 + this.buildW), life: 1.2, max: 1.2, c: this.neon(rand() < 0.5 ? 0 : 1) });
+    }
+    if (kw.climax > 0.2 && rand() < kw.climax * 0.7 * amt) fx.push({ t: "spark", x: rand(0, v.w), y: -5, vx: rand(-30, 30), vy: rand(120, 260), life: 1.6, max: 1.6, c: this.neon(rand() < 0.5 ? 0 : 1) });
+    if (kw.break > 0.2 && rand() < kw.break * 0.35 * amt) fx.push({ t: "ash", x: rand(0, v.w), y: -5, vx: rand(-10, 10), vy: rand(15, 35), life: 6, max: 6, c: "#9a98a6" });
+    if (calm > 0.3 && rand() < calm * 0.15 * amt) fx.push({ t: "mote", x: rand(0, v.w), y: rand(v.h * 0.2, v.floorY), vx: rand(-8, 8), vy: rand(-10, -2), life: 4, max: 4, c: this.theme.pal.neonA });
+    // события полос: бас — волны по полу, верха — искры-звёздочки
+    for (const ev of m.onsets || []) {
+      if (ev.band === "low" && ev.strength > 0.35) fx.push({ t: "ripple", x: v.playerX != null ? v.playerX + rand(-120, 120) : v.w / 2, y: v.floorY, life: 0.7, max: 0.7, size: 30 + 80 * ev.strength * (m.bassy ? 1.6 : 1), c: this.neon(0) });
+      if (ev.band === "high" && ev.strength > 0.4 && (m.bright || rand() < 0.4)) for (let k = 0; k < (m.bright ? 3 : 1); k++) fx.push({ t: "twinkle", x: rand(0, v.w), y: rand(0, v.floorY * 0.7), life: 0.45, max: 0.45, size: rand(2, 4.5), c: "#ffffff" });
+    }
+    if (fx.length > 160) fx.splice(0, fx.length - 160);
+    // --- обновление и отрисовка ---
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const f = fx[i];
+      f.life -= dt;
+      if (f.life <= 0) { fx.splice(i, 1); continue; }
+      if (f.vx != null) { f.x += f.vx * dt; f.y += f.vy * dt; }
+      if (f.t === "rise") f.vy *= 1 + dt * 1.5;
+      const k = f.life / f.max;
+      switch (f.t) {
+        case "rise": ctx.strokeStyle = rgba(f.c, 0.5 * k); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x, f.y - f.vy * 0.06); ctx.stroke(); break;
+        case "spark": ctx.fillStyle = rgba(f.c, 0.8 * k); ctx.fillRect(f.x, f.y, 2, 4); break;
+        case "ash": ctx.fillStyle = rgba(f.c, 0.35 * Math.min(1, k * 3)); ctx.fillRect(f.x + Math.sin(f.life * 2) * 6, f.y, 2, 2); break;
+        case "mote": ctx.fillStyle = rgba(f.c, 0.3 * Math.sin(k * Math.PI)); ctx.beginPath(); ctx.arc(f.x, f.y, 1.4, 0, TAU); ctx.fill(); break;
+        case "ripple": {
+          const r = f.size * (1 - k) + 6;
+          ctx.strokeStyle = rgba(f.c, 0.5 * k); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.ellipse(f.x, f.y + 2, r * 2, r * 0.18, 0, 0, TAU); ctx.stroke();
+          break;
+        }
+        case "twinkle": {
+          const r = f.size * Math.sin(k * Math.PI);
+          ctx.strokeStyle = rgba(f.c, 0.8 * k); ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(f.x - r, f.y); ctx.lineTo(f.x + r, f.y); ctx.moveTo(f.x, f.y - r); ctx.lineTo(f.x, f.y + r); ctx.stroke();
+          break;
+        }
+      }
+    }
+    // нарастание: импульсы по краям экрана на половинных долях
+    if (this.buildW > 0.1) {
+      const a = this.buildW * (m.halfPulse || 0) * 0.3;
+      const g1 = ctx.createLinearGradient(0, 0, 40, 0);
+      g1.addColorStop(0, rgba(this.neon(0), a)); g1.addColorStop(1, rgba(this.neon(0), 0));
+      ctx.fillStyle = g1; ctx.fillRect(0, 0, 40, v.h);
+      const g2 = ctx.createLinearGradient(v.w, 0, v.w - 40, 0);
+      g2.addColorStop(0, rgba(this.neon(1), a)); g2.addColorStop(1, rgba(this.neon(1), 0));
+      ctx.fillStyle = g2; ctx.fillRect(v.w - 40, 0, 40, v.h);
+    }
+    // вход в дроп: вспышка и кольцо из центра
+    if (this.dropFlash > 0) {
+      const k = this.dropFlash;
+      ctx.fillStyle = rgba(this.neon(0), (R.flashes ? 0.3 : 0.1) * k * k);
+      ctx.fillRect(0, 0, v.w, v.h);
+      ctx.strokeStyle = rgba("#ffffff", 0.6 * k); ctx.lineWidth = 3 * k;
+      ctx.beginPath(); ctx.arc(v.w / 2, v.floorY * 0.6, (1 - k) * Math.max(v.w, v.h) * 0.8, 0, TAU); ctx.stroke();
+    }
+    // строб на сильных долях в дропе и кульминации
+    if (R.flashes && hot > 0.4 && m.strong > 0.75) { ctx.fillStyle = rgba(this.neon(1), 0.08 * hot * m.strong); ctx.fillRect(0, 0, v.w, v.h); }
+    ctx.restore();
+    // спокойные части — приглушение; брейк — обесцвечивание
+    if (calm > 0.05) { ctx.fillStyle = rgba("#05060a", 0.18 * calm); ctx.fillRect(0, 0, v.w, v.h); }
+    if (kw.break > 0.05) {
+      ctx.save(); ctx.globalCompositeOperation = "saturation";
+      ctx.fillStyle = rgba("#808080", 0.75 * kw.break); ctx.fillRect(0, 0, v.w, v.h);
+      ctx.restore();
     }
   }
 

@@ -23,7 +23,7 @@ const ENEMY_LOOKS = {
 
 const BASE_POSE = {
   bodyY: 0, sx: 1, sy: 1, lean: 0, legPhase: 0, legAmp: 0, legSpread: 1, tuck: 0,
-  armF: 0.35, elbowF: 0.4, armB: -0.3, wAngle: 0, wBlend: 0, headTilt: 0, cloak: 0, eye: 0,
+  armF: 0.35, elbowF: 0.4, armB: -0.3, wAngle: 0, wBlend: 0, headTilt: 0, cloak: 0, eye: 0, spin: 0,
 };
 
 class AnimState {
@@ -42,9 +42,11 @@ const AnimationSystem = {
     const k = 1 - Math.exp(-rate * dt);
     for (const key in target) {
       const v = target[key];
-      if (typeof v === "number") p[key] = key === "legPhase" ? v : p[key] + (v - p[key]) * k;
+      if (typeof v === "number") p[key] = key === "legPhase" || key === "spin" ? v : p[key] + (v - p[key]) * k;
       else p[key] = v;
     }
+    // вращение (кувырки, сальто) задаётся напрямую — плавный возврат дал бы обратный оборот
+    if (target.spin == null) p.spin = 0;
   },
   /** Вторичная анимация: плащ отстаёт от движения, шарф — цепочка Верле. */
   secondary(st, ch, dt) {
@@ -120,8 +122,23 @@ const CharacterRenderer = {
       ctx.fillStyle = rgba(accent, 0.18 * (1 - h));
       ctx.beginPath(); ctx.ellipse(0, ch.groundY - ch.y, 10 * s * (1 - h * 0.5), 2.2 * s, 0, 0, TAU); ctx.fill();
     }
+    // --- шарф (за телом, в мировых координатах) ---
+    if (!tint && ch.scarfColor && st.scarf) {
+      ctx.save();
+      ctx.translate(-ch.x, -ch.y);
+      ctx.beginPath();
+      st.scarf.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.strokeStyle = ch.scarfColor;
+      if (hq) { ctx.globalAlpha *= 0.35; ctx.lineWidth = 5 * s; ctx.stroke(); ctx.globalAlpha /= 0.35; }
+      ctx.lineWidth = 2.2 * s; ctx.stroke();
+      ctx.strokeStyle = rgba("#ffffff", 0.35); ctx.lineWidth = 0.6 * s; ctx.stroke();
+      ctx.restore();
+    }
     const sq = st.squashT;
     ctx.scale(s * ch.facing * p.sx * (1 + sq * 0.18), s * p.sy * (1 - sq * 0.16));
+    // кувырки и сальто — вращение вокруг центра тела
+    if (p.spin) { ctx.translate(0, -14); ctx.rotate(p.spin); ctx.translate(0, 14); }
     ctx.lineCap = "round"; ctx.lineJoin = "round";
     const J = rigJoints(p, legLen, hunch);
     const hipY = J.hipY;
@@ -132,19 +149,6 @@ const CharacterRenderer = {
       const gr = ctx.createRadialGradient(0, ay, 2, 0, ay, ar);
       gr.addColorStop(0, rgba(accent, ga)); gr.addColorStop(1, rgba(accent, 0));
       ctx.fillStyle = gr; ctx.fillRect(-ar, ay - ar, ar * 2, ar * 2);
-    }
-
-    // --- шарф (за телом) ---
-    if (!tint && ch.scarfColor && st.scarf) {
-      ctx.save();
-      ctx.scale(1 / (s * ch.facing * p.sx), 1 / (s * p.sy));
-      ctx.translate(-ch.x, -ch.y);
-      ctx.beginPath();
-      st.scarf.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
-      ctx.strokeStyle = ch.scarfColor; ctx.lineWidth = 2.2 * s;
-      if (hq) { ctx.globalAlpha *= 0.35; ctx.lineWidth = 5 * s; ctx.stroke(); ctx.globalAlpha /= 0.35; ctx.lineWidth = 2.2 * s; }
-      ctx.stroke();
-      ctx.restore();
     }
 
     // --- ноги ---
@@ -158,9 +162,14 @@ const CharacterRenderer = {
       ctx.beginPath();
       ctx.moveTo(hx, hipY + 1);
       ctx.quadraticCurveTo(hx + (fx - hx) * 0.5 + 1.8, (hipY + fy) * 0.5, fx, fy);
-      ctx.strokeStyle = side > 0 ? ink : mixHex(ink, "#000000", 0.4);
+      const legC = side > 0 ? ink : mixHex(ink, "#000000", 0.4);
+      ctx.strokeStyle = legC;
       ctx.lineWidth = look && ch.kind === "brute" ? 3.6 : 2.6;
       ctx.stroke();
+      // ботинок
+      ctx.fillStyle = legC;
+      ctx.beginPath(); ctx.ellipse(fx + 0.9, fy - 0.6, ch.kind === "brute" ? 2.6 : 1.9, 1.1, 0, 0, TAU); ctx.fill();
+      if (!tint && side > 0) { ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(fx + 1.2, fy - 0.9, 1.4, 0.5); }
     }
 
     // --- корпус и плащ (с наклоном вокруг бедра) ---
@@ -175,6 +184,15 @@ const CharacterRenderer = {
     const wide = ch.kind === "brute" ? 1.35 : 1;
     // задняя рука
     this._arm(ctx, p.armB, 0.5, shoulderY, mixHex(ink, "#000000", 0.4), wide);
+    // подкладка плаща — второй слой, чуть шире и с оттенком неона
+    if (!tint) {
+      ctx.beginPath();
+      ctx.moveTo(-3.2 * wide, shoulderY + 1);
+      ctx.quadraticCurveTo(-7 * wide + fl * 0.6, hipY - 3, -8.6 * wide + fl * 1.15, hemY + 2.2);
+      ctx.lineTo(-4 * wide + fl * 0.6, hemY + 1);
+      ctx.closePath();
+      ctx.fillStyle = mixHex(ink, accent, 0.16); ctx.fill();
+    }
     // плащ
     ctx.beginPath();
     ctx.moveTo(-3.6 * wide, shoulderY);
@@ -193,7 +211,20 @@ const CharacterRenderer = {
     ctx.quadraticCurveTo(-6 * wide + fl * 0.4, hipY - 4, -3.6 * wide, shoulderY);
     ctx.closePath();
     ctx.fillStyle = ink; ctx.fill();
-    if (!tint) { ctx.strokeStyle = rgba(accent, 0.28); ctx.lineWidth = 0.6; ctx.stroke(); }
+    if (!tint) {
+      ctx.strokeStyle = rgba(accent, 0.28); ctx.lineWidth = 0.6; ctx.stroke();
+      // складки
+      ctx.strokeStyle = mixHex(ink, "#ffffff", 0.07); ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-1 * wide, shoulderY + 2); ctx.quadraticCurveTo(-2 * wide + fl * 0.3, hipY - 2, -3 * wide + fl * 0.6, hemY);
+      ctx.moveTo(2 * wide, shoulderY + 2); ctx.quadraticCurveTo(2.6 * wide, hipY - 2, 3 * wide + fl * 0.2, hemY);
+      ctx.stroke();
+      // пояс с развевающимся концом
+      ctx.strokeStyle = rgba(accent, 0.75); ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.moveTo(-4.4 * wide, hipY - 2.5); ctx.quadraticCurveTo(0, hipY - 1.6, 4.8 * wide, hipY - 2.6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-4.2 * wide, hipY - 2.4); ctx.quadraticCurveTo(-6 * wide + fl * 0.5, hipY, -7 * wide + fl, hipY + 2 + Math.sin(performance.now() / 140 + ch.x) * 0.8); ctx.stroke();
+      if (look) this._marks(ctx, ch.kind, accent, wide, shoulderY, hipY, hemY);
+    }
     if (!tint) {
       // неоновый контровой свет по заднему краю плаща
       ctx.beginPath();
@@ -231,6 +262,30 @@ const CharacterRenderer = {
     const hx = ex + Math.sin(a + elbow) * 6, hy = ey + Math.cos(a + elbow) * 6;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.lineTo(hx, hy);
     ctx.strokeStyle = color; ctx.lineWidth = 2.2 * wide; ctx.stroke();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(hx, hy, 1.5 * wide, 0, TAU); ctx.fill();
+  },
+
+  /** Отличительные знаки врагов на одежде. */
+  _marks(ctx, kind, accent, wide, shoulderY, hipY, hemY) {
+    ctx.strokeStyle = rgba(accent, 0.7); ctx.fillStyle = rgba(accent, 0.7); ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    if (kind === "blade") { ctx.moveTo(-1, shoulderY + 3); ctx.lineTo(2, shoulderY + 6); ctx.moveTo(-1.5, shoulderY + 5.5); ctx.lineTo(1.5, shoulderY + 8.5); }
+    else if (kind === "gunner") {
+      ctx.moveTo(1.8, shoulderY + 1); ctx.lineTo(1.8, hemY - 1);
+      ctx.stroke();
+      // высокий воротник
+      ctx.fillStyle = "#0a0a0e"; ctx.beginPath(); ctx.moveTo(-3, shoulderY + 0.5); ctx.lineTo(-1.5, shoulderY - 4); ctx.lineTo(3.2, shoulderY + 0.5); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+    }
+    else if (kind === "swift") { for (const o of [2, 5]) { ctx.moveTo(-2, shoulderY + o); ctx.lineTo(0.5, shoulderY + o + 1.5); ctx.lineTo(3, shoulderY + o); } }
+    else if (kind === "brute") {
+      ctx.stroke();
+      // наплечник
+      ctx.fillStyle = "#15141c"; ctx.beginPath(); ctx.ellipse(1.5, shoulderY + 0.5, 5.5, 3.2, -0.2, Math.PI, TAU); ctx.fill();
+      ctx.strokeStyle = rgba(accent, 0.8); ctx.beginPath(); ctx.ellipse(1.5, shoulderY + 0.5, 5.5, 3.2, -0.2, Math.PI, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, hipY - 6, 1.6, 0, TAU);
+    }
+    ctx.stroke();
   },
 
   _head(ctx, ch, skin, look, maskC, accent, tint, hq) {
@@ -277,6 +332,14 @@ const CharacterRenderer = {
     ctx.quadraticCurveTo(-4.5, 6.5, -5.6, 2);
     ctx.bezierCurveTo(-6.5, -3, -5, -7.5, 0, -7.5);
     ctx.fill();
+    if (!tint) {
+      ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.5; ctx.stroke();
+      // тень снизу и блик сверху — маска выглядит объёмной
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.beginPath(); ctx.ellipse(1, 6.5, 7, 3.2, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.22)"; ctx.beginPath(); ctx.ellipse(-1.8, -4.6, 3.2, 1.4, -0.4, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
     // головные уборы поверх маски
     if (headType === "hat") {
       ctx.fillStyle = tint || "#0d0d10";
@@ -301,6 +364,9 @@ const CharacterRenderer = {
       ctx.fillStyle = skin.eye;
       ctx.beginPath(); ctx.ellipse(0.4, -0.2, 1.5, 2.6, 0.08, 0, TAU); ctx.fill();
       ctx.beginPath(); ctx.ellipse(4.0, -0.2, 1.3, 2.4, 0.08, 0, TAU); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.8)";
+      ctx.beginPath(); ctx.arc(0.0, -1.3, 0.45, 0, TAU); ctx.arc(3.6, -1.3, 0.4, 0, TAU); ctx.fill();
+      ctx.fillStyle = skin.eye;
       if (skin.mask !== "#e8e2d6" && skin.mask !== "#f3f0ff" && skin.mask !== "#ffe6f0" && skin.mask !== "#d7f7e8" || boost > 0.3) {
         ctx.fillStyle = rgba(accent, 0.25 + 0.5 * boost);
         ctx.beginPath(); ctx.ellipse(2.2, -0.2, 4.5, 3.2, 0, 0, TAU); ctx.fill();

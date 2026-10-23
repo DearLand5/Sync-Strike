@@ -37,7 +37,7 @@ const secs = +(process.argv[2] || 75);
   let log = [];
   while (Date.now() - t0 < secs * 1000) {
     await page.waitForTimeout(5000);
-    const s = await page.evaluate(() => { const g = window.__game; return { t: g.songNow.toFixed(0), st: g.state, hp: Math.round(g.player.hp), wave: g.waves.wave, q: g.waves.queue.length, alive: g.enemies.filter(e => e.alive).map(e => e.kind[0] + ":" + e.state[0] + Math.round(e.x) + "/" + Math.round(e.y)).join(","), kills: g.combat.kills, combo: g.combat.maxCombo, fps: Math.round(g.fps), r: g.combat.ratings }; });
+    const s = await page.evaluate(() => { const g = window.__game; return { t: g.songNow.toFixed(0), st: g.state, hp: Math.round(g.player.hp), wave: g.waves.wave, q: g.waves.queue.length, alive: g.enemies.filter(e => e.alive).map(e => e.kind[0] + ":" + e.state[0] + Math.round(e.x) + "/" + Math.round(e.y)).join(","), kills: g.combat.kills, td: g.combat.takedowns, dmg: Math.round(g.combat.damageTaken), combo: g.combat.maxCombo, fps: Math.round(g.fps), r: g.combat.ratings }; });
     log.push(JSON.stringify(s));
     if (s.st !== "battle") break;
   }

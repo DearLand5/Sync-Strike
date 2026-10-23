@@ -4,10 +4,10 @@
    «жетон» атаки, и назначают удар на ближайшую долю.
    ===================================================================== */
 const ENEMY_TYPES = {
-  blade:  { name: "Клинок", hp: 40,  speed: 95,  w: 12, h: 30, poise: 24, sight: 560, reach: 34, wind: 0.4,  dmg: 12, cd: [1.2, 2.1], lunge: 330, activeT: 0.14, recoverT: 0.45, score: 100 },
-  gunner: { name: "Стрелок", hp: 30, speed: 80,  w: 12, h: 34, poise: 14, sight: 760, prefer: [210, 360], wind: 0.62, dmg: 9, cd: [1.6, 2.6], bolt: 330, activeT: 0.1, recoverT: 0.6, score: 120 },
-  swift:  { name: "Вихрь",  hp: 22,  speed: 190, w: 10, h: 24, poise: 12, sight: 640, reach: 120, wind: 0.28, dmg: 8, cd: [0.9, 1.6], lunge: 540, activeT: 0.28, recoverT: 0.4, score: 130 },
-  brute:  { name: "Молот",  hp: 150, speed: 55,  w: 22, h: 50, poise: 70, sight: 560, reach: 48, wind: 0.85, dmg: 22, cd: [2.2, 3.2], activeT: 0.16, recoverT: 0.8, score: 300 },
+  blade:  { name: "Клинок", hp: 50,  speed: 95,  w: 12, h: 30, poise: 24, sight: 560, reach: 34, wind: 0.4,  dmg: 12, cd: [1.2, 2.1], lunge: 330, activeT: 0.14, recoverT: 0.45, score: 100 },
+  gunner: { name: "Стрелок", hp: 38, speed: 80,  w: 12, h: 34, poise: 14, sight: 760, prefer: [210, 360], wind: 0.62, dmg: 9, cd: [1.6, 2.6], bolt: 330, activeT: 0.1, recoverT: 0.6, score: 120 },
+  swift:  { name: "Вихрь",  hp: 28,  speed: 190, w: 10, h: 24, poise: 12, sight: 640, reach: 120, wind: 0.28, dmg: 8, cd: [0.9, 1.6], lunge: 540, activeT: 0.28, recoverT: 0.4, score: 130 },
+  brute:  { name: "Молот",  hp: 185, speed: 55,  w: 22, h: 50, poise: 70, sight: 560, reach: 48, wind: 0.85, dmg: 22, cd: [2.2, 3.2], activeT: 0.16, recoverT: 0.8, score: 300 },
 };
 
 let _enemyId = 1;
@@ -45,7 +45,7 @@ class Enemy {
     this.passive = false;     // для обучения: не атакует
   }
 
-  get targetable() { return this.alive && this.state !== "spawn"; }
+  get targetable() { return this.alive && this.state !== "spawn" && !this.executed; }
   get centerY() { return this.y - this.h * this.scale * 0.5; }
   setState(s) { if (this.state !== s) { this.state = s; this.stateT = 0; } }
 
@@ -95,6 +95,11 @@ class Enemy {
     this.poise = Math.min(this.poiseMax, this.poise + dt * this.poiseMax * 0.25);
     this.staggerImmune = Math.max(0, (this.staggerImmune || 0) - dt);
 
+    if (this.executed) {      // добивание: позиции задаёт сценарий
+      this.flash = Math.max(this.flash, 0);
+      this._pose(dt, game);
+      return;
+    }
     if (this.state === "spawn") {
       this.alpha = clamp(this.stateT / 0.6, 0, 1);
       if (this.stateT > 0.65) this.setState("think");
@@ -301,6 +306,10 @@ class Enemy {
         break;
       case "recover":
         Object.assign(P, { armF: gun ? 0.6 : 1.2, elbowF: 0.6, lean: 0.12, bodyY: 0.5 });
+        break;
+      case "executed":
+        Object.assign(P, { lean: -0.35 + Math.sin(t * 30) * 0.08, armF: -0.9, armB: -1.3, headTilt: -0.35, bodyY: 1.5, sy: 0.96, tuck: this.y < -5 ? 0.5 : 0 });
+        rate = 30;
         break;
       case "hurt":
         Object.assign(P, { lean: -0.45, armF: -0.6, armB: -1.0, headTilt: -0.3, bodyY: 1 });

@@ -28,6 +28,9 @@
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;overflow:hidden;
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none}
 #app{position:fixed;inset:0;overflow:hidden}
+/* портретный телефон: интерфейс поворачивается в горизонталь; безопасные зоны переставляются */
+#app.rot{inset:auto;left:0;top:0;transform-origin:0 0;
+  --sat:env(safe-area-inset-right,0px);--sar:env(safe-area-inset-bottom,0px);--sab:env(safe-area-inset-left,0px);--sal:env(safe-area-inset-top,0px)}
 #game{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
@@ -357,6 +360,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
           <div class="toggle"><span>Яркие вспышки и стробы</span><input type="checkbox" id="set-flash"></div>
           <div class="toggle"><span>Индикатор доли внизу экрана</span><input type="checkbox" id="set-guide"></div>
           <div class="toggle"><span>Полный экран в бою</span><input type="checkbox" id="set-fs"></div>
+          <div class="toggle"><span>Горизонтальный экран на телефоне (повернуть, если держите вертикально)</span><input type="checkbox" id="set-land"></div>
           <div class="toggle"><span>Показывать FPS</span><input type="checkbox" id="set-fps"></div>
         </div>
       </div>
@@ -548,6 +552,7 @@ const DEFAULT_SETTINGS = {
   flashes: true,
   beatGuide: true,
   fullscreen: true,
+  forceLandscape: true,     // горизонтальный экран по умолчанию (поворот интерфейса в портрете)
   showFps: false,
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5
@@ -1468,6 +1473,31 @@ class RhythmAnalyzer {
       const e = cnt ? acc / cnt : 0;
       sections.push({ start: a, end: b, energy: e, level: e < 0.38 ? "calm" : e > 0.66 ? "intense" : "mid" });
     }
+    /* ---- характер частей трека: интро, нарастание, дроп, кульминация, брейк, спокойно, грув, финал ----
+       по средней энергии, скачку относительно предыдущей части, наклону энергии внутри части
+       и доле низов/верхов в ней. */
+    const secMean = (arr, a, b) => { let acc = 0, cnt = 0; for (let i = Math.floor(a * envFps); i < Math.min(envN, b * envFps); i++) { acc += arr[i]; cnt++; } return cnt ? acc / cnt : 0; };
+    const maxE = Math.max(...sections.map(x => x.energy));
+    const gLow = secMean(bl, 0, duration), gHigh = secMean(bh, 0, duration);
+    sections.forEach((sc, i) => {
+      const len = sc.end - sc.start, q = Math.min(4, len * 0.25);
+      const slope = secMean(energy, sc.end - q, sc.end) - secMean(energy, sc.start, sc.start + q);
+      const prevE = i ? sections[i - 1].energy : sc.energy;
+      const delta = sc.energy - prevE;
+      sc.slope = slope; sc.delta = delta;
+      sc.bassy = secMean(bl, sc.start, sc.end) > gLow * 1.12;
+      sc.bright = secMean(bh, sc.start, sc.end) > gHigh * 1.12;
+      let kind;
+      if (i === 0 && sc.energy < 0.55) kind = "intro";
+      else if (i === sections.length - 1 && sections.length > 2 && delta < -0.1) kind = "outro";
+      else if (sc.energy >= maxE - 0.03 && sc.energy > 0.6) kind = "climax";
+      else if (delta > 0.2 && sc.energy > 0.55) kind = "drop";
+      else if (slope > 0.16) kind = "build";
+      else if (delta < -0.2) kind = "break";
+      else if (sc.energy < 0.38) kind = "calm";
+      else kind = "groove";
+      sc.kind = kind;
+    });
 
     /* ---- кандидаты событий по полосам (порог применяется во время игры) ---- */
     const onsets = { low: [], mid: [], high: [] };
@@ -1594,7 +1624,8 @@ class RhythmClock {
     this.intensity = 0.4; this.intensitySmooth = 0.4;
     this.bands = { low: 0, mid: 0, high: 0 };
     this.sectionIdx = 0; this.section = null;
-    this.level = "mid";
+    this.level = "mid"; this.kind = "groove"; this.trend = 0; this.nextKind = null; this.timeToNext = 99;
+    this.bassy = false; this.bright = false;
     this._ptr = { low: 0, mid: 0, high: 0 };
     this._lastT = 0;
   }
@@ -1684,9 +1715,18 @@ class RhythmClock {
         const prevLevel = this.section ? this.section.level : "mid";
         this.sectionIdx = si;
         this.section = secs[si];
-        this.events.push({ type: "section", level: this.section.level, prevLevel, energy: this.section.energy });
+        this.events.push({ type: "section", level: this.section.level, prevLevel, energy: this.section.energy, kind: this.section.kind });
       }
       this.level = this.section ? this.section.level : "mid";
+      this.kind = this.section ? this.section.kind || "groove" : "groove";
+      this.bassy = !!(this.section && this.section.bassy);
+      this.bright = !!(this.section && this.section.bright);
+      // взгляд вперёд: рост энергии в ближайшие 3 с и скорая смена части
+      const ahead = clamp((t + 3) * m.envFps, 0, m.energy.length - 1);
+      this.trend = clamp(m.energy[Math.floor(ahead)] - eOff, -1, 1);
+      const nxt = secs[this.sectionIdx + 1];
+      this.nextKind = nxt ? nxt.kind : null;
+      this.timeToNext = nxt ? nxt.start - t : 99;
     }
 
     // события полос с порогом чувствительности
@@ -1802,6 +1842,7 @@ class InputManager {
     this.active = false;        // бой идёт — сенсорные кнопки активны
     this.usingTouch = false;    // было ли касание (показывать кнопки)
     this.touch = new TouchControls(settings);
+    this.rotated = false;       // интерфейс повёрнут на 90° (портретный телефон в режиме «горизонтально»)
     this.onPause = null;
     this._bind();
   }
@@ -1835,6 +1876,13 @@ class InputManager {
     document.addEventListener("dblclick", e => { if (e.target === cv) e.preventDefault(); });
   }
 
+  /** Координаты события в системе канваса с учётом поворота интерфейса. */
+  local(e) {
+    if (this.rotated) return { x: e.clientY, y: window.innerWidth - e.clientX };
+    const r = this.canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
   isTouchPath(e) { return e.pointerType === "touch" || e.pointerType === "pen" || this.settings.v.touchForce || this.touch.editing; }
 
   _down(e) {
@@ -1843,7 +1891,8 @@ class InputManager {
     if (this.isTouchPath(e)) {
       e.preventDefault();
       try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
-      const act = this.touch.down(e.pointerId, e.offsetX, e.offsetY);
+      const q = this.local(e);
+      const act = this.touch.down(e.pointerId, q.x, q.y);
       if (act) this.push(act, e.timeStamp);
       if (act === "jump") this.jumpHeld = true;
     } else if (e.pointerType === "mouse") {
@@ -1853,7 +1902,8 @@ class InputManager {
   }
   _move(e) {
     if (!this.isTouchPath(e)) return;
-    this.touch.move(e.pointerId, e.offsetX, e.offsetY);
+    const q = this.local(e);
+    this.touch.move(e.pointerId, q.x, q.y);
   }
   _up(e) {
     if (!this.isTouchPath(e)) return;
@@ -1916,8 +1966,8 @@ class TouchControls {
   readSafeArea() {
     if (!this._probe) {
       const p = document.createElement("div");
-      p.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
-      document.body.appendChild(p);
+      p.style.cssText = "position:absolute;inset:0;visibility:hidden;pointer-events:none;padding:var(--sat) var(--sar) var(--sab) var(--sal)";
+      (document.getElementById("app") || document.body).appendChild(p);
       this._probe = p;
     }
     const cs = getComputedStyle(this._probe);
@@ -2131,7 +2181,7 @@ const ENEMY_LOOKS = {
 
 const BASE_POSE = {
   bodyY: 0, sx: 1, sy: 1, lean: 0, legPhase: 0, legAmp: 0, legSpread: 1, tuck: 0,
-  armF: 0.35, elbowF: 0.4, armB: -0.3, wAngle: 0, wBlend: 0, headTilt: 0, cloak: 0, eye: 0,
+  armF: 0.35, elbowF: 0.4, armB: -0.3, wAngle: 0, wBlend: 0, headTilt: 0, cloak: 0, eye: 0, spin: 0,
 };
 
 class AnimState {
@@ -2150,9 +2200,11 @@ const AnimationSystem = {
     const k = 1 - Math.exp(-rate * dt);
     for (const key in target) {
       const v = target[key];
-      if (typeof v === "number") p[key] = key === "legPhase" ? v : p[key] + (v - p[key]) * k;
+      if (typeof v === "number") p[key] = key === "legPhase" || key === "spin" ? v : p[key] + (v - p[key]) * k;
       else p[key] = v;
     }
+    // вращение (кувырки, сальто) задаётся напрямую — плавный возврат дал бы обратный оборот
+    if (target.spin == null) p.spin = 0;
   },
   /** Вторичная анимация: плащ отстаёт от движения, шарф — цепочка Верле. */
   secondary(st, ch, dt) {
@@ -2228,8 +2280,23 @@ const CharacterRenderer = {
       ctx.fillStyle = rgba(accent, 0.18 * (1 - h));
       ctx.beginPath(); ctx.ellipse(0, ch.groundY - ch.y, 10 * s * (1 - h * 0.5), 2.2 * s, 0, 0, TAU); ctx.fill();
     }
+    // --- шарф (за телом, в мировых координатах) ---
+    if (!tint && ch.scarfColor && st.scarf) {
+      ctx.save();
+      ctx.translate(-ch.x, -ch.y);
+      ctx.beginPath();
+      st.scarf.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      ctx.strokeStyle = ch.scarfColor;
+      if (hq) { ctx.globalAlpha *= 0.35; ctx.lineWidth = 5 * s; ctx.stroke(); ctx.globalAlpha /= 0.35; }
+      ctx.lineWidth = 2.2 * s; ctx.stroke();
+      ctx.strokeStyle = rgba("#ffffff", 0.35); ctx.lineWidth = 0.6 * s; ctx.stroke();
+      ctx.restore();
+    }
     const sq = st.squashT;
     ctx.scale(s * ch.facing * p.sx * (1 + sq * 0.18), s * p.sy * (1 - sq * 0.16));
+    // кувырки и сальто — вращение вокруг центра тела
+    if (p.spin) { ctx.translate(0, -14); ctx.rotate(p.spin); ctx.translate(0, 14); }
     ctx.lineCap = "round"; ctx.lineJoin = "round";
     const J = rigJoints(p, legLen, hunch);
     const hipY = J.hipY;
@@ -2240,19 +2307,6 @@ const CharacterRenderer = {
       const gr = ctx.createRadialGradient(0, ay, 2, 0, ay, ar);
       gr.addColorStop(0, rgba(accent, ga)); gr.addColorStop(1, rgba(accent, 0));
       ctx.fillStyle = gr; ctx.fillRect(-ar, ay - ar, ar * 2, ar * 2);
-    }
-
-    // --- шарф (за телом) ---
-    if (!tint && ch.scarfColor && st.scarf) {
-      ctx.save();
-      ctx.scale(1 / (s * ch.facing * p.sx), 1 / (s * p.sy));
-      ctx.translate(-ch.x, -ch.y);
-      ctx.beginPath();
-      st.scarf.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
-      ctx.strokeStyle = ch.scarfColor; ctx.lineWidth = 2.2 * s;
-      if (hq) { ctx.globalAlpha *= 0.35; ctx.lineWidth = 5 * s; ctx.stroke(); ctx.globalAlpha /= 0.35; ctx.lineWidth = 2.2 * s; }
-      ctx.stroke();
-      ctx.restore();
     }
 
     // --- ноги ---
@@ -2266,9 +2320,14 @@ const CharacterRenderer = {
       ctx.beginPath();
       ctx.moveTo(hx, hipY + 1);
       ctx.quadraticCurveTo(hx + (fx - hx) * 0.5 + 1.8, (hipY + fy) * 0.5, fx, fy);
-      ctx.strokeStyle = side > 0 ? ink : mixHex(ink, "#000000", 0.4);
+      const legC = side > 0 ? ink : mixHex(ink, "#000000", 0.4);
+      ctx.strokeStyle = legC;
       ctx.lineWidth = look && ch.kind === "brute" ? 3.6 : 2.6;
       ctx.stroke();
+      // ботинок
+      ctx.fillStyle = legC;
+      ctx.beginPath(); ctx.ellipse(fx + 0.9, fy - 0.6, ch.kind === "brute" ? 2.6 : 1.9, 1.1, 0, 0, TAU); ctx.fill();
+      if (!tint && side > 0) { ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(fx + 1.2, fy - 0.9, 1.4, 0.5); }
     }
 
     // --- корпус и плащ (с наклоном вокруг бедра) ---
@@ -2283,6 +2342,15 @@ const CharacterRenderer = {
     const wide = ch.kind === "brute" ? 1.35 : 1;
     // задняя рука
     this._arm(ctx, p.armB, 0.5, shoulderY, mixHex(ink, "#000000", 0.4), wide);
+    // подкладка плаща — второй слой, чуть шире и с оттенком неона
+    if (!tint) {
+      ctx.beginPath();
+      ctx.moveTo(-3.2 * wide, shoulderY + 1);
+      ctx.quadraticCurveTo(-7 * wide + fl * 0.6, hipY - 3, -8.6 * wide + fl * 1.15, hemY + 2.2);
+      ctx.lineTo(-4 * wide + fl * 0.6, hemY + 1);
+      ctx.closePath();
+      ctx.fillStyle = mixHex(ink, accent, 0.16); ctx.fill();
+    }
     // плащ
     ctx.beginPath();
     ctx.moveTo(-3.6 * wide, shoulderY);
@@ -2301,7 +2369,20 @@ const CharacterRenderer = {
     ctx.quadraticCurveTo(-6 * wide + fl * 0.4, hipY - 4, -3.6 * wide, shoulderY);
     ctx.closePath();
     ctx.fillStyle = ink; ctx.fill();
-    if (!tint) { ctx.strokeStyle = rgba(accent, 0.28); ctx.lineWidth = 0.6; ctx.stroke(); }
+    if (!tint) {
+      ctx.strokeStyle = rgba(accent, 0.28); ctx.lineWidth = 0.6; ctx.stroke();
+      // складки
+      ctx.strokeStyle = mixHex(ink, "#ffffff", 0.07); ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-1 * wide, shoulderY + 2); ctx.quadraticCurveTo(-2 * wide + fl * 0.3, hipY - 2, -3 * wide + fl * 0.6, hemY);
+      ctx.moveTo(2 * wide, shoulderY + 2); ctx.quadraticCurveTo(2.6 * wide, hipY - 2, 3 * wide + fl * 0.2, hemY);
+      ctx.stroke();
+      // пояс с развевающимся концом
+      ctx.strokeStyle = rgba(accent, 0.75); ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.moveTo(-4.4 * wide, hipY - 2.5); ctx.quadraticCurveTo(0, hipY - 1.6, 4.8 * wide, hipY - 2.6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-4.2 * wide, hipY - 2.4); ctx.quadraticCurveTo(-6 * wide + fl * 0.5, hipY, -7 * wide + fl, hipY + 2 + Math.sin(performance.now() / 140 + ch.x) * 0.8); ctx.stroke();
+      if (look) this._marks(ctx, ch.kind, accent, wide, shoulderY, hipY, hemY);
+    }
     if (!tint) {
       // неоновый контровой свет по заднему краю плаща
       ctx.beginPath();
@@ -2339,6 +2420,30 @@ const CharacterRenderer = {
     const hx = ex + Math.sin(a + elbow) * 6, hy = ey + Math.cos(a + elbow) * 6;
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.lineTo(hx, hy);
     ctx.strokeStyle = color; ctx.lineWidth = 2.2 * wide; ctx.stroke();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(hx, hy, 1.5 * wide, 0, TAU); ctx.fill();
+  },
+
+  /** Отличительные знаки врагов на одежде. */
+  _marks(ctx, kind, accent, wide, shoulderY, hipY, hemY) {
+    ctx.strokeStyle = rgba(accent, 0.7); ctx.fillStyle = rgba(accent, 0.7); ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    if (kind === "blade") { ctx.moveTo(-1, shoulderY + 3); ctx.lineTo(2, shoulderY + 6); ctx.moveTo(-1.5, shoulderY + 5.5); ctx.lineTo(1.5, shoulderY + 8.5); }
+    else if (kind === "gunner") {
+      ctx.moveTo(1.8, shoulderY + 1); ctx.lineTo(1.8, hemY - 1);
+      ctx.stroke();
+      // высокий воротник
+      ctx.fillStyle = "#0a0a0e"; ctx.beginPath(); ctx.moveTo(-3, shoulderY + 0.5); ctx.lineTo(-1.5, shoulderY - 4); ctx.lineTo(3.2, shoulderY + 0.5); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+    }
+    else if (kind === "swift") { for (const o of [2, 5]) { ctx.moveTo(-2, shoulderY + o); ctx.lineTo(0.5, shoulderY + o + 1.5); ctx.lineTo(3, shoulderY + o); } }
+    else if (kind === "brute") {
+      ctx.stroke();
+      // наплечник
+      ctx.fillStyle = "#15141c"; ctx.beginPath(); ctx.ellipse(1.5, shoulderY + 0.5, 5.5, 3.2, -0.2, Math.PI, TAU); ctx.fill();
+      ctx.strokeStyle = rgba(accent, 0.8); ctx.beginPath(); ctx.ellipse(1.5, shoulderY + 0.5, 5.5, 3.2, -0.2, Math.PI, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, hipY - 6, 1.6, 0, TAU);
+    }
+    ctx.stroke();
   },
 
   _head(ctx, ch, skin, look, maskC, accent, tint, hq) {
@@ -2385,6 +2490,14 @@ const CharacterRenderer = {
     ctx.quadraticCurveTo(-4.5, 6.5, -5.6, 2);
     ctx.bezierCurveTo(-6.5, -3, -5, -7.5, 0, -7.5);
     ctx.fill();
+    if (!tint) {
+      ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.5; ctx.stroke();
+      // тень снизу и блик сверху — маска выглядит объёмной
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = "rgba(0,0,0,.18)"; ctx.beginPath(); ctx.ellipse(1, 6.5, 7, 3.2, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.22)"; ctx.beginPath(); ctx.ellipse(-1.8, -4.6, 3.2, 1.4, -0.4, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
     // головные уборы поверх маски
     if (headType === "hat") {
       ctx.fillStyle = tint || "#0d0d10";
@@ -2409,6 +2522,9 @@ const CharacterRenderer = {
       ctx.fillStyle = skin.eye;
       ctx.beginPath(); ctx.ellipse(0.4, -0.2, 1.5, 2.6, 0.08, 0, TAU); ctx.fill();
       ctx.beginPath(); ctx.ellipse(4.0, -0.2, 1.3, 2.4, 0.08, 0, TAU); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.8)";
+      ctx.beginPath(); ctx.arc(0.0, -1.3, 0.45, 0, TAU); ctx.arc(3.6, -1.3, 0.4, 0, TAU); ctx.fill();
+      ctx.fillStyle = skin.eye;
       if (skin.mask !== "#e8e2d6" && skin.mask !== "#f3f0ff" && skin.mask !== "#ffe6f0" && skin.mask !== "#d7f7e8" || boost > 0.3) {
         ctx.fillStyle = rgba(accent, 0.25 + 0.5 * boost);
         ctx.beginPath(); ctx.ellipse(2.2, -0.2, 4.5, 3.2, 0, 0, TAU); ctx.fill();
@@ -2562,6 +2678,7 @@ class ParticleSystem {
     n = Math.max(1, Math.round(n * this.mult));
     for (let i = 0; i < n; i++) this.spawn("smoke", x + rand(-8, 8), y - 1, { vx: rand(-60, 60), vy: rand(-30, -5), life: rand(0.3, 0.6), size: rand(1.5, 3), size2: rand(4, 8), color, drag: 4 });
   }
+  line(x, y, x2, y2, color, width = 3, life = 0.2) { this.spawn("line", x, y, { a0: x2, a1: y2, color, size: width, life, add: true, drag: 0 }); }
   shockwave(x, y, color, reach = 140) { this.spawn("wave", x, y, { size: 4, size2: reach, color, life: 0.45, add: true }); }
 
   update(dt) {
@@ -2609,6 +2726,10 @@ class ParticleSystem {
           ctx.beginPath(); ctx.arc(p.x, p.y, p.size2, p.a0 + span * (1 - k) * 0.35, p.a1); ctx.stroke();
           break;
         }
+        case "line":
+          ctx.strokeStyle = p.color; ctx.lineWidth = p.size * k; ctx.lineCap = "round";
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.a0, p.a1); ctx.stroke();
+          break;
         case "wave": {
           const r = lerp(p.size2, p.size, k);
           ctx.strokeStyle = p.color; ctx.lineWidth = 3 * k;
@@ -2630,23 +2751,33 @@ class ParticleSystem {
 
 /* ---------- Камера ---------- */
 class Camera {
-  constructor() { this.x = 0; this.y = -108; this.zoom = 1; this.bump = 0; this.trauma = 0; this.t = 0; this.ox = 0; this.oy = 0; this.rot = 0; }
+  constructor() {
+    this.x = 0; this.y = -108; this.zoom = 1; this.bump = 0; this.trauma = 0; this.t = 0; this.ox = 0; this.oy = 0; this.rot = 0;
+    this.fx = 0; this.fy = 0; this.fz = 1; this.fw = 0; this.fTarget = 0; this.tilt = 0;
+  }
   shake(a) { this.trauma = Math.min(1, this.trauma + a); }
   kick(a) { this.bump = Math.min(0.06, this.bump + a); }
+  /** Кинематографичный фокус: камера наезжает на точку с приближением. */
+  focus(x, y, zoom) { this.fx = x; this.fy = y; this.fz = zoom; this.fTarget = 1; this.tilt = (Math.random() < 0.5 ? -1 : 1) * 0.035; }
+  release() { this.fTarget = 0; }
   update(dt, tx, ty, worldW, viewW, shakeAmount) {
     this.t += dt;
-    const half = viewW / 2;
-    const cx = worldW > viewW ? clamp(tx, half, worldW - half) : worldW / 2;
-    this.x = damp(this.x, cx, 6, dt);
-    this.y = damp(this.y, ty, 4, dt);
+    this.fw = damp(this.fw, this.fTarget, this.fTarget ? 9 : 4, dt);
+    const fz = 1 + (this.fz - 1) * this.fw;
+    const vw = viewW / fz;
+    const half = vw / 2;
+    const wantX = lerp(tx, this.fx, this.fw), wantY = lerp(ty, this.fy, this.fw);
+    const cx = worldW > vw ? clamp(wantX, half, worldW - half) : worldW / 2;
+    this.x = damp(this.x, cx, this.fTarget ? 10 : 6, dt);
+    this.y = damp(this.y, wantY, this.fTarget ? 10 : 4, dt);
     this.bump = damp(this.bump, 0, 7, dt);
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     const sh = this.trauma * this.trauma * shakeAmount;
     const t = this.t * 40;
     this.ox = sh * 9 * (Math.sin(t * 1.3) + Math.sin(t * 2.7) * 0.5);
     this.oy = sh * 7 * (Math.sin(t * 1.7 + 1) + Math.sin(t * 3.1) * 0.5);
-    this.rot = sh * 0.012 * Math.sin(t * 0.9);
-    this.zoom = 1 + this.bump;
+    this.rot = sh * 0.012 * Math.sin(t * 0.9) + this.tilt * this.fw;
+    this.zoom = fz + this.bump;
   }
 }
 
@@ -3005,6 +3136,9 @@ class ArenaRenderer {
     this.key = "";
     this.sectionFlash = 0;
     this.levelMix = 0.5;      // 0 спокойно .. 1 интенсивно (плавно)
+    // веса вариантов эффектов по характеру части трека (плавно смешиваются)
+    this.kw = { intro: 0, build: 0, drop: 0, climax: 0, break: 0, calm: 0, groove: 1, outro: 0 };
+    this.buildW = 0; this.dropFlash = 0; this.swap = 0; this.vfx = [];
   }
   setTheme(id) {
     const t = THEMES.find(x => x.id === id) || THEMES[0];
@@ -3044,6 +3178,9 @@ class ArenaRenderer {
     const target = m.level === "intense" ? 1 : m.level === "calm" ? 0 : 0.5;
     this.levelMix = damp(this.levelMix, target, 0.7, R.dt);
     m.I = clamp(0.45 + 0.55 * (m.intensity * 0.6 + this.levelMix * 0.4), 0, 1);
+    this.updateVariants(m, R.dt);
+    const kw = this.kw;
+    m.I = clamp(m.I + 0.25 * (kw.drop + kw.climax) - 0.2 * (kw.break + kw.calm + kw.intro + kw.outro), 0.25, 1);
 
     // небо
     const g = ctx.createLinearGradient(0, 0, 0, v.floorY);
@@ -3056,6 +3193,7 @@ class ArenaRenderer {
       for (let x = off; x < v.w; x += this.tileW) ctx.drawImage(t.cv, x, v.floorY - this.tileH, this.tileW, this.tileH);
     }
     th.mid(ctx, v, m, pal, R);
+    this.variantBack(ctx, v, m, R);
     // пол
     const fg = ctx.createLinearGradient(0, v.floorY, 0, v.h);
     fg.addColorStop(0, pal.floor); fg.addColorStop(1, "#000000");
@@ -3102,6 +3240,7 @@ class ArenaRenderer {
       else ctx.fillRect(a.x, a.y, a.mote ? 1.5 : 2, a.mote ? 1.5 : 2);
     }
     if (amb.length > 160) amb.splice(0, amb.length - 160);
+    this.variantFront(ctx, v, m, R);
     // виньетка с пульсом
     if (!this._vig || this._vigW !== v.w || this._vigH !== v.h) {
       this._vigW = v.w; this._vigH = v.h;
@@ -3121,6 +3260,132 @@ class ArenaRenderer {
       const g = ctx.createLinearGradient(x - 160, 0, x + 160, 0);
       g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(0.5, rgba(pal.glow, 0.14 * this.sectionFlash)); g.addColorStop(1, "rgba(0,0,0,0)");
       ctx.fillStyle = g; ctx.fillRect(x - 160, 0, 320, v.h);
+    }
+  }
+
+  /* ---------- варианты эффектов по частям трека ---------- */
+  updateVariants(m, dt) {
+    const kw = this.kw, kind = m.kind || "groove";
+    for (const k in kw) kw[k] = damp(kw[k], k === kind ? 1 : 0, 1.4, dt);
+    // нарастание: сама часть «build», рост энергии впереди или скорый дроп
+    const soon = m.dropSoon ? clamp(1 - m.timeToNext / 4, 0, 1) : 0;
+    this.buildW = damp(this.buildW, Math.max(kw.build, soon, clamp((m.trend || 0) * 2.2, 0, 1) * 0.7), 3, dt);
+    if (m.sectionEvent && (m.sectionKind === "drop" || m.sectionKind === "climax")) { this.dropFlash = 1; this.swapTarget = this.swapTarget ? 0 : 1; }
+    this.dropFlash = Math.max(0, this.dropFlash - dt * 1.4);
+    this.swap = damp(this.swap, this.swapTarget || 0, 2, dt);
+  }
+  /** Неон с учётом перестановки цветов на дропах. */
+  neon(i) {
+    const p = this.theme.pal;
+    return i ? mixHex(p.neonB, p.neonA, this.swap) : mixHex(p.neonA, p.neonB, this.swap);
+  }
+
+  variantBack(ctx, v, m, R) {
+    const kw = this.kw;
+    const hot = kw.drop + kw.climax;
+    // лазеры из верхних углов — дроп и кульминация
+    if (hot > 0.05) {
+      ctx.save(); ctx.globalCompositeOperation = "lighter";
+      const n = R.amount < 1 ? 2 : 4;
+      for (let i = 0; i < n; i++) {
+        const left = i % 2 === 0, ox = left ? 0 : v.w;
+        const ang = (left ? 0.35 : Math.PI - 0.35) + Math.sin(m.beatF * Math.PI / 2 + i * 1.3) * 0.45 * (left ? 1 : -1);
+        const len = Math.hypot(v.w, v.h);
+        const a = hot * (0.1 + 0.18 * m.pulse);
+        ctx.fillStyle = rgba(this.neon(i % 2), a);
+        ctx.beginPath(); ctx.moveTo(ox, -4);
+        ctx.lineTo(ox + Math.cos(ang - 0.012) * len, Math.sin(ang - 0.012) * len);
+        ctx.lineTo(ox + Math.cos(ang + 0.012) * len, Math.sin(ang + 0.012) * len);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    }
+    // нарастание: свечение горизонта усиливается
+    if (this.buildW > 0.05) {
+      const g = ctx.createLinearGradient(0, v.floorY - v.h * 0.35, 0, v.floorY);
+      g.addColorStop(0, rgba(this.neon(0), 0)); g.addColorStop(1, rgba(this.neon(0), 0.28 * this.buildW * (0.6 + 0.4 * (m.halfPulse || 0))));
+      ctx.fillStyle = g; ctx.fillRect(0, v.floorY - v.h * 0.35, v.w, v.h * 0.35);
+    }
+    // брейк: прожектор на героя
+    if (kw.break > 0.05 && v.playerX != null) {
+      const g = ctx.createLinearGradient(0, 0, 0, v.floorY);
+      g.addColorStop(0, rgba("#e8e2d6", 0.0)); g.addColorStop(1, rgba("#e8e2d6", 0.14 * kw.break));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(v.playerX - 20, 0); ctx.lineTo(v.playerX + 20, 0); ctx.lineTo(v.playerX + 70, v.floorY); ctx.lineTo(v.playerX - 70, v.floorY); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  variantFront(ctx, v, m, R) {
+    const kw = this.kw, dt = R.dt, fx = this.vfx, amt = R.amount;
+    const hot = kw.drop + kw.climax, calm = kw.calm + kw.intro + kw.outro;
+    // --- рождение частиц ---
+    if (this.buildW > 0.1 && rand() < this.buildW * 0.9 * amt) {
+      fx.push({ t: "rise", x: rand(0, v.w), y: v.floorY + rand(0, 20), vx: 0, vy: -rand(150, 300) * (1 + this.buildW), life: 1.2, max: 1.2, c: this.neon(rand() < 0.5 ? 0 : 1) });
+    }
+    if (kw.climax > 0.2 && rand() < kw.climax * 0.7 * amt) fx.push({ t: "spark", x: rand(0, v.w), y: -5, vx: rand(-30, 30), vy: rand(120, 260), life: 1.6, max: 1.6, c: this.neon(rand() < 0.5 ? 0 : 1) });
+    if (kw.break > 0.2 && rand() < kw.break * 0.35 * amt) fx.push({ t: "ash", x: rand(0, v.w), y: -5, vx: rand(-10, 10), vy: rand(15, 35), life: 6, max: 6, c: "#9a98a6" });
+    if (calm > 0.3 && rand() < calm * 0.15 * amt) fx.push({ t: "mote", x: rand(0, v.w), y: rand(v.h * 0.2, v.floorY), vx: rand(-8, 8), vy: rand(-10, -2), life: 4, max: 4, c: this.theme.pal.neonA });
+    // события полос: бас — волны по полу, верха — искры-звёздочки
+    for (const ev of m.onsets || []) {
+      if (ev.band === "low" && ev.strength > 0.35) fx.push({ t: "ripple", x: v.playerX != null ? v.playerX + rand(-120, 120) : v.w / 2, y: v.floorY, life: 0.7, max: 0.7, size: 30 + 80 * ev.strength * (m.bassy ? 1.6 : 1), c: this.neon(0) });
+      if (ev.band === "high" && ev.strength > 0.4 && (m.bright || rand() < 0.4)) for (let k = 0; k < (m.bright ? 3 : 1); k++) fx.push({ t: "twinkle", x: rand(0, v.w), y: rand(0, v.floorY * 0.7), life: 0.45, max: 0.45, size: rand(2, 4.5), c: "#ffffff" });
+    }
+    if (fx.length > 160) fx.splice(0, fx.length - 160);
+    // --- обновление и отрисовка ---
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const f = fx[i];
+      f.life -= dt;
+      if (f.life <= 0) { fx.splice(i, 1); continue; }
+      if (f.vx != null) { f.x += f.vx * dt; f.y += f.vy * dt; }
+      if (f.t === "rise") f.vy *= 1 + dt * 1.5;
+      const k = f.life / f.max;
+      switch (f.t) {
+        case "rise": ctx.strokeStyle = rgba(f.c, 0.5 * k); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x, f.y - f.vy * 0.06); ctx.stroke(); break;
+        case "spark": ctx.fillStyle = rgba(f.c, 0.8 * k); ctx.fillRect(f.x, f.y, 2, 4); break;
+        case "ash": ctx.fillStyle = rgba(f.c, 0.35 * Math.min(1, k * 3)); ctx.fillRect(f.x + Math.sin(f.life * 2) * 6, f.y, 2, 2); break;
+        case "mote": ctx.fillStyle = rgba(f.c, 0.3 * Math.sin(k * Math.PI)); ctx.beginPath(); ctx.arc(f.x, f.y, 1.4, 0, TAU); ctx.fill(); break;
+        case "ripple": {
+          const r = f.size * (1 - k) + 6;
+          ctx.strokeStyle = rgba(f.c, 0.5 * k); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.ellipse(f.x, f.y + 2, r * 2, r * 0.18, 0, 0, TAU); ctx.stroke();
+          break;
+        }
+        case "twinkle": {
+          const r = f.size * Math.sin(k * Math.PI);
+          ctx.strokeStyle = rgba(f.c, 0.8 * k); ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(f.x - r, f.y); ctx.lineTo(f.x + r, f.y); ctx.moveTo(f.x, f.y - r); ctx.lineTo(f.x, f.y + r); ctx.stroke();
+          break;
+        }
+      }
+    }
+    // нарастание: импульсы по краям экрана на половинных долях
+    if (this.buildW > 0.1) {
+      const a = this.buildW * (m.halfPulse || 0) * 0.3;
+      const g1 = ctx.createLinearGradient(0, 0, 40, 0);
+      g1.addColorStop(0, rgba(this.neon(0), a)); g1.addColorStop(1, rgba(this.neon(0), 0));
+      ctx.fillStyle = g1; ctx.fillRect(0, 0, 40, v.h);
+      const g2 = ctx.createLinearGradient(v.w, 0, v.w - 40, 0);
+      g2.addColorStop(0, rgba(this.neon(1), a)); g2.addColorStop(1, rgba(this.neon(1), 0));
+      ctx.fillStyle = g2; ctx.fillRect(v.w - 40, 0, 40, v.h);
+    }
+    // вход в дроп: вспышка и кольцо из центра
+    if (this.dropFlash > 0) {
+      const k = this.dropFlash;
+      ctx.fillStyle = rgba(this.neon(0), (R.flashes ? 0.3 : 0.1) * k * k);
+      ctx.fillRect(0, 0, v.w, v.h);
+      ctx.strokeStyle = rgba("#ffffff", 0.6 * k); ctx.lineWidth = 3 * k;
+      ctx.beginPath(); ctx.arc(v.w / 2, v.floorY * 0.6, (1 - k) * Math.max(v.w, v.h) * 0.8, 0, TAU); ctx.stroke();
+    }
+    // строб на сильных долях в дропе и кульминации
+    if (R.flashes && hot > 0.4 && m.strong > 0.75) { ctx.fillStyle = rgba(this.neon(1), 0.08 * hot * m.strong); ctx.fillRect(0, 0, v.w, v.h); }
+    ctx.restore();
+    // спокойные части — приглушение; брейк — обесцвечивание
+    if (calm > 0.05) { ctx.fillStyle = rgba("#05060a", 0.18 * calm); ctx.fillRect(0, 0, v.w, v.h); }
+    if (kw.break > 0.05) {
+      ctx.save(); ctx.globalCompositeOperation = "saturation";
+      ctx.fillStyle = rgba("#808080", 0.75 * kw.break); ctx.fillRect(0, 0, v.w, v.h);
+      ctx.restore();
     }
   }
 
@@ -3161,7 +3426,7 @@ const PL = {
   grav: 1650, fallMax: 640, jumpV: 505, airJumpV: 440,
   coyote: 0.08, jbuf: 0.11,
   dodgeV: 440, dodgeT: 0.22, dodgeIF: 0.2, dodgeCD: 0.42,
-  hurtT: 0.32, hurtIF: 0.75, maxHp: 100,
+  hurtT: 0.32, hurtIF: 0.75, maxHp: 130,
 };
 
 /** Общая физика тела с полом, стенами и односторонними платформами. */
@@ -3202,11 +3467,12 @@ class Player {
     this.scarfColor = this.skin.scarf;
     if (this.anim) this.anim.scarf = null;
   }
-  reset(x) {
+  reset(x, hpMult = 1) {
     this.x = x; this.y = 0; this.vx = 0; this.vy = 0;
+    this.scripted = false; this.dodgeType = "roll"; this.dodgeSync = false;
     this.w = PL.w; this.h = PL.h; this.scale = 1;
     this.facing = 1; this.onGround = true; this.platform = null; this.dropT = 0;
-    this.hp = PL.maxHp; this.maxHp = PL.maxHp;
+    this.maxHp = Math.round(PL.maxHp * hpMult); this.hp = this.maxHp;
     this.state = "idle"; this.stateT = 0;
     this.iframes = 0; this.coyoteT = 0; this.jumpBufT = 0; this.airJumps = 1;
     this.dodgeCD = 0; this.dodgeDir = 1;
@@ -3221,7 +3487,7 @@ class Player {
   }
 
   get alive() { return this.state !== "dead"; }
-  get canAct() { return !["dead", "victory", "hurt", "dodge"].includes(this.state); }
+  get canAct() { return !["dead", "victory", "hurt", "dodge", "takedown"].includes(this.state) && !this.scripted; }
   get invulnerable() { return this.iframes > 0 || (this.action && this.action.iframes); }
   get centerY() { return this.y - this.h * 0.55; }
 
@@ -3231,21 +3497,31 @@ class Player {
   pressJump() { this.jumpBufT = PL.jbuf; }
 
   tryDodge(game) {
-    if (!this.alive || this.state === "victory" || this.dodgeCD > 0 || this.state === "hurt") return false;
+    if (!this.alive || this.state === "victory" || this.dodgeCD > 0 || this.state === "hurt" || this.scripted) return false;
     // уклонение прерывает атаку только после фазы подготовки
     if (this.action && this.action.t < this.action.startup) return false;
     const mx = game.input.moveX;
-    this.dodgeDir = Math.abs(mx) > 0.2 ? sign(mx) : this.facing;
-    this.facing = this.dodgeDir;
+    // три вида: воздушный рывок, кувырок по направлению, сальто назад без направления
+    if (!this.onGround) { this.dodgeType = "air"; this.dodgeDir = Math.abs(mx) > 0.2 ? sign(mx) : this.facing; this.facing = this.dodgeDir; }
+    else if (Math.abs(mx) > 0.2) { this.dodgeType = "roll"; this.dodgeDir = sign(mx); this.facing = this.dodgeDir; }
+    else { this.dodgeType = "back"; this.dodgeDir = -this.facing; }
     this.action = null;
     this.dodgeCount = (this.dodgeCount || 0) + 1;
     this.setState("dodge");
-    this.iframes = PL.dodgeIF;
+    // уклон в такт: дольше неуязвимость и неоновый след
+    const j = game.clock.judge(game.songNow);
+    this.dodgeSync = j.rating === "perfect" || j.rating === "good";
+    this.iframes = PL.dodgeIF + (this.dodgeSync ? 0.08 : 0);
     this.dodgeCD = PL.dodgeCD;
-    this.vx = this.dodgeDir * PL.dodgeV;
-    if (!this.onGround) this.vy = Math.min(this.vy, -60);
+    this.vx = this.dodgeDir * PL.dodgeV * (this.dodgeType === "back" ? 0.8 : 1);
+    if (this.dodgeType === "back") { this.vy = -250; this.onGround = false; }
+    else if (!this.onGround) this.vy = Math.min(this.vy, -60);
     game.sfx("dodge");
     game.fx.dust(this.x, this.y, 5);
+    if (this.dodgeSync) {
+      game.fx.ring(this.x, this.y - 14, 4, 30, this.skin.accent, 0.3, 2);
+      game.fx.text(this.x, this.y - 48, "SYNC", this.skin.accent, 12, 0.5);
+    }
     return true;
   }
 
@@ -3277,6 +3553,7 @@ class Player {
     const wasGround = this.onGround;
     const st = this.state;
 
+    if (this.scripted) { this.iframes = Math.max(this.iframes, 0.1); this._pose(dt, game); return; }
     if (st === "dead" || st === "victory") {
       this.vx = damp(this.vx, 0, 6, dt);
       this.vy = Math.min(this.vy + PL.grav * dt, PL.fallMax);
@@ -3320,7 +3597,7 @@ class Player {
     }
 
     // ---- гравитация ----
-    const noGrav = st === "dodge" || (act && act.noGravity);
+    const noGrav = (st === "dodge" && this.dodgeType !== "back") || (act && act.noGravity);
     if (!noGrav) {
       let g = PL.grav;
       if (this.vy < 0 && !inp.jumpHeldAll && st === "jump") g *= 2.3;     // переменная высота прыжка
@@ -3396,9 +3673,33 @@ class Player {
         rate = 30;
         break;
       case "dodge": {
-        const k = t / PL.dodgeT;
-        Object.assign(P, { lean: 0.5, bodyY: 3, tuck: 0.6, legAmp: 0, armF: -1.3, elbowF: 0.4, armB: -1.5, sx: 1.12, sy: 0.86, cloak: -0.6, headTilt: 0.2 * (1 - k) });
-        rate = 30;
+        const k = clamp(t / PL.dodgeT, 0, 1);
+        if (this.dodgeType === "roll") {
+          // кувырок вперёд: группировка и полный оборот
+          Object.assign(P, { lean: 0.3, bodyY: 4, tuck: 1, legAmp: 0, armF: 2.2, elbowF: 1.2, armB: 1.6, sx: 0.95, sy: 0.82, cloak: -0.5, headTilt: 0.4, spin: TAU * easeInOut(k) });
+        } else if (this.dodgeType === "back") {
+          // сальто назад
+          Object.assign(P, { lean: -0.2, bodyY: 0, tuck: 0.8 * Math.sin(k * Math.PI), legAmp: 0, armF: 2.8, elbowF: 0.3, armB: 2.6, sx: 1, sy: 1, cloak: 0.4, headTilt: -0.3, spin: -TAU * easeInOut(k) });
+        } else {
+          // воздушный рывок: вытянутый силуэт
+          Object.assign(P, { lean: 0.65, bodyY: 1, tuck: 0.5, legAmp: 0, armF: -1.5, elbowF: 0.2, armB: -1.7, sx: 1.3, sy: 0.8, cloak: -1, headTilt: 0.15 });
+        }
+        rate = 32;
+        break;
+      }
+      case "takedown": {
+        const td = game.combat.td;
+        const ranged = td && td.kind === "volley";
+        if (ranged) {
+          const e = td.e, ang = Math.atan2(e.centerY - (this.y - 20), Math.abs(e.x - this.x));
+          const kick = Math.max(0, Math.sin(t * 40)) * 0.3;
+          Object.assign(P, { armF: Math.PI / 2 - ang - kick, elbowF: 0, armB: Math.PI / 2 - ang - kick, legSpread: 1.7, bodyY: 2, lean: 0.05 - kick * 0.3, wBlend: 0 });
+        } else {
+          // клинок наготове, низкая стойка, резкие смены позы при каждом ударе
+          const ph = Math.floor(t * 9) % 2;
+          Object.assign(P, { armF: ph ? 2.3 : -1.4, elbowF: 0.2, armB: -1.2, lean: 0.4, bodyY: 3, sx: 1.08, sy: 0.92, legSpread: 1.8, tuck: this.y < -10 ? 0.6 : 0, cloak: -1, headTilt: 0.15 });
+        }
+        rate = 45;
         break;
       }
       case "hurt":
@@ -3429,10 +3730,10 @@ class Player {
    «жетон» атаки, и назначают удар на ближайшую долю.
    ===================================================================== */
 const ENEMY_TYPES = {
-  blade:  { name: "Клинок", hp: 40,  speed: 95,  w: 12, h: 30, poise: 24, sight: 560, reach: 34, wind: 0.4,  dmg: 12, cd: [1.2, 2.1], lunge: 330, activeT: 0.14, recoverT: 0.45, score: 100 },
-  gunner: { name: "Стрелок", hp: 30, speed: 80,  w: 12, h: 34, poise: 14, sight: 760, prefer: [210, 360], wind: 0.62, dmg: 9, cd: [1.6, 2.6], bolt: 330, activeT: 0.1, recoverT: 0.6, score: 120 },
-  swift:  { name: "Вихрь",  hp: 22,  speed: 190, w: 10, h: 24, poise: 12, sight: 640, reach: 120, wind: 0.28, dmg: 8, cd: [0.9, 1.6], lunge: 540, activeT: 0.28, recoverT: 0.4, score: 130 },
-  brute:  { name: "Молот",  hp: 150, speed: 55,  w: 22, h: 50, poise: 70, sight: 560, reach: 48, wind: 0.85, dmg: 22, cd: [2.2, 3.2], activeT: 0.16, recoverT: 0.8, score: 300 },
+  blade:  { name: "Клинок", hp: 50,  speed: 95,  w: 12, h: 30, poise: 24, sight: 560, reach: 34, wind: 0.4,  dmg: 12, cd: [1.2, 2.1], lunge: 330, activeT: 0.14, recoverT: 0.45, score: 100 },
+  gunner: { name: "Стрелок", hp: 38, speed: 80,  w: 12, h: 34, poise: 14, sight: 760, prefer: [210, 360], wind: 0.62, dmg: 9, cd: [1.6, 2.6], bolt: 330, activeT: 0.1, recoverT: 0.6, score: 120 },
+  swift:  { name: "Вихрь",  hp: 28,  speed: 190, w: 10, h: 24, poise: 12, sight: 640, reach: 120, wind: 0.28, dmg: 8, cd: [0.9, 1.6], lunge: 540, activeT: 0.28, recoverT: 0.4, score: 130 },
+  brute:  { name: "Молот",  hp: 185, speed: 55,  w: 22, h: 50, poise: 70, sight: 560, reach: 48, wind: 0.85, dmg: 22, cd: [2.2, 3.2], activeT: 0.16, recoverT: 0.8, score: 300 },
 };
 
 let _enemyId = 1;
@@ -3470,7 +3771,7 @@ class Enemy {
     this.passive = false;     // для обучения: не атакует
   }
 
-  get targetable() { return this.alive && this.state !== "spawn"; }
+  get targetable() { return this.alive && this.state !== "spawn" && !this.executed; }
   get centerY() { return this.y - this.h * this.scale * 0.5; }
   setState(s) { if (this.state !== s) { this.state = s; this.stateT = 0; } }
 
@@ -3520,6 +3821,11 @@ class Enemy {
     this.poise = Math.min(this.poiseMax, this.poise + dt * this.poiseMax * 0.25);
     this.staggerImmune = Math.max(0, (this.staggerImmune || 0) - dt);
 
+    if (this.executed) {      // добивание: позиции задаёт сценарий
+      this.flash = Math.max(this.flash, 0);
+      this._pose(dt, game);
+      return;
+    }
     if (this.state === "spawn") {
       this.alpha = clamp(this.stateT / 0.6, 0, 1);
       if (this.stateT > 0.65) this.setState("think");
@@ -3727,6 +4033,10 @@ class Enemy {
       case "recover":
         Object.assign(P, { armF: gun ? 0.6 : 1.2, elbowF: 0.6, lean: 0.12, bodyY: 0.5 });
         break;
+      case "executed":
+        Object.assign(P, { lean: -0.35 + Math.sin(t * 30) * 0.08, armF: -0.9, armB: -1.3, headTilt: -0.35, bodyY: 1.5, sy: 0.96, tuck: this.y < -5 ? 0.5 : 0 });
+        rate = 30;
+        break;
       case "hurt":
         Object.assign(P, { lean: -0.45, armF: -0.6, armB: -1.0, headTilt: -0.3, bodyY: 1 });
         rate = 30;
@@ -3755,9 +4065,20 @@ const ATTACKS = {
   slash1:   { kind: "melee",  startup: 0.06, active: 0.08, recovery: 0.17, cancel: 0.11, dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 120, arc: [-2.3, 0.7], name: "Нокс-9" },
   slash2:   { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.17, cancel: 0.1,  dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 140, arc: [0.9, -2.0], name: "Нокс-9" },
   slash3:   { kind: "melee",  startup: 0.08, active: 0.1,  recovery: 0.26, cancel: 0.2,  dmg: 22, reach: 40, knock: 330, stun: 0.45, lunge: 170, arc: [-2.8, 2.6], spin: true, name: "Нокс-вихрь" },
+  // восходящий разрез — на сильной доле: подбрасывает врага и игрока
+  rise:     { kind: "melee",  startup: 0.06, active: 0.1,  recovery: 0.22, cancel: 0.14, dmg: 15, reach: 32, knock: 60,  stun: 0.6,  lunge: 60,  arc: [-0.3, 3.1], launch: true, name: "Восходящий разрез" },
+  // укол — для нажатий мимо доли: быстрый прямой выпад
+  thrust:   { kind: "melee",  startup: 0.05, active: 0.07, recovery: 0.15, cancel: 0.1,  dmg: 13, reach: 42, knock: 200, stun: 0.25, lunge: 230, thrust: true, name: "Укол" },
   airSlash: { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.14, cancel: 0.1,  dmg: 11, reach: 30, knock: 160, stun: 0.25, lunge: 0, arc: [-2.0, 1.4], moveControl: 0.6, name: "Нокс-9" },
+  airSpin:  { kind: "melee",  startup: 0.04, active: 0.14, recovery: 0.12, cancel: 0.1,  dmg: 13, reach: 34, knock: 170, stun: 0.3,  lunge: 0, arc: [-2.8, 2.6], spin: true, flip: true, moveControl: 0.6, name: "Сальто-вихрь" },
   dash:     { kind: "dash",   startup: 0.05, active: 0.09, recovery: 0.17, cancel: 0.12, dmg: 16, reach: 30, knock: 220, stun: 0.35, speed: 1050, maxTravel: 0.17, arc: [-2.4, 1.2], name: "Рывок" },
   shot:     { kind: "ranged", startup: 0.05, active: 0.02, recovery: 0.16, cancel: 0.09, dmg: 8,  speed: 900, knock: 90, stun: 0.15, moveControl: 0.35, name: "Импульс-7" },
+  // двойной выстрел двумя руками — на сильной доле
+  twin:     { kind: "ranged", startup: 0.05, active: 0.09, recovery: 0.18, cancel: 0.13, dmg: 8,  speed: 950, knock: 110, stun: 0.2, shots: 2, gap: 0.07, twoHand: true, name: "Двойной импульс" },
+  // от бедра — быстрый выстрел для неточных нажатий
+  hip:      { kind: "ranged", startup: 0.03, active: 0.02, recovery: 0.13, cancel: 0.08, dmg: 7,  speed: 880, knock: 80, stun: 0.12, hip: true, moveControl: 0.5, name: "От бедра" },
+  // сальто назад с выстрелом — когда игрок отходит от врага
+  backShot: { kind: "ranged", startup: 0.04, active: 0.18, recovery: 0.2,  cancel: 0.3,  dmg: 11, speed: 950, knock: 140, stun: 0.2, backflip: true, fireAt: 0.12, name: "Отскок-выстрел" },
   charged:  { kind: "ranged", startup: 0.09, active: 0.02, recovery: 0.24, cancel: 0.16, dmg: 20, speed: 1150, knock: 240, stun: 0.35, pierce: true, name: "Импульс-заряд" },
   dive:     { kind: "dive",   startup: 0.04, active: 0.35, recovery: 0.1,  cancel: 0.1,  dmg: 14, reach: 22, knock: 120, stun: 0.3, name: "Пике" },
 };
@@ -3784,6 +4105,8 @@ class CombatSystem {
     this.buffer = null;        // отложенное нажатие {song, real}
     this.time = 0;
     this.comboLabel = ""; this.comboLabelT = 0;
+    this.td = null; this.lastTdT = -9; this.takedowns = 0;
+    this.airCount = 0; this.lastRiseT = -9;
   }
 
   /* ---------- ввод ---------- */
@@ -3857,8 +4180,12 @@ class CombatSystem {
 
     // звук и вспышки
     if (def.kind === "dash") { g.sfx("dash"); }
-    else if (def.kind === "melee" || def.kind === "dive") g.sfx("slash", name === "slash3" ? 1.4 : 1);
-    if (def.kind === "ranged") p.pistolT = 0.5;
+    else if (def.kind === "melee" || def.kind === "dive") g.sfx("slash", name === "slash3" || name === "rise" ? 1.4 : 1);
+    if (def.kind === "ranged") p.pistolT = 0.6;
+    if (def.backflip) { p.vx = -act.dir * 240; p.vy = -330; p.onGround = false; act.noGravity = false; }
+    if (name === "rise") { this.lastRiseT = this.time; }
+    if (name === "airSlash" || name === "airSpin") this.airCount++;
+    if (["rise", "thrust", "twin", "backShot", "airSpin"].includes(name)) this.flashLabel(def.name.toUpperCase());
     if (j.rating === "perfect") g.sfx("perfect");
   }
 
@@ -3897,29 +4224,38 @@ class CombatSystem {
   }
 
   chooseAttack(target, j) {
-    const p = this.game.player;
+    const g = this.game, p = g.player;
     const air = !p.onGround;
+    const good = j.rating === "perfect" || j.rating === "good";
+    const sloppy = j.rating === "early" || j.rating === "late" || j.rating === "miss";
     const nextSlash = () => {
       const recent = this.time - this.lastMeleeT < 0.75;
-      if (!recent || this.comboStep >= 3) return "slash1";
+      if (!recent || this.comboStep >= 3) return sloppy ? "thrust" : "slash1";
       return this.comboStep === 1 ? "slash2" : "slash3";
     };
-    if (!target) return air ? "airSlash" : nextSlash();
+    if (!target) return air ? (this.airCount % 2 ? "airSpin" : "airSlash") : nextSlash();
     const dx = Math.abs(target.x - p.x) - (target.w * target.scale) / 2 - p.w / 2;
     const dy = target.centerY - p.centerY;
-    const good = j.rating === "perfect" || j.rating === "good";
+    const away = Math.abs(g.input.moveX) > 0.4 && sign(g.input.moveX) !== sign(target.x - p.x);
     if (air) {
       if (dy > 22 && Math.abs(target.x - p.x) < 70) return "dive";
-      if (dx < 38 && Math.abs(dy) < 40) return "airSlash";
-      return "shot";
+      if (dx < 40 && Math.abs(dy) < 45) return j.rating === "perfect" || this.airCount % 2 ? "airSpin" : "airSlash";
+      return good && j.strong ? "twin" : "shot";
     }
-    if (dx <= 34 && Math.abs(dy) < 40) return nextSlash();
+    if (dx <= 34 && Math.abs(dy) < 40) {
+      if (away) return "backShot";
+      // сильная доля + точность: подброс (не чаще раза в 2 с, Молота не подбросить)
+      if (j.strong && good && target.kind !== "brute" && this.time - this.lastRiseT > 2 && this.comboStep !== 2) return "rise";
+      return nextSlash();
+    }
     const dashRange = 170 + (good ? 40 : 0);
-    if (dx <= dashRange && Math.abs(dy) < 45) {
-      if (j.rating === "miss" && dx > 110) return "shot";
+    if (dx <= dashRange && Math.abs(dy) < 45 && !away) {
+      if (j.rating === "miss" && dx > 110) return "hip";
       return "dash";
     }
     if (this.shotChain >= 2 && j.rating === "perfect") return "charged";
+    if (good && j.strong) return "twin";
+    if (sloppy) return "hip";
     return "shot";
   }
 
@@ -3935,7 +4271,9 @@ class CombatSystem {
       if (act.phase === "active" && !act.fired) {
         act.fired = true;
         if (p.onGround) p.vx = act.dir * def.lunge;
-        this._slashFx(p, act);
+        if (def.launch && p.onGround) { p.vy = -330; p.onGround = false; p.airJumps = 1; }
+        if (def.thrust) this._thrustFx(p, act); else this._slashFx(p, act);
+        if (def.thrust || def.launch) g.addAfterimage(p);
       }
       if (act.phase === "active") this._meleeHits(p, act, def.spin);
       if (act.phase === "recovery") p.vx = damp(p.vx, 0, 10, dt);
@@ -3957,10 +4295,15 @@ class CombatSystem {
       if (act.phase === "recovery") p.vx = damp(p.vx, 0, 10, dt);
       if (act.phase === "startup") act.startX = p.x;
     } else if (def.kind === "ranged") {
-      if (act.phase !== "startup" && !act.fired) {
+      const t0 = act.startup + (def.fireAt || 0);
+      const shots = def.shots || 1;
+      act.shotsFired = act.shotsFired || 0;
+      while (act.shotsFired < shots && act.t >= t0 + act.shotsFired * (def.gap || 0)) {
+        this._fire(p, act, act.shotsFired);
+        act.shotsFired++;
         act.fired = true;
-        this._fire(p, act);
       }
+      if (def.backflip && act.phase === "active") g.addAfterimage(p);
     } else if (def.kind === "dive") {
       if (act.phase === "startup") { p.vy = Math.min(p.vy, -60); p.vx *= 0.5; }
       else if (act.phase === "active" || act.phase === "travel") {
@@ -3975,14 +4318,27 @@ class CombatSystem {
     }
   }
 
-  /** Поза атаки для AnimationSystem. */
+  /** Поза атаки для AnimationSystem: у каждого приёма своя анимация. */
   actionPose(p, act) {
-    const def = act.def, P = { tuck: 0, legAmp: 0, legSpread: 1.25, sx: 1, sy: 1, wBlend: 0, headTilt: 0, armB: -0.6, elbowF: 0.15, bodyY: 0.5 };
+    const def = act.def, P = { tuck: 0, legAmp: 0, legSpread: 1.25, sx: 1, sy: 1, wBlend: 0, headTilt: 0, armB: -0.6, elbowF: 0.15, bodyY: 0.5, spin: 0 };
     const tA = act.startup + act.travel;
     const kS = clamp(act.t / Math.max(0.01, act.startup), 0, 1);
     const kA = clamp((act.t - tA) / Math.max(0.01, act.active), 0, 1);
     const kR = clamp((act.t - tA - act.active) / Math.max(0.01, act.recovery), 0, 1);
-    if (def.kind === "melee" || def.kind === "dash") {
+    const aimAt = () => {
+      const tg = act.target, hy = p.y - 20;
+      return tg ? Math.atan2(tg.centerY - hy, Math.abs(tg.x - p.x)) : 0;
+    };
+    if (def.thrust) {
+      // укол: оттянуть руку и выбросить клинок прямо вперёд
+      const arm = act.phase === "startup" ? lerp(0.3, -0.7, easeOut(kS)) : act.phase === "active" ? Math.PI / 2 : lerp(Math.PI / 2, 0.4, easeInOut(kR));
+      Object.assign(P, { armF: arm, elbowF: act.phase === "startup" ? 1.4 : 0, wBlend: act.phase === "startup" ? 0 : 1, wAngle: 0,
+        lean: act.phase === "startup" ? -0.15 : act.phase === "active" ? 0.45 : 0.2 * (1 - kR), legSpread: 1.7, bodyY: act.phase === "active" ? 2.5 : 1, sx: act.phase === "active" ? 1.12 : 1, sy: act.phase === "active" ? 0.92 : 1, cloak: -0.6 });
+    } else if (def.launch) {
+      // восходящий разрез: снизу вверх с прыжком
+      const arm = act.phase === "startup" ? lerp(0.3, -0.5, easeOut(kS)) : act.phase === "active" ? lerp(-0.5, 3.1, easeOut(kA)) : lerp(3.1, 0.6, easeInOut(kR));
+      Object.assign(P, { armF: arm, elbowF: 0.1, lean: act.phase === "startup" ? 0.25 : -0.18, bodyY: act.phase === "startup" ? 3 : -1, sx: act.phase === "startup" ? 1.12 : 0.92, sy: act.phase === "startup" ? 0.88 : 1.12, tuck: p.onGround ? 0 : 0.3, headTilt: -0.2, armB: -1.4 });
+    } else if (def.kind === "melee" || def.kind === "dash") {
       const [a0, a1] = def.arc;
       const back = a0 - 0.4, fwd = a1;
       let arm;
@@ -3993,16 +4349,37 @@ class CombatSystem {
       Object.assign(P, { armF: arm, lean: act.phase === "startup" ? -0.12 : act.phase === "travel" ? 0.6 : act.phase === "active" ? 0.3 : 0.15 * (1 - kR) });
       if (act.phase === "travel") Object.assign(P, { tuck: 0.4, sx: 1.15, sy: 0.88, cloak: -0.8, bodyY: 2 });
       if (def.spin && act.phase === "active") Object.assign(P, { sx: 1.1, sy: 0.92, bodyY: 2, cloak: -1 });
+      if (def.flip) P.spin = act.phase === "active" ? TAU * easeInOut(kA) : 0;   // сальто в воздухе
       if (!p.onGround) P.tuck = 0.4;
+      // чередуем стойку: второй удар — с разворотом корпуса
+      if (act.name === "slash2") Object.assign(P, { headTilt: 0.12, armB: 0.6 });
     } else if (def.kind === "ranged") {
-      const tg = act.target;
-      const hy = p.y - 20, ang = tg ? Math.atan2(tg.centerY - hy, Math.abs(tg.x - p.x)) : 0;
-      const recoil = act.phase === "recovery" ? (1 - kR) : 0;
-      Object.assign(P, { armF: Math.PI / 2 - ang - recoil * 0.45, elbowF: 0, lean: -0.05 - recoil * 0.12, armB: 0.4, bodyY: recoil * 1.2 });
+      const ang = aimAt();
+      const fireT = act.startup + (def.fireAt || 0);
+      const since = act.t - fireT;
+      const recoil = since > 0 ? Math.max(0, 1 - since / 0.12) : 0;
+      const aim = Math.PI / 2 - ang;
+      Object.assign(P, { armF: aim - recoil * 0.45, elbowF: 0, lean: -0.05 - recoil * 0.12, armB: 0.4, bodyY: recoil * 1.2 });
+      if (def.twoHand) Object.assign(P, { armB: aim - recoil * 0.4, legSpread: 1.6, bodyY: 1.5 + recoil, lean: 0.05 });
+      if (def.hip) Object.assign(P, { armF: aim + 0.25 - recoil * 0.3, elbowF: -0.5, lean: 0.18, bodyY: 1.8, legSpread: 1.5, headTilt: 0.1 });
+      if (def.backflip) {
+        const k = clamp(act.t / (act.startup + act.active), 0, 1);
+        Object.assign(P, { spin: -TAU * easeInOut(k), tuck: 0.7 * Math.sin(k * Math.PI), legAmp: 0 });
+      }
+      if (def.pierce && act.phase === "startup") Object.assign(P, { bodyY: 2, sy: 0.9, sx: 1.08, lean: 0.1 });
+      if (!p.onGround && !def.backflip) Object.assign(P, { tuck: 0.35, lean: -0.15 });
     } else if (def.kind === "dive") {
       Object.assign(P, { armF: 0.15, elbowF: 0, wBlend: 1, wAngle: Math.PI / 2, lean: 0.25, tuck: 0.6, sx: 0.9, sy: 1.12 });
     }
     return P;
+  }
+
+  _thrustFx(p, act) {
+    const g = this.game, col = p.skin.accent, y = p.y - 20;
+    const x0 = p.x + act.dir * 6, x1 = p.x + act.dir * (act.def.reach + 18);
+    g.fx.line(x0, y, x1, y, col, 5, 0.16);
+    g.fx.line(x0, y, x1, y, "#ffffff", 1.5, 0.1);
+    g.fx.sparks(x1, y, 4, col, 160, act.dir > 0 ? 0 : Math.PI, 0.6, 0.2);
   }
 
   _slashFx(p, act) {
@@ -4038,9 +4415,10 @@ class CombatSystem {
     }
   }
 
-  _fire(p, act) {
+  _fire(p, act, n = 0) {
     const g = this.game, def = act.def;
     const hand = CharacterRenderer.handWorld(p, 8);
+    if (n === 1) hand.y += 3;
     let ang;
     if (act.target) ang = Math.atan2(act.target.centerY - hand.y, act.target.x - hand.x);
     else ang = act.dir > 0 ? 0 : Math.PI;
@@ -4057,8 +4435,16 @@ class CombatSystem {
   _applyHit(e, act, dirX, hx, hy) {
     const g = this.game, def = act.def, j = act.judge;
     const dmg = def.dmg * act.power * g.diff.playerDmg;
+    // смертельный точный удар — кинематографичное добивание
+    if (e.hp - dmg <= 0 && this.canTakedown(e, act)) {
+      this.combo++; this.comboT = 3; this.hits++;
+      this.maxCombo = Math.max(this.maxCombo, this.combo);
+      this.startTakedown(e, act, dirX);
+      return true;
+    }
     const broke = e.damage(dmg, dirX, def.knock * (act.empowered ? 1.3 : 1), g, def.stun);
     const killed = !e.alive;
+    if (def.launch && !killed && e.kind !== "brute") { e.vy = -430; e.vx = dirX * 40; e.onGround = false; }
     const perfect = j.rating === "perfect";
     // комбо и очки
     this.combo++; this.comboT = 3; this.hits++;
@@ -4087,7 +4473,7 @@ class CombatSystem {
     return broke;
   }
 
-  _onKill(e, act) {
+  _onKill(e, act, cinematic = false) {
     const g = this.game;
     this.kills++;
     this.score += Math.round(e.T.score * (1 + Math.min(this.combo, 40) / 40));
@@ -4095,6 +4481,139 @@ class CombatSystem {
     g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 26 : 14, e.look.accent, 260);
     g.fx.shards(e.x, e.centerY, 6, "#0b0c10", 200);
     g.fx.ring(e.x, e.centerY, 6, e.kind === "brute" ? 60 : 36, e.look.accent, 0.4, 3);
+  }
+
+  /* ---------- добивания (takedown) ---------- */
+  canTakedown(e, act) {
+    if (this.td || this.time - this.lastTdT < 2.2 || !e.alive || e.executed) return false;
+    const r = act.judge.rating;
+    return e.kind === "brute" || r === "perfect" || r === "good" || this.combo >= 6;
+  }
+
+  startTakedown(e, act, dirX) {
+    const g = this.game, p = g.player, def = act.def;
+    let kind;
+    if (e.kind === "brute") kind = "colossus";
+    else if (def.kind === "ranged") kind = "volley";
+    else if (def.launch || def.kind === "dive" || !p.onGround || !e.onGround) kind = "sky";
+    else kind = "xcut";
+    const dur = { xcut: 0.78, sky: 0.95, volley: 0.72, colossus: 1.15 }[kind];
+    e.executed = true; e.hp = Math.max(0.01, e.hp); e.cancelAttack(g);
+    e.setState("executed"); e.vx = 0; e.vy = 0;
+    p.action = null; p.scripted = true; p.setState("takedown"); p.vx = 0; p.vy = 0;
+    p.facing = sign(e.x - p.x) || p.facing;
+    this.td = { kind, t: 0, dur, e, dir: p.facing, px: p.x, py: p.y, ex: e.x, ey: e.y, step: 0, act };
+    this.takedowns++;
+    this.lastTdT = this.time;
+    g.hitstop(0.07);
+    g.slowmo(dur + 0.15, kind === "colossus" ? 0.25 : 0.35);
+    g.camera.focus(lerp(p.x, e.x, 0.6), e.centerY - 6, kind === "colossus" ? 1.35 : 1.45);
+    g.letterboxTarget = 1;
+    g.sfx("perfect");
+    const names = { xcut: "РАССЕЧЕНИЕ", sky: "НЕБЕСНАЯ КАЗНЬ", volley: "РАССТРЕЛ", colossus: "ПАДЕНИЕ КОЛОССА" };
+    this.flashLabel(names[kind]);
+    g.takedownTitle = names[kind]; g.takedownTitleT = 1.4;
+  }
+
+  /** Сценарий добивания; идёт в реальном времени (поверх замедления). */
+  updateTakedown(dt) {
+    const td = this.td;
+    if (!td) return;
+    const g = this.game, p = g.player, e = td.e, col = p.skin.accent, ec = e.look.accent;
+    td.t += dt;
+    const t = td.t, cy = e.y - e.h * e.scale * 0.5;
+    const events = td.events || (td.events = new Set());
+    const once = (key, time, fn) => { if (t >= time && !events.has(key)) { events.add(key); fn(); } };
+
+    if (td.kind === "xcut") {
+      once("dash", 0.1, () => {
+        const nx = clamp(e.x + td.dir * 30, 40, WORLD.w - 40);
+        for (let i = 0; i <= 6; i++) { p.x = lerp(td.px, nx, i / 6); g._aiT = 0; g.addAfterimage(p); }
+        p.x = nx; p.facing = -td.dir;
+        g.fx.line(e.x - 26, cy - 26, e.x + 26, cy + 26, col, 6, 0.5);
+        g.fx.line(e.x - 26, cy - 26, e.x + 26, cy + 26, "#ffffff", 2, 0.35);
+        g.sfx("dash"); g.sfx("slash", 1.4); g.camera.shake(0.25); e.flash = 1;
+      });
+      once("cut2", 0.26, () => {
+        g.fx.line(e.x + 26, cy - 26, e.x - 26, cy + 26, col, 6, 0.5);
+        g.fx.line(e.x + 26, cy - 26, e.x - 26, cy + 26, "#ffffff", 2, 0.35);
+        g.sfx("slash", 1.5); g.hitstop(0.05); e.flash = 1;
+      });
+      once("kill", 0.46, () => this._finishTakedown(true));
+    } else if (td.kind === "sky") {
+      const k = clamp(t / 0.4, 0, 1);
+      if (t < 0.5) {
+        e.y = Math.min(td.ey, td.ey - 120 * easeOut(k)) ; e.x = td.ex;
+        p.y = td.py - (td.py - (td.ey - 145)) * easeOut(clamp(t / 0.35, 0, 1)); p.x = lerp(td.px, td.ex - td.dir * 10, easeOut(k));
+      }
+      for (const hitT of [0.18, 0.26, 0.34]) once("h" + hitT, hitT, () => {
+        const a = rand(0, TAU);
+        g.fx.slashArc(e.x, e.y - 15, 22, a, a + 2.4, col, 5, 0.2);
+        g.fx.sparks(e.x, e.y - 15, 6, col, 220, null); g.sfx("hit", 0.8); e.flash = 1; g.camera.shake(0.12);
+      });
+      if (t >= 0.5 && t < 0.62) {
+        const k2 = clamp((t - 0.5) / 0.12, 0, 1);
+        e.y = lerp(td.ey - 120, 0, easeIn(k2)); p.y = lerp(td.ey - 145, -20, easeIn(k2)) ;
+        g.addAfterimage(p);
+      }
+      once("slam", 0.62, () => { e.y = 0; p.y = -2; this._finishTakedown(true); g.fx.shockwave(e.x, 0, col, 180); g.fx.dust(e.x, 0, 14); });
+    } else if (td.kind === "volley") {
+      p.pistolT = 0.8;
+      for (const st of [0.06, 0.16, 0.26]) once("s" + st, st, () => this._tracer(p, e, 2, false));
+      once("final", 0.44, () => { this._tracer(p, e, 5, true); this._finishTakedown(true); });
+    } else if (td.kind === "colossus") {
+      const spots = [[0.15, -1], [0.32, 1], [0.49, -1]];
+      for (const [st, side] of spots) once("c" + st, st, () => {
+        const nx = clamp(e.x + side * 40, 40, WORLD.w - 40);
+        g._aiT = 0; g.addAfterimage(p);
+        p.x = nx; p.facing = -side;
+        const a = side > 0 ? 2.4 : -0.7;
+        g.fx.slashArc(e.x, e.y - 30, 34, a, a + 2.2, col, 7, 0.3);
+        g.fx.sparks(e.x, e.y - 30, 10, ec, 260, null); g.sfx("hit", 1.2); e.flash = 1; g.camera.shake(0.25);
+      });
+      e.anim.pose.lean = -0.6 * clamp((t - 0.5) / 0.3, 0, 1);
+      once("fall", 0.8, () => { this._finishTakedown(true); g.fx.shockwave(e.x, 0, ec, 260); g.fx.shockwave(e.x, 0, "#ffffff", 160); g.fx.dust(e.x, 0, 20, "#2a2633"); g.sfx("slam"); });
+    }
+    if (t >= td.dur) {
+      this.td = null;
+      p.scripted = false;
+      if (p.state === "takedown") p.setState(p.onGround ? "idle" : "fall");
+      p.iframes = Math.max(p.iframes, 0.35);
+      g.camera.release();
+      g.letterboxTarget = 0;
+    }
+  }
+
+  _tracer(p, e, w, big) {
+    const g = this.game, col = p.skin.accent;
+    const h = CharacterRenderer.handWorld(p, 8);
+    const cy = e.y - e.h * e.scale * 0.5;
+    g.fx.line(h.x, h.y, e.x + (big ? sign(e.x - p.x) * 200 : 0), cy, col, w * 1.6, big ? 0.4 : 0.15);
+    g.fx.line(h.x, h.y, e.x, cy, "#ffffff", w * 0.5, 0.12);
+    g.fx.ring(h.x, h.y, 2, big ? 22 : 12, "#ffffff", 0.15, 2);
+    g.fx.sparks(e.x, cy, big ? 14 : 6, col, 260, sign(e.x - p.x) > 0 ? 0 : Math.PI, 1.4);
+    g.sfx("shot", big); g.sfx("bulletHit");
+    e.flash = 1; e.x += sign(e.x - p.x) * 3;
+    g.camera.kick(big ? 0.03 : 0.01); g.camera.shake(big ? 0.35 : 0.12);
+  }
+
+  _finishTakedown() {
+    const td = this.td, g = this.game, e = td.e, p = g.player;
+    e.executed = false;
+    e.hp = 0;
+    e.die(td.dir, g);
+    this._onKill(e, td.act, true);
+    this.score += 500;
+    g.flashT = 1;
+    g.hitstop(0.09);
+    g.camera.shake(td.kind === "colossus" ? 0.9 : 0.6);
+    g.camera.kick(0.05);
+    g.sfx("hit", 1.6, true);
+    // разлёт на две половины + большой взрыв осколков
+    g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 40 : 26, e.look.accent, 380);
+    g.fx.shards(e.x, e.centerY, 14, p.skin.accent, 320);
+    g.fx.ring(e.x, e.centerY, 8, e.kind === "brute" ? 110 : 70, "#ffffff", 0.5, 4);
+    g.fx.ring(e.x, e.centerY, 4, e.kind === "brute" ? 80 : 50, p.skin.accent, 0.6, 3);
   }
 
   /** Вражеский хитбокс по игроку (вызывается из Enemy). */
@@ -4121,7 +4640,7 @@ class CombatSystem {
       this.flashLabel("ИДЕАЛЬНЫЙ УКЛОН");
       return;
     }
-    if (p.invulnerable) return;
+    if (p.invulnerable || p.scripted) return;
     if (p.hurt(dmg, fromX, g)) {
       this.damageTaken += dmg;
       this.combo = 0; this.chain = 0;
@@ -4223,12 +4742,12 @@ class AttackDirector {
 
 /* ---------- WaveDirector ---------- */
 const WAVES = [
-  ["blade", "blade", "blade"],
-  ["blade", "blade", "gunner", "blade"],
-  ["blade", "swift", "gunner", "swift", "blade"],
-  ["brute", "blade", "gunner", "blade", "swift"],
-  ["swift", "gunner", "blade", "swift", "gunner", "blade"],
-  ["brute", "swift", "gunner", "blade", "brute", "swift", "gunner"],
+  ["blade", "blade", "blade", "blade"],
+  ["blade", "blade", "gunner", "swift", "blade"],
+  ["blade", "swift", "gunner", "swift", "blade", "gunner", "blade"],
+  ["brute", "blade", "gunner", "blade", "swift", "blade", "swift"],
+  ["swift", "gunner", "blade", "swift", "gunner", "blade", "blade", "swift"],
+  ["brute", "swift", "gunner", "blade", "brute", "swift", "gunner", "blade", "blade"],
 ];
 const PRACTICE_STEPS = [
   { text: "Двигайтесь: джойстик слева или A / D", check: g => g.player.moveDist > 220 },
@@ -4266,17 +4785,17 @@ class WaveDirector {
       // натиск следует за энергией музыки
       const I = g.clock.intensitySmooth;
       const prog = g.audio.duration ? clamp(g.songNow / g.audio.duration, 0, 1) : 0;
-      const target = Math.round(1 + I * 3.2 + prog * 1.5 + g.diff.extra);
+      const target = Math.round(2 + I * 3.5 + prog * 1.8 + g.diff.extra);
       g.director.setLimits(clamp(1 + Math.round(I * 2) + g.diff.extra, 1, 3), I > 0.6 ? 2 : 1);
       this.wave = 1 + Math.floor(prog * 5);
-      if (this.aliveCount() < target && (strongBeat || this.spawnTimer < -2.5) && this.spawnTimer <= 0) {
+      if (this.aliveCount() < target && (beat || this.spawnTimer < -1.2) && this.spawnTimer <= 0) {
         const pool = ["blade", "blade", "gunner"];
         if (prog > 0.15 || I > 0.6) pool.push("swift");
         if (prog > 0.35 && I > 0.55) pool.push("brute");
         if (I > 0.7) pool.push("swift", "gunner");
         const kind = pick(pool);
         if (kind !== "brute" || !g.enemies.some(e => e.alive && e.kind === "brute")) this.spawn(kind);
-        this.spawnTimer = 0.6;
+        this.spawnTimer = 0.45;
       }
       return;
     }
@@ -4287,17 +4806,17 @@ class WaveDirector {
       if (this.between <= 0) this.startWave(this.wave + 1);
       return;
     }
-    const maxAlive = 3 + Math.floor(this.wave / 2);
-    if (this.queue.length && this.aliveCount() < maxAlive && this.spawnTimer <= 0 && (strongBeat || this.spawnTimer < -2)) {
+    const maxAlive = 4 + Math.floor(this.wave / 2);
+    if (this.queue.length && this.aliveCount() < maxAlive && this.spawnTimer <= 0 && (beat || this.spawnTimer < -1.2)) {
       this.spawn(this.queue.shift());
-      this.spawnTimer = 0.5;
+      this.spawnTimer = 0.35;
     }
     if (!this.queue.length && this.aliveCount() === 0) {
       if (this.wave >= WAVES.length) { this.done = true; g.onVictory(); }
       else {
-        this.between = 3.2;
+        this.between = 2.4;
         this.showBanner("ВОЛНА " + this.wave + " ПРОЙДЕНА");
-        g.player.hp = Math.min(g.player.maxHp, g.player.hp + 15);
+        g.player.hp = Math.min(g.player.maxHp, g.player.hp + Math.round(g.player.maxHp * 0.12));
         g.sfx("heal");
       }
     }
@@ -4309,28 +4828,38 @@ class WaveDirector {
     this.queue = WAVES[n - 1].slice();
     this.showBanner("ВОЛНА " + n + " / " + WAVES.length);
     g.sfx("waveStart");
-    g.director.setLimits(clamp(1 + Math.floor(n / 2) + g.diff.extra, 1, 3), n >= 5 ? 2 : 1);
+    g.director.setLimits(clamp(1 + Math.ceil(n / 2) + g.diff.extra, 1, 3), n >= 4 ? 2 : 1);
     this.spawnTimer = 0.3;
   }
 
   showBanner(s) { this.banner = s; this.bannerT = 2.2; }
 
-  /** Появление врага в точке подальше от игрока, с порталом. */
+  /** Появление врага рядом с игроком (в кадре), с порталом. */
   spawn(kind, passive = false) {
     const g = this.game, p = g.player;
-    const cands = [{ x: 70, y: 0 }, { x: WORLD.w - 70, y: 0 }, { x: p.x - 300, y: 0 }, { x: p.x + 300, y: 0 }];
-    if (kind === "gunner") for (const pl of WORLD.platforms) cands.push({ x: pl.x + pl.w / 2, y: pl.y });
-    let best = cands[0], bs = -1e9;
+    const cands = [];
+    for (const side of [-1, 1]) for (const d of [115, 150, 185, 220]) cands.push({ x: p.x + side * d, y: 0 });
+    if (kind === "gunner") {
+      for (const side of [-1, 1]) cands.push({ x: p.x + side * 240, y: 0 });
+      for (const pl of WORLD.platforms) if (Math.abs(pl.x + pl.w / 2 - p.x) < 300) cands.push({ x: pl.x + pl.w / 2, y: pl.y });
+    }
+    let best = null, bs = -1e9;
+    // с какой стороны врагов меньше — туда и ставим, чтобы не толпились
+    let left = 0, right = 0;
+    for (const e of g.enemies) if (e.alive) (e.x < p.x ? left++ : right++);
     for (const c of cands) {
       if (c.x < 50 || c.x > WORLD.w - 50) continue;
       const d = Math.abs(c.x - p.x);
-      let s = d < 160 ? -1000 : -Math.abs(d - 320) + rand(0, 80);
-      for (const e of g.enemies) if (e.alive && Math.abs(e.x - c.x) < 60) s -= 200;
+      let s = -Math.abs(d - (kind === "gunner" ? 230 : 150)) + rand(0, 50);
+      s -= (c.x < p.x ? left : right) * 40;
+      for (const e of g.enemies) if (e.alive && Math.abs(e.x - c.x) < 45 && Math.abs(e.y - c.y) < 30) s -= 300;
       if (s > bs) { bs = s; best = c; }
     }
+    if (!best) best = { x: clamp(p.x + 160, 60, WORLD.w - 60), y: 0 };
     const e = new Enemy(kind, best.x, best.y, g.diff);
     e.passive = passive;
     e.facing = sign(p.x - e.x);
+    e.attackCD += 0.3;      // появились близко — даём мгновение на реакцию
     g.enemies.push(e);
     g.sfx("spawn");
     g.fx.ring(e.x, e.y - 18, 4, 40, e.look.accent, 0.6, 2);
@@ -4378,6 +4907,23 @@ class HUD {
     const accent = p.skin.accent;
     ctx.save();
     ctx.textBaseline = "alphabetic";
+    // кинематографичные полосы во время добивания
+    if (g.letterbox > 0.01) {
+      const bh = h * 0.1 * g.letterbox;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, bh); ctx.fillRect(0, h - bh, w, bh);
+      ctx.fillStyle = rgba(accent, 0.6 * g.letterbox);
+      ctx.fillRect(0, bh - 1, w, 1); ctx.fillRect(0, h - bh, w, 1);
+    }
+    if (g.takedownTitleT > 0) {
+      const k = g.takedownTitleT, a = Math.min(1, k * 2) * Math.min(1, (1.4 - k) * 6);
+      ctx.globalAlpha = a; ctx.textAlign = "center";
+      ctx.font = "700 " + Math.round(Math.min(40, w * 0.05)) + "px 'Oswald', 'Arial Narrow', sans-serif";
+      const tx = w / 2 + (1 - a) * 30;
+      ctx.fillStyle = "#ffffff"; ctx.fillText(g.takedownTitle, tx, h * 0.86);
+      ctx.fillStyle = accent; ctx.fillRect(tx - 50, h * 0.86 + 8, 100, 2);
+      ctx.globalAlpha = 1;
+    }
 
     // --- здоровье игрока ---
     const bw = Math.min(200, w * 0.24);
@@ -4422,6 +4968,20 @@ class HUD {
     ctx.fillText(Math.round(clock.map ? clock.map.bpm : clock.bpm) + " BPM · " + (MODE_LABEL[clock.mode] || "") + " · " + Math.round(clock.confidence * 100) + "%", cx - tw / 2 + 12, T + 32);
     ctx.textAlign = "right";
     ctx.fillText(fmtTime(g.songNow), cx + tw / 2, T + 32);
+
+    // --- часть трека: смена и предупреждение о дропе ---
+    if (g.sectionTitleT > 0 && g.letterbox < 0.2) {
+      const k = g.sectionTitleT, a = Math.min(1, k * 2) * Math.min(1, (2 - k) * 5);
+      ctx.globalAlpha = a; ctx.textAlign = "center";
+      ctx.font = "500 15px 'Oswald', 'Arial Narrow', sans-serif"; ctx.fillStyle = accent;
+      ctx.fillText("— " + g.sectionTitle + " —", cx, T + 52);
+      ctx.globalAlpha = 1;
+    } else if ((clock.nextKind === "drop" || clock.nextKind === "climax") && clock.timeToNext < 4 && clock.timeToNext > 0.3 && g.mode !== "practice") {
+      ctx.textAlign = "center"; ctx.font = "500 14px 'Oswald', sans-serif";
+      ctx.globalAlpha = 0.5 + 0.5 * clock.pulse;
+      ctx.fillStyle = "#ff2d4a"; ctx.fillText((clock.nextKind === "drop" ? "СКОРО ДРОП " : "КУЛЬМИНАЦИЯ ") + Math.ceil(clock.timeToNext), cx, T + 52);
+      ctx.globalAlpha = 1;
+    }
 
     // --- подсказка практики ---
     if (g.mode === "practice" && g.waves.practiceText) {
@@ -4561,7 +5121,10 @@ class UIManager {
   _bind() {
     const g = this.game, S = g.settings;
     // общий разблокиратор звука на первом жесте
-    const unlock = () => g.audio.unlock();
+    const unlock = () => {
+      g.audio.unlock();
+      if (!this._lockTried && g.isTouchDevice() && S.v.forceLandscape) { this._lockTried = true; g.requestFullscreen(true); }
+    };
     window.addEventListener("pointerdown", unlock, { capture: true });
     window.addEventListener("keydown", unlock, { capture: true });
 
@@ -4636,6 +5199,7 @@ class UIManager {
     this.bindCheck("set-flash", "flashes");
     this.bindCheck("set-guide", "beatGuide");
     this.bindCheck("set-fs", "fullscreen");
+    this.bindCheck("set-land", "forceLandscape");
     this.bindCheck("set-fps", "showFps");
     this.bindCheck("set-assist", "assist");
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
@@ -4887,11 +5451,13 @@ class UIManager {
 /* =====================================================================
    Game — главный цикл и связывание систем.
    ===================================================================== */
+// Баланс сложностей: HP игрока и врагов, урон, темп атак врагов, лимит одновременных атак.
 const DIFFS = {
-  easy:   { hp: 0.85, dmg: 0.6,  cd: 1.25, wind: 1.15, extra: -1, playerDmg: 1.15 },
-  normal: { hp: 1,    dmg: 1,    cd: 1,    wind: 1,    extra: 0,  playerDmg: 1 },
-  hard:   { hp: 1.2,  dmg: 1.35, cd: 0.85, wind: 0.85, extra: 1,  playerDmg: 0.95 },
+  easy:   { hp: 0.85, playerHp: 1.3,  dmg: 0.65, cd: 1.25, wind: 1.15, extra: -1, playerDmg: 1.15 },
+  normal: { hp: 1,    playerHp: 1,    dmg: 1,    cd: 1,    wind: 1,    extra: 0,  playerDmg: 1 },
+  hard:   { hp: 1.2,  playerHp: 0.85, dmg: 1.3,  cd: 0.85, wind: 0.85, extra: 1,  playerDmg: 0.95 },
 };
+const SECTION_NAMES = { intro: "ИНТРО", build: "НАРАСТАНИЕ", drop: "ДРОП", climax: "КУЛЬМИНАЦИЯ", break: "БРЕЙК", calm: "ЗАТИШЬЕ", groove: "ГРУВ", outro: "ФИНАЛ" };
 const MODE_NAMES = { waves: "Волны", track: "До конца трека", practice: "Практика" };
 const STEP = 1 / 120;
 const VIEW_H = 360;            // видимая высота мира в единицах
@@ -4925,6 +5491,8 @@ class Game {
     this.songNow = 0;
     this.acc = 0; this.hitstopT = 0; this.slowT = 0; this.slowDur = 0; this.slowScale = 1;
     this.hurtFlash = 0; this.endT = 0; this.endWin = false;
+    this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitle = ""; this.takedownTitleT = 0;
+    this.sectionTitle = ""; this.sectionTitleT = 0;
     this.fps = 60; this._ft = 16; this._slowFrames = 0; this.autoLow = false;
     this.effQuality = "high";
     this.loading = false;
@@ -4941,6 +5509,7 @@ class Game {
     this.settings.on("change", k => {
       if (k === "difficulty") this.diff = DIFFS[this.settings.v.difficulty];
       if (k === "latencyMs") this.clock.reset(this.audio.songTime());
+      if (k === "forceLandscape") { this.resize(); this.checkOrientation(); }
     });
 
     this.applyQuality();
@@ -4960,9 +5529,18 @@ class Game {
     this.fx.setQuality(this.effQuality);
     this.resize();
   }
+  /** Горизонталь по умолчанию: если телефон держат вертикально, поворачиваем интерфейс на 90°. */
+  applyRotation() {
+    const app = $("app"), iw = window.innerWidth, ih = window.innerHeight;
+    const rot = this.settings.v.forceLandscape && ih > iw * 1.05 && this.isTouchDevice();
+    this.input.rotated = rot;
+    app.classList.toggle("rot", rot);
+    if (rot) { app.style.width = ih + "px"; app.style.height = iw + "px"; app.style.transform = `translate(${iw}px,0) rotate(90deg)`; }
+    else { app.style.width = ""; app.style.height = ""; app.style.transform = ""; }
+  }
   resize() {
-    const r = this.canvas.getBoundingClientRect();
-    this.cssW = Math.max(1, r.width); this.cssH = Math.max(1, r.height);
+    this.applyRotation();
+    this.cssW = Math.max(1, this.canvas.clientWidth); this.cssH = Math.max(1, this.canvas.clientHeight);
     this.dpr = Math.min(window.devicePixelRatio || 1, this.effQuality === "low" ? 1.25 : 2);
     this.canvas.width = Math.round(this.cssW * this.dpr);
     this.canvas.height = Math.round(this.cssH * this.dpr);
@@ -4971,13 +5549,13 @@ class Game {
   }
   isTouchDevice() { return this.input.usingTouch || (window.matchMedia && matchMedia("(pointer: coarse)").matches); }
   checkOrientation() {
-    const portrait = this.cssH > this.cssW * 1.05;
+    const portrait = this.cssH > this.cssW * 1.05 && !this.input.rotated;
     const need = portrait && this.isTouchDevice() && (this.state === "battle" || this.state === "paused" || this.state === "editor");
     $("rotate").hidden = !need;
     if (need && this.state === "battle") this.pause();
   }
-  requestFullscreen() {
-    if (!this.settings.v.fullscreen) return;
+  requestFullscreen(force = false) {
+    if (!this.settings.v.fullscreen && !force) return;
     const el = document.documentElement;
     const fn = el.requestFullscreen || el.webkitRequestFullscreen;
     if (fn && !document.fullscreenElement && !document.webkitFullscreenElement) {
@@ -5081,8 +5659,10 @@ class Game {
     this.mode = mode;
     this.diff = DIFFS[this.settings.v.difficulty] || DIFFS.normal;
     this.player.setSkin(this.settings.v.skin);
-    this.player.reset(WORLD.w / 2);
+    this.player.reset(WORLD.w / 2, this.diff.playerHp);
     this.player.dodgeCount = 0;
+    this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitleT = 0;
+    this.camera.release(); this.camera.fw = 0;
     this.enemies = [];
     this.combat.reset();
     this.director.reset();
@@ -5129,6 +5709,7 @@ class Game {
   returnToBattle() { this.resume(); }
 
   toMenu() {
+    this.combat.td = null; this.player.scripted = false; this.camera.release(); this.letterboxTarget = 0;
     this.battleActive = false;
     this.state = "menu";
     this.audio.pause();
@@ -5312,7 +5893,12 @@ class Game {
       this.acc -= STEP; steps++;
     }
     if (steps >= 8) this.acc = 0;
+    this.combat.updateTakedown(dtReal);
     this.enemies = this.enemies.filter(e => !e.dead);
+    this.letterbox = damp(this.letterbox, this.letterboxTarget, 8, dtReal);
+    this.flashT = Math.max(0, this.flashT - dtReal * 3);
+    this.takedownTitleT = Math.max(0, this.takedownTitleT - dtReal);
+    this.sectionTitleT = Math.max(0, this.sectionTitleT - dtReal);
     this.waves.update(dt);
     this.fx.update(dt);
     this._aiT -= dt;
@@ -5321,8 +5907,12 @@ class Game {
     this.afterimages = this.afterimages.filter(a => a.life > 0);
     this.hurtFlash = Math.max(0, this.hurtFlash - dtReal * 2.5);
 
-    // музыка в мире: толчок камеры на сильных долях, кольцо под ногами
+    // музыка в мире: толчок камеры на сильных долях, кольцо под ногами, смена частей трека
     for (const ev of this.clock.events) {
+      if (ev.type === "section" && SECTION_NAMES[ev.kind]) {
+        this.sectionTitle = SECTION_NAMES[ev.kind]; this.sectionTitleT = 2;
+        if (ev.kind === "drop" || ev.kind === "climax") { this.camera.kick(0.04); this.camera.shake(0.3); this.fx.shockwave(p.x, p.groundY, p.skin.accent, 220); }
+      }
       if (ev.type === "strongBeat") {
         this.camera.kick(0.006 * this.clock.intensitySmooth);
         this.fx.shockwave(p.x, p.groundY, p.skin.accent, 60 + 40 * this.clock.intensitySmooth);
@@ -5345,7 +5935,11 @@ class Game {
       intensity: c.intensitySmooth, beat: Math.max(0, c.idx), beatF: Math.max(0, c.idx) + c.phase, phase: c.phase,
       time: performance.now() / 1000, level: c.level,
       sectionEvent: c.events.some(e => e.type === "section"),
+      sectionKind: (c.events.find(e => e.type === "section") || {}).kind,
       strongEvent: c.events.some(e => e.type === "strongBeat"),
+      kind: c.kind, trend: c.trend, timeToNext: c.timeToNext, bassy: c.bassy, bright: c.bright,
+      dropSoon: (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0,
+      halfPulse: c.halfPulse, onsets: c.events.filter(e => e.type === "onset"),
     };
   }
 
@@ -5356,7 +5950,7 @@ class Game {
     const cam = this.camera;
     const zs = this.viewScale() * cam.zoom;
     const floorY = h / 2 + (0 - cam.y) * zs + cam.oy;
-    const v = { w, h, floorY, camX: cam.x, scale: zs };
+    const v = { w, h, floorY, camX: cam.x, scale: zs, playerX: (this.player.x - cam.x) * zs + w / 2 + cam.ox };
     const m = this.musicState(dt);
     const R = { dpr: this.tileDpr, dt, amount: this.effQuality === "low" ? 0.45 : 1, flashes: this.settings.v.flashes, amb: this.arena.amb };
     this.arena.drawBack(ctx, v, m, R);
@@ -5392,6 +5986,7 @@ class Game {
     ctx.restore();
 
     this.arena.drawFront(ctx, v, m, R);
+    if (this.flashT > 0) { ctx.fillStyle = rgba("#ffffff", this.flashT * (this.settings.v.flashes ? 0.55 : 0.2)); ctx.fillRect(0, 0, w, h); }
     if (this.battleActive || this.state === "results") this.hud.draw(ctx, w, h, dt);
     if (this.input.showTouch && (this.state === "battle" || this.state === "editor")) this.input.touch.draw(ctx, this.clock, this.player.skin.accent);
   }
@@ -5455,6 +6050,7 @@ window.addEventListener("load", () => {
     document.body.insertAdjacentHTML("beforeend", '<p style="position:fixed;inset:auto 16px 16px;color:#ff2d4a;font-family:monospace">Не удалось запустить игру: ' + String(e.message).replace(/</g, "&lt;") + "</p>");
   }
 });
+window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS;
 
 })();
 </script>

@@ -14,6 +14,23 @@ class HUD {
     const accent = p.skin.accent;
     ctx.save();
     ctx.textBaseline = "alphabetic";
+    // кинематографичные полосы во время добивания
+    if (g.letterbox > 0.01) {
+      const bh = h * 0.1 * g.letterbox;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, bh); ctx.fillRect(0, h - bh, w, bh);
+      ctx.fillStyle = rgba(accent, 0.6 * g.letterbox);
+      ctx.fillRect(0, bh - 1, w, 1); ctx.fillRect(0, h - bh, w, 1);
+    }
+    if (g.takedownTitleT > 0) {
+      const k = g.takedownTitleT, a = Math.min(1, k * 2) * Math.min(1, (1.4 - k) * 6);
+      ctx.globalAlpha = a; ctx.textAlign = "center";
+      ctx.font = "700 " + Math.round(Math.min(40, w * 0.05)) + "px 'Oswald', 'Arial Narrow', sans-serif";
+      const tx = w / 2 + (1 - a) * 30;
+      ctx.fillStyle = "#ffffff"; ctx.fillText(g.takedownTitle, tx, h * 0.86);
+      ctx.fillStyle = accent; ctx.fillRect(tx - 50, h * 0.86 + 8, 100, 2);
+      ctx.globalAlpha = 1;
+    }
 
     // --- здоровье игрока ---
     const bw = Math.min(200, w * 0.24);
@@ -58,6 +75,20 @@ class HUD {
     ctx.fillText(Math.round(clock.map ? clock.map.bpm : clock.bpm) + " BPM · " + (MODE_LABEL[clock.mode] || "") + " · " + Math.round(clock.confidence * 100) + "%", cx - tw / 2 + 12, T + 32);
     ctx.textAlign = "right";
     ctx.fillText(fmtTime(g.songNow), cx + tw / 2, T + 32);
+
+    // --- часть трека: смена и предупреждение о дропе ---
+    if (g.sectionTitleT > 0 && g.letterbox < 0.2) {
+      const k = g.sectionTitleT, a = Math.min(1, k * 2) * Math.min(1, (2 - k) * 5);
+      ctx.globalAlpha = a; ctx.textAlign = "center";
+      ctx.font = "500 15px 'Oswald', 'Arial Narrow', sans-serif"; ctx.fillStyle = accent;
+      ctx.fillText("— " + g.sectionTitle + " —", cx, T + 52);
+      ctx.globalAlpha = 1;
+    } else if ((clock.nextKind === "drop" || clock.nextKind === "climax") && clock.timeToNext < 4 && clock.timeToNext > 0.3 && g.mode !== "practice") {
+      ctx.textAlign = "center"; ctx.font = "500 14px 'Oswald', sans-serif";
+      ctx.globalAlpha = 0.5 + 0.5 * clock.pulse;
+      ctx.fillStyle = "#ff2d4a"; ctx.fillText((clock.nextKind === "drop" ? "СКОРО ДРОП " : "КУЛЬМИНАЦИЯ ") + Math.ceil(clock.timeToNext), cx, T + 52);
+      ctx.globalAlpha = 1;
+    }
 
     // --- подсказка практики ---
     if (g.mode === "practice" && g.waves.practiceText) {
@@ -197,7 +228,10 @@ class UIManager {
   _bind() {
     const g = this.game, S = g.settings;
     // общий разблокиратор звука на первом жесте
-    const unlock = () => g.audio.unlock();
+    const unlock = () => {
+      g.audio.unlock();
+      if (!this._lockTried && g.isTouchDevice() && S.v.forceLandscape) { this._lockTried = true; g.requestFullscreen(true); }
+    };
     window.addEventListener("pointerdown", unlock, { capture: true });
     window.addEventListener("keydown", unlock, { capture: true });
 
@@ -272,6 +306,7 @@ class UIManager {
     this.bindCheck("set-flash", "flashes");
     this.bindCheck("set-guide", "beatGuide");
     this.bindCheck("set-fs", "fullscreen");
+    this.bindCheck("set-land", "forceLandscape");
     this.bindCheck("set-fps", "showFps");
     this.bindCheck("set-assist", "assist");
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));

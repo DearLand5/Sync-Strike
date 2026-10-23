@@ -28,6 +28,9 @@
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;overflow:hidden;
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none}
 #app{position:fixed;inset:0;overflow:hidden}
+/* портретный телефон: интерфейс поворачивается в горизонталь; безопасные зоны переставляются */
+#app.rot{inset:auto;left:0;top:0;transform-origin:0 0;
+  --sat:env(safe-area-inset-right,0px);--sar:env(safe-area-inset-bottom,0px);--sab:env(safe-area-inset-left,0px);--sal:env(safe-area-inset-top,0px)}
 #game{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
@@ -357,6 +360,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
           <div class="toggle"><span>Яркие вспышки и стробы</span><input type="checkbox" id="set-flash"></div>
           <div class="toggle"><span>Индикатор доли внизу экрана</span><input type="checkbox" id="set-guide"></div>
           <div class="toggle"><span>Полный экран в бою</span><input type="checkbox" id="set-fs"></div>
+          <div class="toggle"><span>Горизонтальный экран на телефоне (повернуть, если держите вертикально)</span><input type="checkbox" id="set-land"></div>
           <div class="toggle"><span>Показывать FPS</span><input type="checkbox" id="set-fps"></div>
         </div>
       </div>
