@@ -12,11 +12,17 @@ const secs = +(process.argv[2] || 90), diff = process.argv[3] || "normal";
   await page.evaluate(diff => {
     const g = window.__game;
     g.settings.set("difficulty", diff);
-    const M = window.__tfx = { total: 0, slow: 0, stop: 0, enters: [], inSlow: false };
+    const M = window.__tfx = { total: 0, slow: 0, stop: 0, enters: [], inSlow: false, prev: 1, maxJump: 0, maxEff: 0, prevEff: 1 };
     const orig = g.updateTimeScale.bind(g);
     g.updateTimeScale = dt => {
       const s = orig(dt);
       M.total += dt;
+      // плавность: максимальное изменение масштаба времени за 1/60 с (стоп-кадр не в счёт)
+      if (dt > 0.001 && dt < 0.1) {
+        M.maxJump = Math.max(M.maxJump, Math.abs(g.timeScale - M.prev) / dt / 60);
+        if (s > 0 && M.prevEff > 0) M.maxEff = Math.max(M.maxEff, Math.abs(s - M.prevEff) / dt / 60);
+      }
+      M.prev = g.timeScale; M.prevEff = s;
       if (s === 0) M.stop += dt;
       const slowNow = g.timeScale < 0.9;
       if (slowNow) M.slow += dt;
@@ -46,9 +52,11 @@ const secs = +(process.argv[2] || 90), diff = process.argv[3] || "normal";
   const r = await page.evaluate(() => {
     const M = window.__tfx, g = window.__game;
     let minGap = 99; for (let i = 1; i < M.enters.length; i++) minGap = Math.min(minGap, M.enters[i] - M.enters[i - 1]);
-    return { seconds: +M.total.toFixed(1), slowShare: Math.round(100 * M.slow / M.total) + "%", slowEntersPerMin: +(M.enters.length / M.total * 60).toFixed(1), minGapSec: +minGap.toFixed(2), hitstopMsPerSec: Math.round(1000 * M.stop / M.total), kills: g.combat.kills, takedowns: g.combat.takedowns };
+    return { seconds: +M.total.toFixed(1), slowShare: Math.round(100 * M.slow / M.total) + "%", slowEntersPerMin: +(M.enters.length / M.total * 60).toFixed(1), minGapSec: +minGap.toFixed(2), hitstopMsPerSec: Math.round(1000 * M.stop / M.total), maxScaleStep60: +M.maxJump.toFixed(3), maxEffStep60: +M.maxEff.toFixed(3), kills: g.combat.kills, takedowns: g.combat.takedowns };
   });
   console.log(JSON.stringify(r));
+  // цели: плавность — масштаб времени меняется не более чем на 0.08 за кадр 1/60 с (без учёта самого стоп-кадра)
+  if (r.maxScaleStep60 > 0.08) console.log("FAIL: рывок масштаба времени " + r.maxScaleStep60);
   await browser.close();
   console.log(errors.length ? "ERRORS: " + errors.join("; ") : "no errors");
 })();

@@ -410,7 +410,9 @@ class CombatSystem {
     g.camera.kick(perfect ? 0.02 : 0.008);
     if (killed) this._onKill(e, act);
     // особо зрелищные моменты — замедление времени
-    if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered)) {
+    // зрелищные: вихрь на сильной доле, усиленное убийство, точное убийство на сильной доле дропа/кульминации
+    const peak = g.clock.kind === "drop" || g.clock.kind === "climax";
+    if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered) || (killed && perfect && j.strong && peak)) {
       g.slowmo(0.4, 0.3, "flair");
       this.flashLabel(act.name === "slash3" ? "НОКС-ВИХРЬ" : "ФИНАЛ");
     } else if (act.name === "slash3") this.flashLabel("НОКС-ВИХРЬ");
@@ -426,6 +428,11 @@ class CombatSystem {
     g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 26 : 14, e.look.accent, 260);
     g.fx.shards(e.x, e.centerY, 6, "#0b0c10", 200);
     g.fx.ring(e.x, e.centerY, 6, e.kind === "brute" ? 60 : 36, e.look.accent, 0.4, 3);
+    // последний враг волны (в очереди никого): короткое замедление «на выдохе», кроме добивания (у него своё)
+    const w = g.waves;
+    if (!cinematic && w.mode === "waves" && !w.done && !w.queue.length && !g.enemies.some(x => x !== e && x.alive)) {
+      g.slowmo(0.45, 0.35, "takedown");
+    }
   }
 
   /* ---------- добивания (takedown) ---------- */
@@ -584,7 +591,9 @@ class CombatSystem {
       this.perfectDodges++;
       this.score += 300;
       p.counterT = 1.0;
-      g.slowmo(0.5, 0.3, "dodge");
+      // спасение на низком здоровье — дольше и глубже, чтобы игрок успел собраться
+      const low = p.hp <= p.maxHp * 0.3;
+      g.slowmo(low ? 0.7 : 0.5, low ? 0.25 : 0.3, "dodge");
       g.sfx("perfect");
       g.fx.ring(p.x, p.y - 16, 6, 44, p.skin.accent, 0.4, 3);
       this.flashLabel("ИДЕАЛЬНЫЙ УКЛОН");
