@@ -651,26 +651,32 @@ const CharacterRenderer = {
       }
     }
     if (tint) return;
-    // глаза
+    // глаза: форма не меняется; при усилении (замах) — ярче, чуть крупнее, белое ядро и мягкий ореол (ореол только в high)
+    const b = clamp(boost, 0, 1), qb = Math.round(b * 8) / 8;
+    const eye = (x, y, rx, ry, rot, col, k) => { ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, rot, 0, TAU); ctx.fill(); };
     if (kind === "player") {
-      ctx.fillStyle = skin.eye;
-      ctx.beginPath(); ctx.ellipse(0.4, -0.2, 1.5, 2.6, 0.08, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(4.0, -0.2, 1.3, 2.4, 0.08, 0, TAU); ctx.fill();
+      const k = 1 + 0.22 * b;
+      if (hq && (b > 0.05 || skin.rim)) {
+        const ha = (skin.rim ? 0.1 : 0) + 0.2 * b;
+        eye(0.4, -0.2, 1.5, 2.6, 0.08, rgba(accent, ha * 0.6), k * 2.1); eye(4.0, -0.2, 1.3, 2.4, 0.08, rgba(accent, ha * 0.6), k * 2.1);
+        eye(0.4, -0.2, 1.5, 2.6, 0.08, rgba(accent, ha), k * 1.5); eye(4.0, -0.2, 1.3, 2.4, 0.08, rgba(accent, ha), k * 1.5);
+      }
+      const ec = b > 0.05 ? mixc(skin.eye, accent, qb * 0.9) : skin.eye;
+      eye(0.4, -0.2, 1.5, 2.6, 0.08, ec, k); eye(4.0, -0.2, 1.3, 2.4, 0.08, ec, k);
+      if (b > 0.05) { eye(0.4, -0.3, 1.5, 2.6, 0.08, rgba("#ffffff", 0.9 * b), k * 0.5); eye(4.0, -0.3, 1.3, 2.4, 0.08, rgba("#ffffff", 0.9 * b), k * 0.5); }
       ctx.fillStyle = "rgba(255,255,255,.8)";
       ctx.beginPath(); ctx.arc(0.0, -1.3, 0.45, 0, TAU); ctx.arc(3.6, -1.3, 0.4, 0, TAU); ctx.fill();
-      ctx.fillStyle = skin.eye;
-      if (skin.rim || boost > 0.3) {
-        ctx.fillStyle = rgba(accent, 0.25 + 0.5 * boost);
-        ctx.beginPath(); ctx.ellipse(0.4, -0.2, 2.7, 3.5, 0, 0, TAU); ctx.ellipse(4.0, -0.2, 2.5, 3.3, 0, 0, TAU); ctx.fill();
-      }
     } else {
       // злые скошенные глаза-щели
-      const r = 1.05 + boost * 0.55;
-      const col = boost > 0.5 ? "#ffffff" : accent;
-      if (hq && boost > 0.2) { ctx.globalAlpha *= 0.4; ctx.beginPath(); ctx.arc(2.6, -0.6, r * 3, 0, TAU); ctx.fillStyle = accent; ctx.fill(); ctx.globalAlpha /= 0.4; }
-      ctx.fillStyle = col;
-      ctx.beginPath(); ctx.ellipse(1.3, -0.6, r * 1.45, r * 0.8, 0.38, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(4.3, -0.7, r * 1.25, r * 0.7, -0.38, 0, TAU); ctx.fill();
+      const k = 1 + 0.3 * b, r = 1.05;
+      const ec = b > 0.05 ? mixc(accent, "#ffffff", qb * 0.5) : accent;
+      if (hq && b > 0.05) {
+        for (const [m, a] of [[2.5, 0.12], [1.7, 0.22]]) {
+          eye(1.3, -0.6, r * 1.45, r * 0.8, 0.38, rgba(accent, a * b), k * m); eye(4.3, -0.7, r * 1.25, r * 0.7, -0.38, rgba(accent, a * b), k * m);
+        }
+      }
+      eye(1.3, -0.6, r * 1.45, r * 0.8, 0.38, ec, k); eye(4.3, -0.7, r * 1.25, r * 0.7, -0.38, ec, k);
+      if (b > 0.05) { eye(1.3, -0.6, r * 1.45, r * 0.8, 0.38, rgba("#ffffff", b), k * 0.55); eye(4.3, -0.7, r * 1.25, r * 0.7, -0.38, rgba("#ffffff", b), k * 0.55); }
     }
   },
 
