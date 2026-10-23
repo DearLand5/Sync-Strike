@@ -10,21 +10,29 @@
 //  alive(n) — сколько врагов одновременно на арене; waveHeal — лечение между волнами (доля от макс. HP).
 const DIFFS = {
   easy: {
-    hp: 0.85, playerHp: 1.3, dmg: 0.55, playerDmg: 1.15, cd: 1.4, wind: 1.25, bolt: 0.85,
+    hp: 0.85, playerHp: 1.3, dmg: 0.5, playerDmg: 1.15, cd: 1.5, wind: 1.25, bolt: 0.85,
     hurtIF: 1.1, perfectDodge: 0.22, spawnGrace: 0.9, gap: 1.5, extra: -1,
     tokens: n => 1 + Math.floor(n / 5), ranged: n => 1, alive: n => 3 + Math.floor(n / 3), waveHeal: 0.25,
   },
   normal: {
-    hp: 1, playerHp: 1, dmg: 0.85, playerDmg: 1, cd: 1.12, wind: 1.07, bolt: 0.95,
+    hp: 1, playerHp: 1, dmg: 0.7, playerDmg: 1, cd: 1.2, wind: 1.07, bolt: 0.95,
     hurtIF: 0.85, perfectDodge: 0.18, spawnGrace: 0.55, gap: 1.15, extra: 0,
     tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), alive: n => 3 + Math.floor(n / 2), waveHeal: 0.15,
   },
   hard: {
-    hp: 1.2, playerHp: 0.85, dmg: 1.25, playerDmg: 0.95, cd: 0.85, wind: 0.88, bolt: 1.1,
+    hp: 1.2, playerHp: 0.85, dmg: 1.15, playerDmg: 0.95, cd: 0.9, wind: 0.88, bolt: 1.1,
     hurtIF: 0.7, perfectDodge: 0.15, spawnGrace: 0.35, gap: 1, extra: 1,
     tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), alive: n => 4 + Math.floor(n / 2), waveHeal: 0.08,
   },
 };
+// Режимы замедлений (настройка «Замедления»): кулдаун после замедления (с), отдельно для зрелищных ударов,
+// бюджет — максимальная доля замедленного времени за 8 с, stopScale — множитель стоп-кадров.
+const SLOWMO_MODES = {
+  normal: { gap: 1.6, flairGap: 2.8, budget: 0.3, stopScale: 1 },
+  rare:   { gap: 2.5, flairGap: 4.0, budget: 0.2, stopScale: 0.85 },
+  off:    { gap: 1e9, flairGap: 1e9, budget: 0, stopScale: 0.6 },
+};
+const SLOW_PRIORITY = { flair: 1, dodge: 2, takedown: 3, finale: 4 };
 const SECTION_NAMES = { intro: "ИНТРО", build: "НАРАСТАНИЕ", drop: "ДРОП", climax: "КУЛЬМИНАЦИЯ", break: "БРЕЙК", calm: "ЗАТИШЬЕ", groove: "ГРУВ", outro: "ФИНАЛ" };
 const MODE_NAMES = { waves: "Волны", track: "До конца трека", practice: "Практика" };
 const STEP = 1 / 120;
@@ -58,7 +66,7 @@ class Game {
     this.track = null;
     this.songNow = 0;
     this.acc = 0; this.hitstopT = 0; this.slowT = 0; this.slowDur = 0; this.slowScale = 1;
-    this.timeScale = 1; this.tsFrom = 1; this.tsTo = 1; this.tsT = 1; this.tsDur = 1; this.afterStop = 1;
+    this.resetTimeFx();
     this.deferPose = false; this._m = { onsets: [] };
     this.hurtFlash = 0; this.endT = 0; this.endWin = false;
     this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitle = ""; this.takedownTitleT = 0;
@@ -241,7 +249,7 @@ class Game {
     this.afterimages = [];
     this.camera.x = this.player.x; this.camera.trauma = 0;
     this.hitstopT = 0; this.slowT = 0; this.hurtFlash = 0; this.endT = 0;
-    this.timeScale = 1; this.tsFrom = 1; this.tsTo = 1; this.tsT = 1; this.afterStop = 1;
+    this.resetTimeFx();
     this.battleActive = true;
     this.state = "battle";
     this.input.active = true; this.input.clear();
@@ -321,7 +329,7 @@ class Game {
     this.sfx("defeat");
     this.waves.done = true;
     this.endT = 1.8; this.endWin = false;
-    this.slowmo(0.8, 0.35);
+    this.slowmo(0.8, 0.35, "finale");
   }
   onVictory() {
     if (this.endT > 0) return;
@@ -330,7 +338,7 @@ class Game {
     this.waves.done = true;
     this.sfx("victory");
     this.endT = 2.6; this.endWin = true;
-    this.slowmo(0.6, 0.4);
+    this.slowmo(0.6, 0.4, "finale");
     this.camera.kick(0.04);
   }
   onTrackEnded() {
@@ -370,19 +378,58 @@ class Game {
     this.ui.showResults(win, { grade, sub, rows });
   }
 
-  /* ---------- эффекты времени ---------- */
-  hitstop(t) { this.hitstopT = Math.max(this.hitstopT, t); }
-  /** Замедление времени. Наложенные замедления объединяются (глубже и дольше), а не перезапускаются. */
-  slowmo(dur, scale) {
-    if (this.slowT > 0) { this.slowScale = Math.min(this.slowScale, scale); this.slowT = Math.max(this.slowT, dur); }
-    else { this.slowScale = scale; this.slowT = dur; this.sfx("slowmo"); }
+  /* ---------- эффекты времени ----------
+     Все замедления и стоп-кадры идут только через slowmo()/hitstop() — регулятор следит, чтобы
+     в плотном бою они не накладывались и не съедали темп (раньше: 34% времени в замедлении). */
+  get tfxMode() { return SLOWMO_MODES[this.settings.v.slowmoMode] || SLOWMO_MODES.rare; }
+  resetTimeFx() {
+    this.timeScale = 1; this.tsFrom = 1; this.tsTo = 1; this.tsT = 1; this.tsDur = 1; this.afterStop = 1;
+    this.slowT = 0; this.slowScale = 1; this.slowPr = 0; this.hitstopT = 0;
+    this.tfxClock = 0; this.slowEndAt = -99; this.lastStopAt = -99; this.stopChain = 0; this.lastStopLen = 0;
+    this.slowBins = [0, 0, 0, 0, 0, 0, 0, 0]; this.slowBinT = 0;
+  }
+  /** Доля замедленного времени за последние 8 с. */
+  slowShare() { let a = 0; for (const b of this.slowBins) a += b; return a / 8; }
+  /**
+   * Запрос замедления. priority: "flair" (зрелищный удар) < "dodge" < "takedown" < "finale".
+   * Не продлевает уже идущее замедление; после замедления — кулдаун; общий бюджет на 8 с.
+   * Возвращает true, если замедление действительно началось.
+   */
+  slowmo(dur, scale, priority = "flair") {
+    const pr = SLOW_PRIORITY[priority] || 1, mode = this.tfxMode;
+    if (priority !== "finale") {
+      if (this.slowT > 0) {
+        if (pr <= this.slowPr) return false;
+        this.slowScale = Math.min(this.slowScale, scale); this.slowT = Math.min(dur, Math.max(this.slowT, dur * 0.6)); this.slowPr = pr;
+        return true;
+      }
+      // идеальный уклон — защитная награда: кулдаун не действует, только общий бюджет
+      const gap = priority === "flair" ? mode.flairGap : priority === "dodge" ? 0 : mode.gap;
+      if (this.tfxClock - this.slowEndAt < gap) return false;
+      if (this.slowShare() + dur / 8 > mode.budget) return false;
+    }
+    if (this.slowT <= 0) this.sfx("slowmo");
+    this.slowScale = this.slowT > 0 ? Math.min(this.slowScale, scale) : scale;
+    this.slowT = Math.max(this.slowT, dur); this.slowPr = Math.max(this.slowPr, pr);
+    return true;
+  }
+  /** Стоп-кадр удара. В серии ударов (< 0.9 с между ними, т.е. удары подряд в такт) каждый следующий короче:
+      ×1 → ×0.6 → ×0.36 … Одиночный удар остаётся весомым. */
+  hitstop(t) {
+    const since = this.tfxClock - this.lastStopAt;
+    this.stopChain = since < 0.9 ? Math.min(this.stopChain + 1, 6) : 0;
+    const d = t * this.tfxMode.stopScale * Math.pow(0.6, this.stopChain);
+    if (d < 0.012) return;
+    this.lastStopAt = this.tfxClock; this.lastStopLen = d;
+    this.hitstopT = Math.max(this.hitstopT, d);
   }
   /**
    * Масштаб времени кадра. Вход в замедление — за 0.08 с, выход — за 0.35 с, по кривой easeInOut.
-   * После стоп-кадра скорость не прыгает, а коротко разгоняется к текущему масштабу.
+   * После заметного стоп-кадра скорость коротко разгоняется с 50%.
    */
   updateTimeScale(dtReal) {
-    if (this.slowT > 0) this.slowT -= dtReal;
+    this.tfxClock += dtReal;
+    if (this.slowT > 0) { this.slowT -= dtReal; if (this.slowT <= 0) { this.slowEndAt = this.tfxClock; this.slowPr = 0; } }
     const target = this.slowT > 0 ? this.slowScale : 1;
     if (target !== this.tsTo) {
       this.tsFrom = this.timeScale; this.tsTo = target; this.tsT = 0;
@@ -390,8 +437,12 @@ class Game {
     }
     this.tsT += dtReal;
     this.timeScale = lerp(this.tsFrom, this.tsTo, easeInOut(this.tsT / this.tsDur));
-    if (this.hitstopT > 0) { this.hitstopT -= dtReal; this.afterStop = 0; return 0; }
-    if (this.afterStop < 0.06) { this.afterStop += dtReal; return this.timeScale * lerp(0.25, 1, easeOut(this.afterStop / 0.06)); }
+    // учёт доли замедления по секундным корзинам
+    this.slowBinT += dtReal;
+    if (this.slowBinT >= 1) { this.slowBinT -= 1; this.slowBins.shift(); this.slowBins.push(0); }
+    if (this.timeScale < 0.9) this.slowBins[7] += dtReal;
+    if (this.hitstopT > 0) { this.hitstopT -= dtReal; this.afterStop = this.lastStopLen >= 0.05 ? 0 : 1; return 0; }
+    if (this.afterStop < 0.06) { this.afterStop += dtReal; return this.timeScale * lerp(0.5, 1, easeOut(this.afterStop / 0.06)); }
     return this.timeScale;
   }
   /** Агрессивность врагов от музыки: <1 — чаще атакуют. */

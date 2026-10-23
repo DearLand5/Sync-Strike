@@ -404,13 +404,14 @@ class CombatSystem {
     g.fx.sparks(hx, hy, perfect ? 14 : 8, col, perfect ? 340 : 240, dirX > 0 ? 0 : Math.PI, 1.6);
     g.fx.sparks(hx, hy, 4, "#ffffff", 200, null);
     g.fx.ring(hx, hy, 4, perfect ? 30 : 20, perfect ? "#ffffff" : col, 0.22, perfect ? 3 : 2);
-    g.hitstop(perfect ? 0.075 : 0.045);
+    // один стоп-кадр на атаку (вихрь по нескольким целям, пробивающая пуля); частые выстрелы — вдвое короче
+    if (!act.stopped) { act.stopped = true; g.hitstop((perfect ? 0.075 : 0.045) * (def.kind === "ranged" && !def.pierce ? 0.5 : 1)); }
     g.camera.shake(act.empowered ? 0.35 : perfect ? 0.22 : 0.12);
     g.camera.kick(perfect ? 0.02 : 0.008);
     if (killed) this._onKill(e, act);
     // особо зрелищные моменты — замедление времени
     if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered)) {
-      g.slowmo(0.4, 0.3);
+      g.slowmo(0.4, 0.3, "flair");
       this.flashLabel(act.name === "slash3" ? "НОКС-ВИХРЬ" : "ФИНАЛ");
     } else if (act.name === "slash3") this.flashLabel("НОКС-ВИХРЬ");
     if (def.kind === "ranged" && act.def.pierce) this.flashLabel("ЗАРЯД");
@@ -429,7 +430,10 @@ class CombatSystem {
 
   /* ---------- добивания (takedown) ---------- */
   canTakedown(e, act) {
-    if (this.td || this.time - this.lastTdT < 2.2 || !e.alive || e.executed) return false;
+    // в толпе кинематографичные добивания реже — иначе они идут почти подряд
+    let alive = 0; for (const x of this.game.enemies) if (x.alive) alive++;
+    const cd = 4.5 + 0.5 * Math.max(0, alive - 3);
+    if (this.td || this.time - this.lastTdT < cd || !e.alive || e.executed) return false;
     const r = act.judge.rating;
     return e.kind === "brute" || r === "perfect" || r === "good" || this.combo >= 6;
   }
@@ -446,11 +450,13 @@ class CombatSystem {
     e.setState("executed"); e.vx = 0; e.vy = 0;
     p.action = null; p.scripted = true; p.setState("takedown"); p.vx = 0; p.vy = 0;
     p.facing = sign(e.x - p.x) || p.facing;
-    this.td = { kind, t: 0, dur, e, dir: p.facing, px: p.x, py: p.y, ex: e.x, ey: e.y, step: 0, act };
+    this.td = { kind, t: 0, dur, e, dir: p.facing, px: p.x, py: p.y, ex: e.x, ey: e.y, step: 0, act, speed: 1 };
     this.takedowns++;
     this.lastTdT = this.time;
     g.hitstop(0.07);
-    g.slowmo(dur + 0.15, kind === "colossus" ? 0.25 : 0.35);
+    // если бюджет замедлений исчерпан — сценарий играется в ускоренном темпе без замедления времени
+    const slowed = g.slowmo(dur + 0.15, kind === "colossus" ? 0.25 : 0.35, "takedown");
+    if (!slowed) this.td.speed = 1.65;
     g.camera.focus(lerp(p.x, e.x, 0.6), e.centerY - 6, kind === "colossus" ? 1.35 : 1.45);
     g.letterboxTarget = 1;
     g.sfx("perfect");
@@ -464,7 +470,7 @@ class CombatSystem {
     const td = this.td;
     if (!td) return;
     const g = this.game, p = g.player, e = td.e, col = p.skin.accent, ec = e.look.accent;
-    td.t += dt;
+    td.t += dt * td.speed;
     const t = td.t, cy = e.y - e.h * e.scale * 0.5;
     const events = td.events || (td.events = new Set());
     const once = (key, time, fn) => { if (t >= time && !events.has(key)) { events.add(key); fn(); } };
@@ -578,7 +584,7 @@ class CombatSystem {
       this.perfectDodges++;
       this.score += 300;
       p.counterT = 1.0;
-      g.slowmo(0.5, 0.3);
+      g.slowmo(0.5, 0.3, "dodge");
       g.sfx("perfect");
       g.fx.ring(p.x, p.y - 16, 6, 44, p.skin.accent, 0.4, 3);
       this.flashLabel("ИДЕАЛЬНЫЙ УКЛОН");
