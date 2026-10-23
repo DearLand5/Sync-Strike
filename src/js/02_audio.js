@@ -212,6 +212,45 @@ class SFX {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this._last = {};
+    this.samples = {};      // имя события → [AudioBuffer]
+    this._lastIdx = {};
+    this.loadSamples();
+  }
+  /** Декодирует встроенные записанные звуки (Kenney.nl, CC0) из SOUND_DATA. Пока не готовы — играет синтез. */
+  async loadSamples() {
+    if (typeof SOUND_DATA === "undefined") return;
+    const decodeOne = async b64 => {
+      try {
+        const bin = atob(b64), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return await this.audio.decode(bytes.buffer);
+      } catch (e) { return null; }          // битый файл — для события останется синтез
+    };
+    // все звуки декодируются параллельно
+    await Promise.all(Object.keys(SOUND_DATA).map(async name => {
+      const list = (await Promise.all(SOUND_DATA[name].map(decodeOne))).filter(Boolean);
+      if (list.length) this.samples[name] = list;
+    }));
+  }
+  get useSamples() { return this.audio.settings.v.sfxStyle !== "synth"; }
+  /** Записанный звук события. Возвращает false, если сэмпла нет (тогда вызывающий играет синтез). */
+  sample(name, o = {}) {
+    if (!this.useSamples) return false;
+    const list = this.samples[name];
+    if (!list || !list.length) return false;
+    if (!this.can()) return true;
+    let i = Math.floor(Math.random() * list.length);
+    if (list.length > 1 && i === this._lastIdx[name]) i = (i + 1) % list.length;   // без повтора подряд
+    this._lastIdx[name] = i;
+    const c = this.ctx, t = o.at != null ? o.at : c.currentTime + (o.delay || 0);
+    const src = c.createBufferSource(), g = c.createGain();
+    src.buffer = list[i];
+    src.playbackRate.value = (o.rate || 1) * this.v(o.vary == null ? 0.06 : o.vary);
+    g.gain.value = o.vol == null ? 0.5 : o.vol;
+    src.connect(g); g.connect(o.bus || this.bus);
+    src.start(t);
+    this._track(src, [src, g]);
+    return true;
   }
   get bus() { return this.audio.sfxGain; }
   get ui() { return this.audio.uiGain; }
@@ -264,10 +303,15 @@ class SFX {
     this._track(src, [src, f, g]);
   }
 
-  /* ---- боевые звуки ---- */
-  draw()   { const p = this.v(); this.noiseBurst({ ft: "highpass", f: 3000 * p, f2: 7000, dur: 0.16, vol: 0.18 }); this.tone({ type: "triangle", f: 1900 * p, f2: 2600, dur: 0.12, vol: 0.04 }); }
-  dash()   { if (!this.gate("dash", 0.05)) return; const p = this.v(); this.noiseBurst({ f: 380 * p, f2: 2600 * p, dur: 0.22, vol: 0.32, q: 1.4 }); }
+  /* ---- боевые звуки: записанный звук, иначе синтез ---- */
+  draw() { if (this.sample("draw", { vol: 0.3 })) return; const p = this.v(); this.noiseBurst({ ft: "highpass", f: 3000 * p, f2: 7000, dur: 0.16, vol: 0.18 }); this.tone({ type: "triangle", f: 1900 * p, f2: 2600, dur: 0.12, vol: 0.04 }); }
+  dash() {
+    if (!this.gate("dash", 0.05)) return;
+    if (this.sample("dash", { vol: 0.28, rate: 1.1 })) return;
+    const p = this.v(); this.noiseBurst({ f: 380 * p, f2: 2600 * p, dur: 0.22, vol: 0.32, q: 1.4 });
+  }
   slash(power = 1) {
+    if (this.sample("slash", { vol: 0.32 + 0.06 * power, rate: 1.15 - 0.1 * power, vary: 0.08 })) return;
     const p = this.v(0.1);
     this.noiseBurst({ f: 2200 * p, f2: 650, dur: 0.12 + power * 0.03, vol: 0.26, q: 1.6 });
     this.tone({ type: "sawtooth", f: 950 * p, f2: 280, dur: 0.07, vol: 0.035, lp: 3000 });
@@ -275,49 +319,65 @@ class SFX {
   hit(strength = 1, perfect = false) {
     if (!this.gate("hit", 0.025)) return;
     const p = this.v();
-    this.tone({ f: 170 * p, f2: 50, dur: 0.16 + 0.06 * strength, vol: 0.45 * Math.min(1.3, strength) });
-    this.noiseBurst({ ft: "lowpass", f: 2600, dur: 0.08, vol: 0.3 * strength });
-    this.tone({ type: "square", f: 540 * p, f2: 260, dur: 0.05, vol: 0.06, lp: 2500 });
+    const heavy = strength > 1.1;
+    if (this.sample(heavy ? "hitHeavy" : "hit", { vol: heavy ? 0.6 : 0.5 })) {
+      this.tone({ f: 150 * p, f2: 45, dur: 0.14, vol: 0.22 * Math.min(1.3, strength) });     // низ для веса удара
+    } else {
+      this.tone({ f: 170 * p, f2: 50, dur: 0.16 + 0.06 * strength, vol: 0.45 * Math.min(1.3, strength) });
+      this.noiseBurst({ ft: "lowpass", f: 2600, dur: 0.08, vol: 0.3 * strength });
+      this.tone({ type: "square", f: 540 * p, f2: 260, dur: 0.05, vol: 0.06, lp: 2500 });
+    }
     if (perfect) this.tone({ type: "triangle", f: 1760 * p, f2: 1320, dur: 0.22, vol: 0.06, delay: 0.01 });
   }
   shot(charged = false) {
+    if (this.sample(charged ? "shotCharged" : "shot", { vol: charged ? 0.45 : 0.32 })) { this.tone({ f: 95, f2: 40, dur: 0.08, vol: charged ? 0.3 : 0.16 }); return; }
     const p = this.v();
     this.tone({ type: "square", f: (charged ? 900 : 1300) * p, f2: 170, dur: charged ? 0.2 : 0.11, vol: 0.12, lp: 4200 });
     this.noiseBurst({ f: 3200, dur: 0.06, vol: 0.22, q: 0.8 });
     this.tone({ f: 95, f2: 40, dur: 0.1, vol: charged ? 0.4 : 0.25 });
   }
-  bulletHit() { if (!this.gate("bh", 0.03)) return; this.noiseBurst({ f: 2600 * this.v(), dur: 0.07, vol: 0.18 }); this.tone({ type: "triangle", f: 720, f2: 380, dur: 0.06, vol: 0.06 }); }
-  enemyShot() { this.tone({ type: "sawtooth", f: 640 * this.v(), f2: 120, dur: 0.18, vol: 0.09, lp: 1800 }); this.noiseBurst({ f: 1500, dur: 0.07, vol: 0.14 }); }
-  telegraph(high = false) { if (!this.gate("tel", 0.12)) return; this.tone({ f: high ? 1320 : 880, dur: 0.09, vol: 0.05 }); this.tone({ f: high ? 1760 : 1175, dur: 0.08, vol: 0.04, delay: 0.06 }); }
-  enemySwing() { this.noiseBurst({ f: 900 * this.v(), f2: 300, dur: 0.14, vol: 0.18, q: 1.2 }); }
+  bulletHit() { if (!this.gate("bh", 0.03)) return; if (this.sample("bulletHit", { vol: 0.28, vary: 0.1 })) return; this.noiseBurst({ f: 2600 * this.v(), dur: 0.07, vol: 0.18 }); this.tone({ type: "triangle", f: 720, f2: 380, dur: 0.06, vol: 0.06 }); }
+  enemyShot() { if (this.sample("enemyShot", { vol: 0.28, rate: 0.85 })) return; this.tone({ type: "sawtooth", f: 640 * this.v(), f2: 120, dur: 0.18, vol: 0.09, lp: 1800 }); this.noiseBurst({ f: 1500, dur: 0.07, vol: 0.14 }); }
+  telegraph(high = false) {
+    if (!this.gate("tel", 0.12)) return;
+    if (this.sample("telegraph", { vol: 0.3, rate: high ? 0.8 : 1.15, vary: 0.02 })) return;
+    this.tone({ f: high ? 1320 : 880, dur: 0.09, vol: 0.05 }); this.tone({ f: high ? 1760 : 1175, dur: 0.08, vol: 0.04, delay: 0.06 });
+  }
+  enemySwing() { if (this.sample("slash", { vol: 0.24, rate: 0.75 })) return; this.noiseBurst({ f: 900 * this.v(), f2: 300, dur: 0.14, vol: 0.18, q: 1.2 }); }
   jump(double = false) { const p = this.v(0.05); this.tone({ f: (double ? 420 : 300) * p, f2: (double ? 980 : 620) * p, dur: 0.1, vol: 0.1 }); if (double) this.noiseBurst({ ft: "highpass", f: 4000, dur: 0.1, vol: 0.08 }); }
-  land(h = 1) { if (!this.gate("land", 0.08)) return; this.noiseBurst({ ft: "lowpass", f: 420, dur: 0.08, vol: 0.22 * h }); this.tone({ f: 120, f2: 60, dur: 0.07, vol: 0.12 * h }); }
-  step() { if (!this.gate("step", 0.12)) return; this.noiseBurst({ ft: "lowpass", f: 700 * this.v(0.2), dur: 0.035, vol: 0.05 }); }
-  hurt() { this.tone({ type: "sawtooth", f: 320, f2: 85, dur: 0.26, vol: 0.18, lp: 1300 }); this.noiseBurst({ ft: "lowpass", f: 1500, dur: 0.14, vol: 0.22 }); }
-  dodge() { this.noiseBurst({ ft: "highpass", f: 1400 * this.v(), f2: 4200, dur: 0.15, vol: 0.16 }); }
-  spawn() { if (!this.gate("spawn", 0.1)) return; this.tone({ f: 180, f2: 900, dur: 0.45, vol: 0.06, a: 0.2 }); this.noiseBurst({ ft: "highpass", f: 800, f2: 5000, dur: 0.4, vol: 0.06, a: 0.25 }); }
+  land(h = 1) { if (!this.gate("land", 0.08)) return; if (this.sample("land", { vol: 0.42 * h })) return; this.noiseBurst({ ft: "lowpass", f: 420, dur: 0.08, vol: 0.22 * h }); this.tone({ f: 120, f2: 60, dur: 0.07, vol: 0.12 * h }); }
+  step() { if (!this.gate("step", 0.12)) return; if (this.sample("step", { vol: 0.16, vary: 0.12 })) return; this.noiseBurst({ ft: "lowpass", f: 700 * this.v(0.2), dur: 0.035, vol: 0.05 }); }
+  hurt() {
+    if (this.sample("hurt", { vol: 0.6 })) { this.tone({ type: "sawtooth", f: 300, f2: 90, dur: 0.22, vol: 0.1, lp: 1100 }); return; }
+    this.tone({ type: "sawtooth", f: 320, f2: 85, dur: 0.26, vol: 0.18, lp: 1300 }); this.noiseBurst({ ft: "lowpass", f: 1500, dur: 0.14, vol: 0.22 });
+  }
+  dodge() { if (this.sample("dash", { vol: 0.2, rate: 1.4 })) return; this.noiseBurst({ ft: "highpass", f: 1400 * this.v(), f2: 4200, dur: 0.15, vol: 0.16 }); }
+  spawn() { if (!this.gate("spawn", 0.1)) return; if (this.sample("spawn", { vol: 0.22 })) return; this.tone({ f: 180, f2: 900, dur: 0.45, vol: 0.06, a: 0.2 }); this.noiseBurst({ ft: "highpass", f: 800, f2: 5000, dur: 0.4, vol: 0.06, a: 0.25 }); }
   death() {
+    if (this.sample("death", { vol: 0.4, vary: 0.1 })) { this.noiseBurst({ f: 1300, f2: 180, dur: 0.3, vol: 0.14 }); return; }
     this.noiseBurst({ f: 1300, f2: 180, dur: 0.38, vol: 0.26 });
     this.tone({ type: "triangle", f: 520 * this.v(), f2: 80, dur: 0.34, vol: 0.1 });
     for (let i = 0; i < 3; i++) this.tone({ f: rand(2200, 4200), dur: 0.08, vol: 0.03, delay: 0.04 + i * 0.05 });
   }
-  slam() { this.tone({ f: 95, f2: 32, dur: 0.5, vol: 0.55 }); this.noiseBurst({ ft: "lowpass", f: 800, f2: 200, dur: 0.4, vol: 0.38 }); }
+  slam() { if (this.sample("slam", { vol: 0.7, vary: 0.04 })) return; this.tone({ f: 95, f2: 32, dur: 0.5, vol: 0.55 }); this.noiseBurst({ ft: "lowpass", f: 800, f2: 200, dur: 0.4, vol: 0.38 }); }
+  // Perfect и метроном остаются синтезированными: точная высота и тайминг важнее «живого» тембра
   perfect() { const b = 880 * this.v(0.02); this.tone({ type: "triangle", f: b, dur: 0.16, vol: 0.07 }); this.tone({ type: "triangle", f: b * 1.26, dur: 0.2, vol: 0.06, delay: 0.035 }); }
   combo(level) {
+    if (this.sample("combo", { vol: 0.32, rate: 1 + 0.05 * clamp(level, 1, 5), vary: 0 })) return;
     const scale = [0, 3, 5, 7, 10, 12, 15];
     const n = clamp(level, 1, 5);
     for (let i = 0; i < n; i++) this.tone({ type: "triangle", f: 523 * Math.pow(2, scale[i] / 12), dur: 0.12, vol: 0.05, delay: i * 0.045 });
   }
-  slowmo() { this.tone({ f: 600, f2: 150, dur: 0.5, vol: 0.08, a: 0.02 }); this.noiseBurst({ ft: "lowpass", f: 1200, f2: 300, dur: 0.45, vol: 0.12 }); }
-  waveStart() { this.tone({ f: 110, f2: 220, dur: 0.7, vol: 0.12, a: 0.3 }); this.tone({ type: "triangle", f: 440, dur: 0.4, vol: 0.04, delay: 0.3 }); }
-  heal() { this.tone({ type: "triangle", f: 660, f2: 990, dur: 0.3, vol: 0.06 }); }
+  slowmo() { if (this.sample("slowmo", { vol: 0.3, vary: 0.03 })) return; this.tone({ f: 600, f2: 150, dur: 0.5, vol: 0.08, a: 0.02 }); this.noiseBurst({ ft: "lowpass", f: 1200, f2: 300, dur: 0.45, vol: 0.12 }); }
+  waveStart() { if (this.sample("waveStart", { vol: 0.32, vary: 0 })) return; this.tone({ f: 110, f2: 220, dur: 0.7, vol: 0.12, a: 0.3 }); this.tone({ type: "triangle", f: 440, dur: 0.4, vol: 0.04, delay: 0.3 }); }
+  heal() { if (this.sample("heal", { vol: 0.28, vary: 0 })) return; this.tone({ type: "triangle", f: 660, f2: 990, dur: 0.3, vol: 0.06 }); }
 
   /* ---- интерфейс ---- */
-  uiMove()  { if (!this.gate("uim", 0.04)) return; this.tone({ f: 660, dur: 0.04, vol: 0.05, bus: this.ui }); }
-  uiClick() { this.tone({ type: "triangle", f: 520, f2: 780, dur: 0.07, vol: 0.08, bus: this.ui }); }
-  uiBack()  { this.tone({ type: "triangle", f: 600, f2: 380, dur: 0.07, vol: 0.07, bus: this.ui }); }
-  victory() { [0, 4, 7, 12, 16].forEach((s, i) => this.tone({ type: "triangle", f: 392 * Math.pow(2, s / 12), dur: 0.35, vol: 0.08, delay: i * 0.11, bus: this.ui })); }
-  defeat()  { [0, -3, -7, -12].forEach((s, i) => this.tone({ type: "sawtooth", f: 330 * Math.pow(2, s / 12), dur: 0.4, vol: 0.06, lp: 1200, delay: i * 0.16, bus: this.ui })); }
+  uiMove()  { if (!this.gate("uim", 0.04)) return; if (this.sample("uiMove", { vol: 0.25, bus: this.ui })) return; this.tone({ f: 660, dur: 0.04, vol: 0.05, bus: this.ui }); }
+  uiClick() { if (this.sample("uiClick", { vol: 0.4, bus: this.ui })) return; this.tone({ type: "triangle", f: 520, f2: 780, dur: 0.07, vol: 0.08, bus: this.ui }); }
+  uiBack()  { if (this.sample("uiBack", { vol: 0.4, bus: this.ui })) return; this.tone({ type: "triangle", f: 600, f2: 380, dur: 0.07, vol: 0.07, bus: this.ui }); }
+  victory() { if (this.sample("victory", { vol: 0.42, bus: this.ui, vary: 0 })) return; [0, 4, 7, 12, 16].forEach((s, i) => this.tone({ type: "triangle", f: 392 * Math.pow(2, s / 12), dur: 0.35, vol: 0.08, delay: i * 0.11, bus: this.ui })); }
+  defeat()  { if (this.sample("defeat", { vol: 0.42, bus: this.ui, vary: 0 })) return; [0, -3, -7, -12].forEach((s, i) => this.tone({ type: "sawtooth", f: 330 * Math.pow(2, s / 12), dur: 0.4, vol: 0.06, lp: 1200, delay: i * 0.16, bus: this.ui })); }
   /** щелчок метронома на точное время аудиоконтекста */
   click(at, accent) { this.tone({ f: accent ? 1600 : 1050, dur: 0.035, vol: accent ? 0.35 : 0.22, at, bus: this.ui }); }
 }

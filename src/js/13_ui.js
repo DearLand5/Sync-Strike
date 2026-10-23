@@ -311,6 +311,7 @@ class UIManager {
     this.bindCheck("set-assist", "assist");
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.addEventListener("click", () => { S.set("slowmoMode", b.dataset.s); this.refreshSettings(); this.sfx("uiClick"); }));
+    document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.addEventListener("click", () => { S.set("sfxStyle", b.dataset.x); this.refreshSettings(); this.sfx("hit"); }));
     $("settings-back").addEventListener("click", () => { this.sfx("uiBack"); this.show(this.settingsReturn === "pause" ? "pause" : "menu"); });
     $("btn-layout-reset").addEventListener("click", () => { S.resetLayout(); g.input.touch.layout(); this.toast("Раскладка сброшена"); });
     $("btn-editor").addEventListener("click", () => g.openEditor());
@@ -372,6 +373,7 @@ class UIManager {
     this.syncAll();
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.q === this.game.settings.v.quality)));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.s === this.game.settings.v.slowmoMode)));
+    document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.x === this.game.settings.v.sfxStyle)));
   }
 
   refreshMusic() {

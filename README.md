@@ -33,6 +33,11 @@ Hollow Knight с неоновым контровым светом.
   На ПК: клавиатура и мышь.
 - **Режимы:** «Волны» (6 волн), «До конца трека», «Практика» с пошаговыми подсказками.
 
+## Звуки
+Звуковые эффекты — записанные звуки Kenney.nl (CC0), встроены прямо в `index.html`, интернет не нужен.
+Звук Perfect, метроном и прыжок синтезируются. В настройках звука можно переключиться на полностью
+синтезированные эффекты. Подробности — [`CREDITS.md`](CREDITS.md).
+
 ## Разработка
 Исходники разбиты на модули в `src/js/` (Game, InputManager, AudioManager, RhythmAnalyzer,
 RhythmClock, Player, Enemy, CombatSystem, AnimationSystem, ParticleSystem, ArenaRenderer, UIManager…).

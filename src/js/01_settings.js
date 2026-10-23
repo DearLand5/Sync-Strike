@@ -11,6 +11,7 @@ const DEFAULT_LAYOUT = {
 
 const DEFAULT_SETTINGS = {
   musicVol: 0.8, sfxVol: 0.7, uiVol: 0.55,
+  sfxStyle: "samples",      // звуки эффектов: samples (записанные, Kenney CC0) | synth
   quality: "auto",          // auto | high | low
   shake: 0.8,               // 0..1
   flashes: true,
