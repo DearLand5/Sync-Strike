@@ -53,7 +53,7 @@ library-test — если трогал загрузку треков, библи
 | 04_analyzer | `RhythmAnalyzer`: офлайн STFT → поток по 3 полосам → темп (автокорреляция) → доли (DP Эллиса, tight=400) → удержание фазы → сильные доли → энергия/секции → `kind` частей → признаки; живой спектр `updateLive` |
 | 05_clock | `RhythmClock` — единый музыкальный контроллер: фаза, пульсы, `judge(t)`, `nextBeatAfter`, события кадра (`beat`, `strongBeat`, `onset`, `section`), `kind/trend/nextKind/timeToNext` |
 | 06_input | `InputManager` (клавиатура/мышь/мультитач, очередь с отметками времени, `local(e)` учитывает поворот), `TouchControls` (раскладка, отрисовка, редактор) |
-| 07_anim | `SKINS`, `ENEMY_LOOKS`, `AnimationSystem` (blend поз; `spin` и `legPhase` задаются напрямую; пружины плаща/шарфа с подшагами 1/120), `CharacterRenderer` |
+| 07_anim | `SKINS` (head/hem/mark/back/wide/rim на скин), `ENEMY_LOOKS` (hem/back/heads), `AnimationSystem` (blend поз; `spin` и `legPhase` задаются напрямую; пружины плаща/шарфа с подшагами 1/120), `CharacterRenderer` (`_hem` подолы, `_backGear` снаряжение на спине, `_marks` знаки, `_head`, `_weapon`; цвета в отрисовке — через кэш `mixc`, не `mixHex` каждый кадр) |
 | 08_particles | `ParticleSystem` (пул, типы spark/ring/smoke/shard/arc/line/wave/text), `Camera` (тряска, толчок, `focus/release`) |
 | 09_arena | `THEMES` (6 арен + профили подбора), `rankThemes`, `ArenaRenderer` (тайлы параллакса, варианты эффектов по частям трека) |
 | 10_player | `WORLD` (арена 1400, платформы), `moveBody`, `PL`, `Player` (состояния, уклоны roll/back/air, scripted для добиваний) |
@@ -143,6 +143,7 @@ spawnGrace/gap/tokens(n)/ranged(n)/alive(n)/waveHeal. Хардкод сложн�
 - Подпись — `android/debug.keystore` (пароль android, alias syncstrike) закоммичен намеренно: одинаковый ключ
   в каждой сборке, чтобы обновления ставились поверх без удаления (и без потери настроек). Для Google Play нужен свой ключ.
 - versionCode = число коммитов. Иконка — `tools/make-icon.js` (рендер скина «Тень» из игры) → `android/res/mipmap-*`.
+  Перегенерация: `node tools/make-icon.js <512.png>` и `convert` (Lanczos) в 48/72/96/144/192 px → `mipmap-mdpi..xxxhdpi/ic_launcher.png`; после смены облика «Тени» обязательно.
 - Эмулятор в контейнере не запустить (нет /dev/kvm) — APK на устройстве не проверен, говорить об этом.
 
 ## Звуки
