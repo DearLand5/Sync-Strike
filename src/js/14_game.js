@@ -1,13 +1,29 @@
 /* =====================================================================
    Game — главный цикл и связывание систем.
    ===================================================================== */
-// Баланс сложностей: HP игрока и врагов, урон, темп атак врагов, лимит одновременных атак.
-// Баланс сложностей: HP игрока и врагов, урон врагов, паузы между их атаками, длина замаха,
-// лимит одновременных атак, лечение за победу над врагом.
+// Баланс сложностей. Все рычаги в одном месте:
+//  hp/playerHp — множители HP врагов и героя (база героя 130); dmg — урон врагов; playerDmg — урон героя;
+//  cd — паузы между атаками врага; wind — длина замаха (время на реакцию); bolt — скорость пуль стрелков;
+//  hurtIF — неуязвимость после удара (с); perfectDodge — окно идеального уклона (с);
+//  spawnGrace — пауза перед первой атакой нового врага (с); gap — множитель паузы между атаками разных врагов;
+//  tokens(n)/ranged(n) — сколько врагов (и стрелков) может атаковать одновременно на волне n;
+//  alive(n) — сколько врагов одновременно на арене; waveHeal — лечение между волнами (доля от макс. HP).
 const DIFFS = {
-  easy:   { hp: 0.8,  playerHp: 1.35, dmg: 0.45, cd: 1.6,  wind: 1.3,  extra: -1, playerDmg: 1.2,  killHeal: 6 },
-  normal: { hp: 0.9,  playerHp: 1.15, dmg: 0.65, cd: 1.3,  wind: 1.15, extra: 0,  playerDmg: 1.05, killHeal: 4 },
-  hard:   { hp: 1.2,  playerHp: 0.85, dmg: 1.3,  cd: 0.85, wind: 0.85, extra: 1,  playerDmg: 0.95, killHeal: 1 },
+  easy: {
+    hp: 0.85, playerHp: 1.3, dmg: 0.55, playerDmg: 1.15, cd: 1.4, wind: 1.25, bolt: 0.85,
+    hurtIF: 1.1, perfectDodge: 0.22, spawnGrace: 0.9, gap: 1.5, extra: -1,
+    tokens: n => 1 + Math.floor(n / 5), ranged: n => 1, alive: n => 3 + Math.floor(n / 3), waveHeal: 0.25,
+  },
+  normal: {
+    hp: 1, playerHp: 1, dmg: 0.85, playerDmg: 1, cd: 1.12, wind: 1.07, bolt: 0.95,
+    hurtIF: 0.85, perfectDodge: 0.18, spawnGrace: 0.55, gap: 1.15, extra: 0,
+    tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), alive: n => 3 + Math.floor(n / 2), waveHeal: 0.15,
+  },
+  hard: {
+    hp: 1.2, playerHp: 0.85, dmg: 1.25, playerDmg: 0.95, cd: 0.85, wind: 0.88, bolt: 1.1,
+    hurtIF: 0.7, perfectDodge: 0.15, spawnGrace: 0.35, gap: 1, extra: 1,
+    tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), alive: n => 4 + Math.floor(n / 2), waveHeal: 0.08,
+  },
 };
 const SECTION_NAMES = { intro: "ИНТРО", build: "НАРАСТАНИЕ", drop: "ДРОП", climax: "КУЛЬМИНАЦИЯ", break: "БРЕЙК", calm: "ЗАТИШЬЕ", groove: "ГРУВ", outro: "ФИНАЛ" };
 const MODE_NAMES = { waves: "Волны", track: "До конца трека", practice: "Практика" };

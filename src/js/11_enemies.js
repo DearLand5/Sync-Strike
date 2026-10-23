@@ -240,7 +240,7 @@ class Enemy {
       } else if (this.kind === "gunner") {
         const hp = CharacterRenderer.handWorld(this, 14);
         const ang = Math.atan2(this.aim.y - hp.y, this.aim.x - hp.x);
-        game.combat.spawnProjectile({ x: hp.x, y: hp.y, vx: Math.cos(ang) * T.bolt, vy: Math.sin(ang) * T.bolt, owner: "enemy", dmg: T.dmg * this.diff.dmg, r: 4, color: this.look.accent, life: 3, src: this });
+        game.combat.spawnProjectile({ x: hp.x, y: hp.y, vx: Math.cos(ang) * T.bolt * this.diff.bolt, vy: Math.sin(ang) * T.bolt * this.diff.bolt, owner: "enemy", dmg: T.dmg * this.diff.dmg, r: 4, color: this.look.accent, life: 3, src: this });
         game.fx.sparks(hp.x, hp.y, 5, this.look.accent, 160, ang, 0.8);
         game.sfx("enemyShot");
       } else if (this.kind === "brute") {

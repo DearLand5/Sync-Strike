@@ -122,7 +122,7 @@ class Player {
     if (!this.alive || this.invulnerable || this.state === "victory") return false;
     this.hp = Math.max(game.mode === "practice" ? 1 : 0, this.hp - dmg);
     this.action = null;
-    this.iframes = PL.hurtIF;
+    this.iframes = game.diff.hurtIF || PL.hurtIF;
     const dir = sign(this.x - fromX);
     this.vx = dir * 230; this.vy = -220;
     this.flash = 1;
