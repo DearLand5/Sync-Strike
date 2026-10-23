@@ -45,6 +45,7 @@ class Game {
     this.settings = new Settings();
     this.audio = new AudioManager(this.settings);
     this.analyzer = new RhythmAnalyzer();
+    this.library = new TrackLibrary();
     this.clock = new RhythmClock(this.settings);
     this.input = new InputManager(this.canvas, this.settings);
     this.input.onPause = () => (this.state === "battle" ? this.pause() : this.state === "paused" && this.ui.screen === "pause" ? this.resume() : null);
@@ -88,7 +89,7 @@ class Game {
     window.addEventListener("orientationchange", () => setTimeout(onResize, 250));
     if (window.visualViewport) window.visualViewport.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", () => this.onVisibility());
-    window.addEventListener("pagehide", () => { if (this.state === "battle") this.pause(); });
+    window.addEventListener("pagehide", () => { if (this.state === "battle") this.pause(); else if (this.state === "paused") this.autosave(); });
     this.settings.on("change", k => {
       if (k === "difficulty") this.diff = DIFFS[this.settings.v.difficulty];
       if (k === "latencyMs") this.clock.reset(this.audio.songTime());
@@ -97,6 +98,7 @@ class Game {
 
     this.applyQuality();
     this.ui.show("menu");
+    this.restoreSession();
     this.last = performance.now();
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
@@ -159,23 +161,46 @@ class Game {
   }
 
   /* ---------- треки ---------- */
+  /** Индикатор анализа на экране «Музыка». */
+  _progress(k, label) {
+    $("analysis-bar").style.width = Math.round(k * 100) + "%"; $("analysis-pct").textContent = Math.round(k * 100) + "%";
+    if (label) $("analysis-label").textContent = label;
+  }
   async loadFile(file) {
     if (this.loading) return;
     this.audio.unlock();
     if (file.size > 80 * 1024 * 1024) { this.ui.toast("Файл больше 80 МБ: выберите трек поменьше"); return; }
     this.loading = true;
     const card = $("analysis-card");
-    const prog = (k, label) => { $("analysis-bar").style.width = Math.round(k * 100) + "%"; $("analysis-pct").textContent = Math.round(k * 100) + "%"; if (label) $("analysis-label").textContent = label; };
+    const prog = (k, label) => this._progress(k, label);
     card.hidden = false; prog(0, "Чтение файла");
     try {
       const ab = file.arrayBuffer ? await file.arrayBuffer() : await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsArrayBuffer(file); });
-      prog(0.02, "Декодирование");
-      const buffer = await this.audio.decode(ab);
-      if (!buffer || buffer.duration < 5) throw new Error("short");
-      const map = await this.analyzer.analyze(buffer, (k, l) => prog(0.05 + k * 0.95, l));
+      const key = file.name + "|" + file.size;
       const name = file.name.replace(/\.[^.]+$/, "");
-      this.setTrack(buffer, map, { name, key: file.name + "|" + file.size, isDemo: false });
-      this.ui.toast(`Готово: ${map.bpm.toFixed(1)} BPM, режим «${MODE_LABEL[map.mode]}», анализ за ${(map.ms / 1000).toFixed(1)} с`);
+      await this.library.ready;
+      // уже в библиотеке — берём сохранённый анализ
+      const known = this.library.findByKey(key);
+      const cached = known ? await this.library.load(known.id).catch(() => null) : null;
+      prog(0.02, "Декодирование");
+      const buffer = await this.audio.decode(ab.slice(0));   // decodeAudioData «забирает» буфер — нужна копия для библиотеки
+      if (!buffer || buffer.duration < 5) throw new Error("short");
+      const map = cached && cached.map ? cached.map : await this.analyzer.analyze(buffer, (k, l) => prog(0.05 + k * 0.95, l));
+      const meta = { name, key, isDemo: false, libId: null };
+      this.setTrack(buffer, map, meta);
+      let note = "";
+      if (this.library.ok) {
+        prog(1, "Сохранение в библиотеку");
+        try {
+          const r = await this.library.add({ key, name }, ab, map, this._protectedIds());
+          meta.libId = r.id;
+          Store.set("lastTrack", r.id);
+          if (r.evicted.length) note = ` · места мало, из библиотеки удалено: «${r.evicted.join("», «")}»`;
+        } catch (e) { console.warn(e); note = " · не удалось сохранить в библиотеку (нет места)"; }
+      }
+      this.ui.toast(cached && cached.map
+        ? `Трек уже был в библиотеке: ${map.bpm.toFixed(1)} BPM` + note
+        : `Готово: ${map.bpm.toFixed(1)} BPM, режим «${MODE_LABEL[map.mode]}», анализ за ${(map.ms / 1000).toFixed(1)} с` + note, note ? 5000 : 2600);
     } catch (e) {
       console.warn(e);
       this.ui.toast(e && e.message === "short" ? "Трек слишком короткий (меньше 5 секунд)" : "Не удалось открыть файл. Проверьте, что это MP3 и он не повреждён.", 4000);
@@ -183,7 +208,70 @@ class Game {
       card.hidden = true;
       this.loading = false;
       if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "library") this.ui.refreshLibrary();
     }
+  }
+
+  /** Треки, которые нельзя вытеснять из библиотеки: текущий и трек автосохранения. */
+  _protectedIds() {
+    const ids = [];
+    if (this.track && this.track.meta.libId) ids.push(this.track.meta.libId);
+    const a = this.getAutosave();
+    if (a && a.libId) ids.push(a.libId);
+    return ids;
+  }
+
+  /** Загрузка трека из библиотеки. quiet — без сообщений (восстановление при запуске). */
+  async loadFromLibrary(id, quiet = false) {
+    if (this.loading) return false;
+    if (this.track && this.track.meta.libId === id) { this.library.touch(id); Store.set("lastTrack", id); return true; }
+    this.loading = true;
+    const card = $("analysis-card");
+    card.hidden = false; this._progress(0, "Загрузка из библиотеки");
+    try {
+      const rec = await this.library.load(id);
+      if (!rec) throw new Error("missing");
+      const audioCopy = rec.map ? null : rec.audio.slice(0);
+      const buffer = await this.audio.decode(rec.audio);
+      let map = rec.map;
+      if (!map) {
+        // анализатор обновился — пересчитываем и сохраняем заново
+        map = await this.analyzer.analyze(buffer, (k, l) => this._progress(0.05 + k * 0.95, l));
+        this.library.updateMap(id, audioCopy, map).catch(e => console.warn(e));
+      }
+      this.setTrack(buffer, map, { name: rec.meta.name, key: rec.meta.key, isDemo: false, libId: id });
+      this.library.touch(id);
+      Store.set("lastTrack", id);
+      if (!quiet) this.ui.toast(`Трек «${rec.meta.name}» · ${map.bpm.toFixed(1)} BPM`);
+      return true;
+    } catch (e) {
+      console.warn(e);
+      if (!quiet) this.ui.toast("Не удалось открыть трек из библиотеки", 3500);
+      return false;
+    } finally {
+      card.hidden = true;
+      this.loading = false;
+      if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "library") this.ui.refreshLibrary();
+    }
+  }
+
+  async deleteTrack(id) {
+    try { await this.library.remove(id); } catch (e) { console.warn(e); this.ui.toast("Не удалось удалить трек"); return; }
+    if (Store.get("lastTrack", null) === id) Store.set("lastTrack", null);
+    const a = this.getAutosave();
+    if (a && a.libId === id) this.clearAutosave();
+    // уже загруженный трек остаётся в памяти до выбора другого, но больше не связан с библиотекой
+    if (this.track && this.track.meta.libId === id) this.track.meta.libId = null;
+    this.ui.refreshMenu();
+  }
+
+  /** При запуске: открыть последний трек из библиотеки. */
+  async restoreSession() {
+    await this.library.ready;
+    const id = Store.get("lastTrack", null);
+    if (id && this.library.get(id) && !this.track) await this.loadFromLibrary(id, true);
+    this.ui.refreshMenu();
   }
 
   async loadDemo() {
@@ -230,8 +318,53 @@ class Game {
     this.applyTrackTheme();
   }
 
+  /* ---------- автосохранение ----------
+     «Волны» — контрольная точка в начале каждой волны; «До конца трека» — каждые 10 с и при паузе.
+     Сохраняются очки и статистика, здоровье, волна и позиция трека; враги на арене не сохраняются. */
+  getAutosave() { const a = Store.get("autosave", null); return a && a.v === 1 ? a : null; }
+  clearAutosave() { Store.set("autosave", null); this.ui.refreshMenu(); }
+  autosave() {
+    if (!this.battleActive || !this.track || this.mode === "practice" || this.endT > 0 || !this.player.alive) return;
+    const c = this.combat, m = this.track.meta, p = this.player;
+    const wave = this.mode === "waves" ? Math.max(1, this.waves.wave) : 0;
+    const snap = this.mode === "waves" && this._waveSnap && this._waveSnap.wave === wave ? this._waveSnap : null;
+    const st = snap || {
+      score: c.score, kills: c.kills, maxCombo: c.maxCombo, ratings: Object.assign({}, c.ratings),
+      perfectDodges: c.perfectDodges, damageTaken: c.damageTaken, time: c.time, hp: p.hp / p.maxHp,
+      songPos: clamp(this.audio.playing ? this.songNow : this.audio.pausedAt, 0, Math.max(0, this.audio.duration - 8)),
+    };
+    Store.set("autosave", Object.assign({
+      v: 1, mode: this.mode, difficulty: this.settings.v.difficulty, wave,
+      name: m.name, key: m.key, libId: m.libId || null, isDemo: !!m.isDemo, savedAt: Date.now(),
+    }, st));
+  }
+  /** Контрольная точка в начале волны (вызывает WaveDirector.startWave). */
+  onWaveStart(n) {
+    if (this.mode !== "waves") return;
+    const c = this.combat, p = this.player;
+    this._waveSnap = {
+      wave: n, score: c.score, kills: c.kills, maxCombo: c.maxCombo, ratings: Object.assign({}, c.ratings),
+      perfectDodges: c.perfectDodges, damageTaken: c.damageTaken, time: c.time, hp: p.hp / p.maxHp,
+      songPos: clamp(this.songNow, 0, Math.max(0, this.audio.duration - 8)),
+    };
+    this.autosave();
+  }
+  /** «Продолжить» из меню: найти трек автосохранения и начать бой с сохранённого места. */
+  async continueBattle() {
+    const a = this.getAutosave();
+    if (!a || this.loading) return;
+    this.audio.unlock();
+    this.requestFullscreen();
+    let ok = this.track && this.track.meta.key === a.key;
+    if (!ok && a.isDemo) { this.ui.show("music"); await this.loadDemo(); ok = true; }
+    if (!ok && a.libId && this.library.get(a.libId)) { this.ui.show("music"); ok = await this.loadFromLibrary(a.libId); }
+    if (!ok) { this.ui.toast("Трек сохранённого боя удалён из библиотеки"); this.clearAutosave(); return; }
+    if (DIFFS[a.difficulty]) this.settings.set("difficulty", a.difficulty);
+    this.startBattle(a.mode, a);
+  }
+
   /* ---------- бой ---------- */
-  async startBattle(mode) {
+  async startBattle(mode, resume = null) {
     this.audio.unlock();
     this.requestFullscreen();                  // только синхронно в обработчике жеста
     if (this.loading) return;
@@ -263,8 +396,19 @@ class Game {
     $("btn-pause").hidden = false;
     this.track.changed = false;
     this.applyTrackTheme();
-    this.audio.play(0);
-    this.clock.reset(0);
+    this._waveSnap = null; this._saveT = 0;
+    let at = 0;
+    if (resume) {
+      const c = this.combat;
+      Object.assign(c, { score: resume.score, kills: resume.kills, maxCombo: resume.maxCombo, perfectDodges: resume.perfectDodges, damageTaken: resume.damageTaken, time: resume.time });
+      Object.assign(c.ratings, resume.ratings);
+      this.player.hp = clamp(Math.round(this.player.maxHp * resume.hp), 1, this.player.maxHp);
+      if (mode === "waves") this.waves.wave = clamp(resume.wave, 1, WAVES.length) - 1;   // волна начнётся заново
+      at = clamp(resume.songPos || 0, 0, Math.max(0, this.audio.duration - 8));
+      this.ui.toast(mode === "waves" ? `Продолжение: волна ${resume.wave}` : `Продолжение с ${fmtTime(at)}`);
+    } else if (mode !== "practice") this.clearAutosave();
+    this.audio.play(at);
+    this.clock.reset(at);
     this.checkOrientation();
   }
 
@@ -274,6 +418,7 @@ class Game {
     this.audio.pause();
     this.input.active = false; this.input.clear();
     $("btn-pause").hidden = true;
+    this.autosave();
     $("pause-info").textContent = (this.track ? this.track.meta.name : "") + " · " + fmtTime(this.audio.pausedAt) + " · " + MODE_NAMES[this.mode];
     this.ui.show("pause");
     this.sfx("uiBack");
@@ -354,6 +499,7 @@ class Game {
   }
 
   finishBattle() {
+    if (this.mode !== "practice") this.clearAutosave();
     const c = this.combat, R = c.ratings;
     const total = RATING_ORDER.reduce((a, k) => a + R[k], 0);
     const acc = total ? (R.perfect + R.good * 0.8 + (R.early + R.late) * 0.5 + R.miss * 0.2) / total : 0;
@@ -551,6 +697,7 @@ class Game {
     for (const e of this.enemies) e.flushPose(this);
     this.combat.updateTakedown(dtReal);
     compactInPlace(this.enemies, e => !e.dead);
+    if (this.mode === "track" && (this._saveT += dtReal) >= 10) { this._saveT = 0; this.autosave(); }
     this.letterbox = damp(this.letterbox, this.letterboxTarget, 8, dtReal);
     this.flashT = Math.max(0, this.flashT - dtReal * 3);
     this.takedownTitleT = Math.max(0, this.takedownTitleT - dtReal);

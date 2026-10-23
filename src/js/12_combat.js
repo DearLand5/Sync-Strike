@@ -781,6 +781,7 @@ class WaveDirector {
     g.sfx("waveStart");
     g.director.setLimits(clamp(g.diff.tokens(n), 1, 3), g.diff.ranged(n));
     this.spawnTimer = 0.3;
+    g.onWaveStart(n);
   }
 
   showBanner(s) { this.banner = s; this.bannerT = 2.2; }

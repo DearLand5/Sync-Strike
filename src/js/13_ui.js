@@ -207,6 +207,7 @@ class UIManager {
     this.prevScreen = this.screen;
     this.screen = name;
     if (name === "music") this.refreshMusic();
+    if (name === "library") { if (this.prevScreen !== "library") this.libReturn = this.prevScreen || "menu"; this.refreshLibrary(); }
     if (name === "mode") this.refreshMode();
     if (name === "settings") this.refreshSettings();
     if (name === "sync") this.refreshSync();
@@ -251,6 +252,19 @@ class UIManager {
       if (f) g.loadFile(f);
     });
     $("btn-demo").addEventListener("click", () => { this.sfx("uiClick"); g.loadDemo(); });
+
+    // ---- библиотека ----
+    $("lib-file").addEventListener("change", e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (f) { this.show("music"); g.loadFile(f); }
+    });
+    $("lib-back").addEventListener("click", () => {
+      this.sfx("uiBack");
+      const to = this.libReturn && this.libReturn !== "library" ? this.libReturn : "menu";
+      this.show(to === "pause" && !g.battleActive ? "menu" : to);
+    });
+    $("menu-continue").addEventListener("click", () => { this.sfx("uiClick"); g.continueBattle(); });
     $("pl-play").addEventListener("click", () => { if (!g.audio.buffer) return; g.audio.toggle(); this.refreshPlayer(); });
     $("pl-restart").addEventListener("click", () => { if (!g.audio.buffer) return; g.audio.seek(0); if (!g.audio.playing) g.audio.play(0); this.refreshPlayer(); });
     const seek = $("pl-seek");
@@ -359,9 +373,65 @@ class UIManager {
 
   /* ---------- обновление экранов ---------- */
   refreshMenu() {
-    const t = this.game.track;
+    const g = this.game, t = g.track;
     $("menu-track").textContent = t ? "Трек: " + t.meta.name + (t.map ? " · " + Math.round(t.map.bpm) + " BPM" : "") : "Трек не выбран: в бою зазвучит демо-трек";
     $("menu-dot").classList.toggle("ok", !!t);
+    const a = g.getAutosave();
+    const playable = a && (a.isDemo || (t && t.meta.key === a.key) || (a.libId && g.library.get(a.libId)));
+    $("menu-continue").hidden = !playable;
+    if (playable) $("menu-continue-sub").textContent = (a.mode === "waves" ? "волна " + a.wave : fmtTime(a.songPos)) + " · " + a.name;
+  }
+
+  refreshLibrary() {
+    const g = this.game, L = g.library, list = $("lib-list");
+    list.innerHTML = "";
+    const items = L.ok ? L.list() : [];
+    $("lib-info").textContent = L.ok ? `${items.length} / ${L.maxTracks} · ${(L.totalBytes() / 1048576).toFixed(0)} из ${Math.round(L.maxBytes / 1048576)} МБ` : "недоступна";
+    $("lib-empty").hidden = items.length > 0 || !L.ok;
+    $("lib-note").textContent = L.ok
+      ? "Треки хранятся только на этом устройстве. Когда место заканчивается, автоматически удаляется трек, который вы дольше всего не запускали."
+      : "Этот браузер не даёт сохранять файлы (приватный режим или встроенный просмотр). Треки можно открывать, но библиотека не сохранится.";
+    const cur = g.track && g.track.meta.libId;
+    for (const m of items) {
+      const row = document.createElement("div");
+      row.className = "lib-row";
+      row.setAttribute("aria-current", String(m.id === cur));
+      const info = document.createElement("div");
+      info.style.minWidth = "0";
+      const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = m.name;
+      const best = Store.get("best." + m.key + ".waves", 0);
+      const sub = document.createElement("span"); sub.className = "sub";
+      sub.textContent = `${Math.round(m.bpm)} BPM · ${fmtTime(m.duration)} · ${(m.size / 1048576).toFixed(1)} МБ` + (best ? ` · рекорд ${best.toLocaleString("ru-RU")}` : "");
+      info.append(nm, sub);
+      const play = document.createElement("button");
+      play.className = "btn small" + (m.id === cur ? "" : " primary"); play.type = "button";
+      play.textContent = m.id === cur ? "Выбран" : "Выбрать";
+      play.addEventListener("click", async () => {
+        this.sfx("uiClick");
+        this.show("music");
+        await g.loadFromLibrary(m.id);
+      });
+      const del = document.createElement("button");
+      del.className = "btn small del"; del.type = "button";
+      del.textContent = "✕"; del.setAttribute("aria-label", "Удалить «" + m.name + "»");
+      let armT = null;
+      del.addEventListener("click", async () => {
+        // удаление в два нажатия: первое — подтверждение
+        if (!del.classList.contains("confirm")) {
+          del.classList.add("confirm"); del.textContent = "Удалить?";
+          armT = setTimeout(() => { del.classList.remove("confirm"); del.textContent = "✕"; }, 3000);
+          this.sfx("uiMove");
+          return;
+        }
+        clearTimeout(armT);
+        this.sfx("uiBack");
+        await g.deleteTrack(m.id);
+        this.toast(`Удалено: «${m.name}»`);
+        this.refreshLibrary();
+      });
+      row.append(info, play, del);
+      list.appendChild(row);
+    }
   }
   refreshMode() {
     const g = this.game, S = g.settings.v;

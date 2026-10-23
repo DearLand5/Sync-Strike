@@ -151,6 +151,23 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .tut .card p{margin:0;font-size:14px;line-height:1.5;color:#d2cdc4}
 .tut .card .h2{font-size:18px}
 
+/* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
+@media (max-height:520px) and (min-width:560px){
+  .menu-list{display:grid;grid-template-columns:repeat(2,max-content);column-gap:34px;row-gap:0;max-width:none}
+  .menu-item{min-height:40px}
+  .menu-wrap{gap:8px}
+  .menu-wrap .hint{display:none}
+}
+
+/* library */
+.lib-list{display:flex;flex-direction:column;gap:6px}
+.lib-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:rgba(11,12,16,.35)}
+.lib-row[aria-current="true"]{border-color:var(--cyan);box-shadow:inset 3px 0 0 var(--cyan)}
+.lib-row .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-row .sub{display:block;font-family:var(--f-mono);font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-row .del.confirm{border-color:var(--red);color:var(--red)}
+.menu-item.continue small{font-family:var(--f-mono);font-size:12px;font-weight:400;letter-spacing:0;text-transform:none;opacity:.75}
+
 /* results */
 .grade{font-family:var(--f-display);font-weight:700;font-size:84px;line-height:.9;color:var(--cyan);text-shadow:0 0 24px rgba(62,240,255,.5)}
 .res-title.win{color:var(--cyan)} .res-title.lose{color:var(--red)}
@@ -190,8 +207,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       </div>
       <div class="track-line"><i class="dot" id="menu-dot"></i><span id="menu-track">Трек не выбран: в бою зазвучит демо-трек</span></div>
       <nav class="menu-list">
+        <button class="menu-item main continue" id="menu-continue" hidden>Продолжить<small id="menu-continue-sub"></small></button>
         <button class="menu-item main" data-go="mode">В бой</button>
         <button class="menu-item" data-go="music">Загрузить музыку</button>
+        <button class="menu-item" data-go="library">Библиотека треков</button>
         <button class="menu-item" data-go="skins">Облик</button>
         <button class="menu-item" data-go="settings">Настройки</button>
         <button class="menu-item" data-go="tutorial">Обучение</button>
@@ -207,6 +226,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <h2 class="title h2">Музыка</h2>
         <div class="row">
           <label class="btn primary file-btn">Выбрать MP3<input type="file" id="file-input" accept=".mp3,audio/mpeg,audio/mp3,audio/*"></label>
+          <button class="btn" data-go="library">Библиотека</button>
           <button class="btn" id="btn-demo">Демо-трек</button>
         </div>
       </div>
@@ -239,6 +259,25 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <button class="btn" data-go="menu">Назад</button>
         <button class="btn" data-go="sync">Калибровка синхронизации</button>
         <button class="btn primary" id="music-fight">В бой</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ БИБЛИОТЕКА ============ -->
+  <section class="screen" id="scr-library" hidden>
+    <div class="panel">
+      <div class="topbar">
+        <h2 class="title h2">Библиотека</h2>
+        <span class="mono muted" id="lib-info">—</span>
+      </div>
+      <div class="card">
+        <div class="lib-list" id="lib-list"></div>
+        <p class="hint" id="lib-empty" hidden>Здесь появятся загруженные треки. Каждый MP3, который вы откроете, сохраняется автоматически вместе с анализом ритма.</p>
+      </div>
+      <p class="hint" id="lib-note">Треки хранятся только на этом устройстве. Когда место заканчивается, автоматически удаляется трек, который вы дольше всего не запускали.</p>
+      <div class="row">
+        <button class="btn" id="lib-back">Назад</button>
+        <label class="btn primary file-btn">Добавить MP3<input type="file" id="lib-file" accept=".mp3,audio/mpeg,audio/mp3,audio/*"></label>
       </div>
     </div>
   </section>
@@ -1125,6 +1164,147 @@ const DemoTrack = {
     return res;
   }
 };
+
+/* ==== 03b_library.js ==== */
+/* =====================================================================
+   TrackLibrary — библиотека загруженных треков (IndexedDB, только на устройстве).
+   Два хранилища: "meta" — короткие записи для списка, "data" — сам файл и результат анализа
+   (при повторном запуске трек не анализируется заново). Когда место заканчивается,
+   удаляется трек, который дольше всех не запускали (кроме защищённых: текущий и автосохранение).
+   ===================================================================== */
+const LIB_MAX_TRACKS = 30;
+const LIB_MAX_BYTES = 400 * 1024 * 1024;
+const ANALYSIS_VERSION = 1;    // увеличить при изменении формата/логики анализатора — карты пересчитаются
+
+class TrackLibrary {
+  constructor() {
+    this.db = null;
+    this.ok = false;
+    this.items = [];             // кэш записей meta
+    this.maxTracks = LIB_MAX_TRACKS; this.maxBytes = LIB_MAX_BYTES;
+    this.ready = this._open().catch(e => { console.warn("library:", e); return false; });
+  }
+
+  _req(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+  _tx(stores, mode, fn) {
+    return new Promise((res, rej) => {
+      const tx = this.db.transaction(stores, mode);
+      let out;
+      tx.oncomplete = () => res(out);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error || new Error("abort"));
+      out = fn(tx);
+    });
+  }
+
+  async _open() {
+    if (typeof indexedDB === "undefined") return false;
+    const r = indexedDB.open("syncstrike", 1);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "id" });
+      if (!db.objectStoreNames.contains("data")) db.createObjectStore("data", { keyPath: "id" });
+    };
+    this.db = await this._req(r);
+    // _tx завершается с результатом fn (промис запроса разворачивается)
+    this.items = (await this._tx(["meta"], "readonly", tx => this._req(tx.objectStore("meta").getAll()))) || [];
+    this.ok = true;
+    return true;
+  }
+
+  /** Треки по последнему запуску (свежие сверху). */
+  list() { return this.items.slice().sort((a, b) => b.lastPlayed - a.lastPlayed); }
+  get(id) { return this.items.find(m => m.id === id) || null; }
+  findByKey(key) { return this.items.find(m => m.key === key) || null; }
+  totalBytes() { return this.items.reduce((a, m) => a + m.size, 0); }
+
+  /**
+   * Добавляет трек (или обновляет существующий с тем же ключом).
+   * protect — id, которые нельзя вытеснять. Возвращает { id, evicted: [имена] }.
+   */
+  async add(info, bytes, map, protect = []) {
+    if (!this.ok) throw new Error("no-db");
+    const old = this.findByKey(info.key);
+    const now = Date.now();
+    const meta = {
+      id: old ? old.id : "t" + now.toString(36) + Math.floor(Math.random() * 1e6).toString(36),
+      key: info.key, name: info.name, size: bytes.byteLength,
+      addedAt: old ? old.addedAt : now, lastPlayed: now,
+      bpm: map.bpm, duration: map.duration, ver: ANALYSIS_VERSION,
+    };
+    const keep = new Set([meta.id, ...protect]);
+    const evicted = [];
+    const evictOne = async () => {
+      const victim = this.items.filter(m => !keep.has(m.id)).sort((a, b) => a.lastPlayed - b.lastPlayed)[0];
+      if (!victim) return false;
+      await this.remove(victim.id);
+      evicted.push(victim.name);
+      return true;
+    };
+    // лимиты библиотеки: число треков и общий объём
+    const others = () => this.items.filter(m => m.id !== meta.id);
+    while (others().length >= this.maxTracks || others().reduce((a, m) => a + m.size, 0) + meta.size > this.maxBytes) {
+      if (!(await evictOne())) break;
+    }
+    if (navigator.storage && navigator.storage.persist && !this._persistAsked) {
+      this._persistAsked = true;
+      navigator.storage.persist().catch(() => {});   // просим браузер не чистить хранилище сам
+    }
+    // браузер может отказать по квоте — тогда освобождаем место и пробуем снова
+    for (;;) {
+      try {
+        await this._tx(["meta", "data"], "readwrite", tx => {
+          tx.objectStore("data").put({ id: meta.id, audio: bytes, map });
+          tx.objectStore("meta").put(meta);
+        });
+        break;
+      } catch (e) {
+        const quota = e && (e.name === "QuotaExceededError" || /quota/i.test(e.message || ""));
+        if (!quota || !(await evictOne())) throw e;
+      }
+    }
+    compactInPlace(this.items, m => m.id !== meta.id);
+    this.items.push(meta);
+    return { id: meta.id, evicted };
+  }
+
+  /** Полная запись: { meta, audio: ArrayBuffer, map }. */
+  async load(id) {
+    if (!this.ok) return null;
+    const meta = this.get(id);
+    if (!meta) return null;
+    const data = await this._tx(["data"], "readonly", tx => this._req(tx.objectStore("data").get(id)));
+    if (!data) return null;
+    return { meta, audio: data.audio, map: meta.ver === ANALYSIS_VERSION ? data.map : null };
+  }
+
+  /** Новый результат анализа (после смены версии анализатора). */
+  async updateMap(id, audio, map) {
+    const meta = this.get(id);
+    if (!meta) return;
+    meta.ver = ANALYSIS_VERSION; meta.bpm = map.bpm; meta.duration = map.duration;
+    await this._tx(["meta", "data"], "readwrite", tx => {
+      tx.objectStore("data").put({ id, audio, map });
+      tx.objectStore("meta").put(meta);
+    });
+  }
+
+  async touch(id) {
+    const meta = this.get(id);
+    if (!meta) return;
+    meta.lastPlayed = Date.now();
+    try { await this._tx(["meta"], "readwrite", tx => { tx.objectStore("meta").put(meta); }); } catch (e) { /* не критично */ }
+  }
+
+  async remove(id) {
+    if (!this.ok) return;
+    await this._tx(["meta", "data"], "readwrite", tx => {
+      tx.objectStore("meta").delete(id);
+      tx.objectStore("data").delete(id);
+    });
+    compactInPlace(this.items, m => m.id !== id);
+  }
+}
 
 /* ==== 04_analyzer.js ==== */
 /* =====================================================================
@@ -4979,6 +5159,7 @@ class WaveDirector {
     g.sfx("waveStart");
     g.director.setLimits(clamp(g.diff.tokens(n), 1, 3), g.diff.ranged(n));
     this.spawnTimer = 0.3;
+    g.onWaveStart(n);
   }
 
   showBanner(s) { this.banner = s; this.bannerT = 2.2; }
@@ -5249,6 +5430,7 @@ class UIManager {
     this.prevScreen = this.screen;
     this.screen = name;
     if (name === "music") this.refreshMusic();
+    if (name === "library") { if (this.prevScreen !== "library") this.libReturn = this.prevScreen || "menu"; this.refreshLibrary(); }
     if (name === "mode") this.refreshMode();
     if (name === "settings") this.refreshSettings();
     if (name === "sync") this.refreshSync();
@@ -5293,6 +5475,19 @@ class UIManager {
       if (f) g.loadFile(f);
     });
     $("btn-demo").addEventListener("click", () => { this.sfx("uiClick"); g.loadDemo(); });
+
+    // ---- библиотека ----
+    $("lib-file").addEventListener("change", e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (f) { this.show("music"); g.loadFile(f); }
+    });
+    $("lib-back").addEventListener("click", () => {
+      this.sfx("uiBack");
+      const to = this.libReturn && this.libReturn !== "library" ? this.libReturn : "menu";
+      this.show(to === "pause" && !g.battleActive ? "menu" : to);
+    });
+    $("menu-continue").addEventListener("click", () => { this.sfx("uiClick"); g.continueBattle(); });
     $("pl-play").addEventListener("click", () => { if (!g.audio.buffer) return; g.audio.toggle(); this.refreshPlayer(); });
     $("pl-restart").addEventListener("click", () => { if (!g.audio.buffer) return; g.audio.seek(0); if (!g.audio.playing) g.audio.play(0); this.refreshPlayer(); });
     const seek = $("pl-seek");
@@ -5401,9 +5596,65 @@ class UIManager {
 
   /* ---------- обновление экранов ---------- */
   refreshMenu() {
-    const t = this.game.track;
+    const g = this.game, t = g.track;
     $("menu-track").textContent = t ? "Трек: " + t.meta.name + (t.map ? " · " + Math.round(t.map.bpm) + " BPM" : "") : "Трек не выбран: в бою зазвучит демо-трек";
     $("menu-dot").classList.toggle("ok", !!t);
+    const a = g.getAutosave();
+    const playable = a && (a.isDemo || (t && t.meta.key === a.key) || (a.libId && g.library.get(a.libId)));
+    $("menu-continue").hidden = !playable;
+    if (playable) $("menu-continue-sub").textContent = (a.mode === "waves" ? "волна " + a.wave : fmtTime(a.songPos)) + " · " + a.name;
+  }
+
+  refreshLibrary() {
+    const g = this.game, L = g.library, list = $("lib-list");
+    list.innerHTML = "";
+    const items = L.ok ? L.list() : [];
+    $("lib-info").textContent = L.ok ? `${items.length} / ${L.maxTracks} · ${(L.totalBytes() / 1048576).toFixed(0)} из ${Math.round(L.maxBytes / 1048576)} МБ` : "недоступна";
+    $("lib-empty").hidden = items.length > 0 || !L.ok;
+    $("lib-note").textContent = L.ok
+      ? "Треки хранятся только на этом устройстве. Когда место заканчивается, автоматически удаляется трек, который вы дольше всего не запускали."
+      : "Этот браузер не даёт сохранять файлы (приватный режим или встроенный просмотр). Треки можно открывать, но библиотека не сохранится.";
+    const cur = g.track && g.track.meta.libId;
+    for (const m of items) {
+      const row = document.createElement("div");
+      row.className = "lib-row";
+      row.setAttribute("aria-current", String(m.id === cur));
+      const info = document.createElement("div");
+      info.style.minWidth = "0";
+      const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = m.name;
+      const best = Store.get("best." + m.key + ".waves", 0);
+      const sub = document.createElement("span"); sub.className = "sub";
+      sub.textContent = `${Math.round(m.bpm)} BPM · ${fmtTime(m.duration)} · ${(m.size / 1048576).toFixed(1)} МБ` + (best ? ` · рекорд ${best.toLocaleString("ru-RU")}` : "");
+      info.append(nm, sub);
+      const play = document.createElement("button");
+      play.className = "btn small" + (m.id === cur ? "" : " primary"); play.type = "button";
+      play.textContent = m.id === cur ? "Выбран" : "Выбрать";
+      play.addEventListener("click", async () => {
+        this.sfx("uiClick");
+        this.show("music");
+        await g.loadFromLibrary(m.id);
+      });
+      const del = document.createElement("button");
+      del.className = "btn small del"; del.type = "button";
+      del.textContent = "✕"; del.setAttribute("aria-label", "Удалить «" + m.name + "»");
+      let armT = null;
+      del.addEventListener("click", async () => {
+        // удаление в два нажатия: первое — подтверждение
+        if (!del.classList.contains("confirm")) {
+          del.classList.add("confirm"); del.textContent = "Удалить?";
+          armT = setTimeout(() => { del.classList.remove("confirm"); del.textContent = "✕"; }, 3000);
+          this.sfx("uiMove");
+          return;
+        }
+        clearTimeout(armT);
+        this.sfx("uiBack");
+        await g.deleteTrack(m.id);
+        this.toast(`Удалено: «${m.name}»`);
+        this.refreshLibrary();
+      });
+      row.append(info, play, del);
+      list.appendChild(row);
+    }
   }
   refreshMode() {
     const g = this.game, S = g.settings.v;
@@ -5650,6 +5901,7 @@ class Game {
     this.settings = new Settings();
     this.audio = new AudioManager(this.settings);
     this.analyzer = new RhythmAnalyzer();
+    this.library = new TrackLibrary();
     this.clock = new RhythmClock(this.settings);
     this.input = new InputManager(this.canvas, this.settings);
     this.input.onPause = () => (this.state === "battle" ? this.pause() : this.state === "paused" && this.ui.screen === "pause" ? this.resume() : null);
@@ -5693,7 +5945,7 @@ class Game {
     window.addEventListener("orientationchange", () => setTimeout(onResize, 250));
     if (window.visualViewport) window.visualViewport.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", () => this.onVisibility());
-    window.addEventListener("pagehide", () => { if (this.state === "battle") this.pause(); });
+    window.addEventListener("pagehide", () => { if (this.state === "battle") this.pause(); else if (this.state === "paused") this.autosave(); });
     this.settings.on("change", k => {
       if (k === "difficulty") this.diff = DIFFS[this.settings.v.difficulty];
       if (k === "latencyMs") this.clock.reset(this.audio.songTime());
@@ -5702,6 +5954,7 @@ class Game {
 
     this.applyQuality();
     this.ui.show("menu");
+    this.restoreSession();
     this.last = performance.now();
     this.loop = this.loop.bind(this);
     requestAnimationFrame(this.loop);
@@ -5764,23 +6017,46 @@ class Game {
   }
 
   /* ---------- треки ---------- */
+  /** Индикатор анализа на экране «Музыка». */
+  _progress(k, label) {
+    $("analysis-bar").style.width = Math.round(k * 100) + "%"; $("analysis-pct").textContent = Math.round(k * 100) + "%";
+    if (label) $("analysis-label").textContent = label;
+  }
   async loadFile(file) {
     if (this.loading) return;
     this.audio.unlock();
     if (file.size > 80 * 1024 * 1024) { this.ui.toast("Файл больше 80 МБ: выберите трек поменьше"); return; }
     this.loading = true;
     const card = $("analysis-card");
-    const prog = (k, label) => { $("analysis-bar").style.width = Math.round(k * 100) + "%"; $("analysis-pct").textContent = Math.round(k * 100) + "%"; if (label) $("analysis-label").textContent = label; };
+    const prog = (k, label) => this._progress(k, label);
     card.hidden = false; prog(0, "Чтение файла");
     try {
       const ab = file.arrayBuffer ? await file.arrayBuffer() : await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsArrayBuffer(file); });
-      prog(0.02, "Декодирование");
-      const buffer = await this.audio.decode(ab);
-      if (!buffer || buffer.duration < 5) throw new Error("short");
-      const map = await this.analyzer.analyze(buffer, (k, l) => prog(0.05 + k * 0.95, l));
+      const key = file.name + "|" + file.size;
       const name = file.name.replace(/\.[^.]+$/, "");
-      this.setTrack(buffer, map, { name, key: file.name + "|" + file.size, isDemo: false });
-      this.ui.toast(`Готово: ${map.bpm.toFixed(1)} BPM, режим «${MODE_LABEL[map.mode]}», анализ за ${(map.ms / 1000).toFixed(1)} с`);
+      await this.library.ready;
+      // уже в библиотеке — берём сохранённый анализ
+      const known = this.library.findByKey(key);
+      const cached = known ? await this.library.load(known.id).catch(() => null) : null;
+      prog(0.02, "Декодирование");
+      const buffer = await this.audio.decode(ab.slice(0));   // decodeAudioData «забирает» буфер — нужна копия для библиотеки
+      if (!buffer || buffer.duration < 5) throw new Error("short");
+      const map = cached && cached.map ? cached.map : await this.analyzer.analyze(buffer, (k, l) => prog(0.05 + k * 0.95, l));
+      const meta = { name, key, isDemo: false, libId: null };
+      this.setTrack(buffer, map, meta);
+      let note = "";
+      if (this.library.ok) {
+        prog(1, "Сохранение в библиотеку");
+        try {
+          const r = await this.library.add({ key, name }, ab, map, this._protectedIds());
+          meta.libId = r.id;
+          Store.set("lastTrack", r.id);
+          if (r.evicted.length) note = ` · места мало, из библиотеки удалено: «${r.evicted.join("», «")}»`;
+        } catch (e) { console.warn(e); note = " · не удалось сохранить в библиотеку (нет места)"; }
+      }
+      this.ui.toast(cached && cached.map
+        ? `Трек уже был в библиотеке: ${map.bpm.toFixed(1)} BPM` + note
+        : `Готово: ${map.bpm.toFixed(1)} BPM, режим «${MODE_LABEL[map.mode]}», анализ за ${(map.ms / 1000).toFixed(1)} с` + note, note ? 5000 : 2600);
     } catch (e) {
       console.warn(e);
       this.ui.toast(e && e.message === "short" ? "Трек слишком короткий (меньше 5 секунд)" : "Не удалось открыть файл. Проверьте, что это MP3 и он не повреждён.", 4000);
@@ -5788,7 +6064,70 @@ class Game {
       card.hidden = true;
       this.loading = false;
       if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "library") this.ui.refreshLibrary();
     }
+  }
+
+  /** Треки, которые нельзя вытеснять из библиотеки: текущий и трек автосохранения. */
+  _protectedIds() {
+    const ids = [];
+    if (this.track && this.track.meta.libId) ids.push(this.track.meta.libId);
+    const a = this.getAutosave();
+    if (a && a.libId) ids.push(a.libId);
+    return ids;
+  }
+
+  /** Загрузка трека из библиотеки. quiet — без сообщений (восстановление при запуске). */
+  async loadFromLibrary(id, quiet = false) {
+    if (this.loading) return false;
+    if (this.track && this.track.meta.libId === id) { this.library.touch(id); Store.set("lastTrack", id); return true; }
+    this.loading = true;
+    const card = $("analysis-card");
+    card.hidden = false; this._progress(0, "Загрузка из библиотеки");
+    try {
+      const rec = await this.library.load(id);
+      if (!rec) throw new Error("missing");
+      const audioCopy = rec.map ? null : rec.audio.slice(0);
+      const buffer = await this.audio.decode(rec.audio);
+      let map = rec.map;
+      if (!map) {
+        // анализатор обновился — пересчитываем и сохраняем заново
+        map = await this.analyzer.analyze(buffer, (k, l) => this._progress(0.05 + k * 0.95, l));
+        this.library.updateMap(id, audioCopy, map).catch(e => console.warn(e));
+      }
+      this.setTrack(buffer, map, { name: rec.meta.name, key: rec.meta.key, isDemo: false, libId: id });
+      this.library.touch(id);
+      Store.set("lastTrack", id);
+      if (!quiet) this.ui.toast(`Трек «${rec.meta.name}» · ${map.bpm.toFixed(1)} BPM`);
+      return true;
+    } catch (e) {
+      console.warn(e);
+      if (!quiet) this.ui.toast("Не удалось открыть трек из библиотеки", 3500);
+      return false;
+    } finally {
+      card.hidden = true;
+      this.loading = false;
+      if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "library") this.ui.refreshLibrary();
+    }
+  }
+
+  async deleteTrack(id) {
+    try { await this.library.remove(id); } catch (e) { console.warn(e); this.ui.toast("Не удалось удалить трек"); return; }
+    if (Store.get("lastTrack", null) === id) Store.set("lastTrack", null);
+    const a = this.getAutosave();
+    if (a && a.libId === id) this.clearAutosave();
+    // уже загруженный трек остаётся в памяти до выбора другого, но больше не связан с библиотекой
+    if (this.track && this.track.meta.libId === id) this.track.meta.libId = null;
+    this.ui.refreshMenu();
+  }
+
+  /** При запуске: открыть последний трек из библиотеки. */
+  async restoreSession() {
+    await this.library.ready;
+    const id = Store.get("lastTrack", null);
+    if (id && this.library.get(id) && !this.track) await this.loadFromLibrary(id, true);
+    this.ui.refreshMenu();
   }
 
   async loadDemo() {
@@ -5835,8 +6174,53 @@ class Game {
     this.applyTrackTheme();
   }
 
+  /* ---------- автосохранение ----------
+     «Волны» — контрольная точка в начале каждой волны; «До конца трека» — каждые 10 с и при паузе.
+     Сохраняются очки и статистика, здоровье, волна и позиция трека; враги на арене не сохраняются. */
+  getAutosave() { const a = Store.get("autosave", null); return a && a.v === 1 ? a : null; }
+  clearAutosave() { Store.set("autosave", null); this.ui.refreshMenu(); }
+  autosave() {
+    if (!this.battleActive || !this.track || this.mode === "practice" || this.endT > 0 || !this.player.alive) return;
+    const c = this.combat, m = this.track.meta, p = this.player;
+    const wave = this.mode === "waves" ? Math.max(1, this.waves.wave) : 0;
+    const snap = this.mode === "waves" && this._waveSnap && this._waveSnap.wave === wave ? this._waveSnap : null;
+    const st = snap || {
+      score: c.score, kills: c.kills, maxCombo: c.maxCombo, ratings: Object.assign({}, c.ratings),
+      perfectDodges: c.perfectDodges, damageTaken: c.damageTaken, time: c.time, hp: p.hp / p.maxHp,
+      songPos: clamp(this.audio.playing ? this.songNow : this.audio.pausedAt, 0, Math.max(0, this.audio.duration - 8)),
+    };
+    Store.set("autosave", Object.assign({
+      v: 1, mode: this.mode, difficulty: this.settings.v.difficulty, wave,
+      name: m.name, key: m.key, libId: m.libId || null, isDemo: !!m.isDemo, savedAt: Date.now(),
+    }, st));
+  }
+  /** Контрольная точка в начале волны (вызывает WaveDirector.startWave). */
+  onWaveStart(n) {
+    if (this.mode !== "waves") return;
+    const c = this.combat, p = this.player;
+    this._waveSnap = {
+      wave: n, score: c.score, kills: c.kills, maxCombo: c.maxCombo, ratings: Object.assign({}, c.ratings),
+      perfectDodges: c.perfectDodges, damageTaken: c.damageTaken, time: c.time, hp: p.hp / p.maxHp,
+      songPos: clamp(this.songNow, 0, Math.max(0, this.audio.duration - 8)),
+    };
+    this.autosave();
+  }
+  /** «Продолжить» из меню: найти трек автосохранения и начать бой с сохранённого места. */
+  async continueBattle() {
+    const a = this.getAutosave();
+    if (!a || this.loading) return;
+    this.audio.unlock();
+    this.requestFullscreen();
+    let ok = this.track && this.track.meta.key === a.key;
+    if (!ok && a.isDemo) { this.ui.show("music"); await this.loadDemo(); ok = true; }
+    if (!ok && a.libId && this.library.get(a.libId)) { this.ui.show("music"); ok = await this.loadFromLibrary(a.libId); }
+    if (!ok) { this.ui.toast("Трек сохранённого боя удалён из библиотеки"); this.clearAutosave(); return; }
+    if (DIFFS[a.difficulty]) this.settings.set("difficulty", a.difficulty);
+    this.startBattle(a.mode, a);
+  }
+
   /* ---------- бой ---------- */
-  async startBattle(mode) {
+  async startBattle(mode, resume = null) {
     this.audio.unlock();
     this.requestFullscreen();                  // только синхронно в обработчике жеста
     if (this.loading) return;
@@ -5868,8 +6252,19 @@ class Game {
     $("btn-pause").hidden = false;
     this.track.changed = false;
     this.applyTrackTheme();
-    this.audio.play(0);
-    this.clock.reset(0);
+    this._waveSnap = null; this._saveT = 0;
+    let at = 0;
+    if (resume) {
+      const c = this.combat;
+      Object.assign(c, { score: resume.score, kills: resume.kills, maxCombo: resume.maxCombo, perfectDodges: resume.perfectDodges, damageTaken: resume.damageTaken, time: resume.time });
+      Object.assign(c.ratings, resume.ratings);
+      this.player.hp = clamp(Math.round(this.player.maxHp * resume.hp), 1, this.player.maxHp);
+      if (mode === "waves") this.waves.wave = clamp(resume.wave, 1, WAVES.length) - 1;   // волна начнётся заново
+      at = clamp(resume.songPos || 0, 0, Math.max(0, this.audio.duration - 8));
+      this.ui.toast(mode === "waves" ? `Продолжение: волна ${resume.wave}` : `Продолжение с ${fmtTime(at)}`);
+    } else if (mode !== "practice") this.clearAutosave();
+    this.audio.play(at);
+    this.clock.reset(at);
     this.checkOrientation();
   }
 
@@ -5879,6 +6274,7 @@ class Game {
     this.audio.pause();
     this.input.active = false; this.input.clear();
     $("btn-pause").hidden = true;
+    this.autosave();
     $("pause-info").textContent = (this.track ? this.track.meta.name : "") + " · " + fmtTime(this.audio.pausedAt) + " · " + MODE_NAMES[this.mode];
     this.ui.show("pause");
     this.sfx("uiBack");
@@ -5959,6 +6355,7 @@ class Game {
   }
 
   finishBattle() {
+    if (this.mode !== "practice") this.clearAutosave();
     const c = this.combat, R = c.ratings;
     const total = RATING_ORDER.reduce((a, k) => a + R[k], 0);
     const acc = total ? (R.perfect + R.good * 0.8 + (R.early + R.late) * 0.5 + R.miss * 0.2) / total : 0;
@@ -6156,6 +6553,7 @@ class Game {
     for (const e of this.enemies) e.flushPose(this);
     this.combat.updateTakedown(dtReal);
     compactInPlace(this.enemies, e => !e.dead);
+    if (this.mode === "track" && (this._saveT += dtReal) >= 10) { this._saveT = 0; this.autosave(); }
     this.letterbox = damp(this.letterbox, this.letterboxTarget, 8, dtReal);
     this.flashT = Math.max(0, this.flashT - dtReal * 3);
     this.takedownTitleT = Math.max(0, this.takedownTitleT - dtReal);

@@ -151,6 +151,23 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .tut .card p{margin:0;font-size:14px;line-height:1.5;color:#d2cdc4}
 .tut .card .h2{font-size:18px}
 
+/* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
+@media (max-height:520px) and (min-width:560px){
+  .menu-list{display:grid;grid-template-columns:repeat(2,max-content);column-gap:34px;row-gap:0;max-width:none}
+  .menu-item{min-height:40px}
+  .menu-wrap{gap:8px}
+  .menu-wrap .hint{display:none}
+}
+
+/* library */
+.lib-list{display:flex;flex-direction:column;gap:6px}
+.lib-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:rgba(11,12,16,.35)}
+.lib-row[aria-current="true"]{border-color:var(--cyan);box-shadow:inset 3px 0 0 var(--cyan)}
+.lib-row .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-row .sub{display:block;font-family:var(--f-mono);font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-row .del.confirm{border-color:var(--red);color:var(--red)}
+.menu-item.continue small{font-family:var(--f-mono);font-size:12px;font-weight:400;letter-spacing:0;text-transform:none;opacity:.75}
+
 /* results */
 .grade{font-family:var(--f-display);font-weight:700;font-size:84px;line-height:.9;color:var(--cyan);text-shadow:0 0 24px rgba(62,240,255,.5)}
 .res-title.win{color:var(--cyan)} .res-title.lose{color:var(--red)}
@@ -190,8 +207,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       </div>
       <div class="track-line"><i class="dot" id="menu-dot"></i><span id="menu-track">Трек не выбран: в бою зазвучит демо-трек</span></div>
       <nav class="menu-list">
+        <button class="menu-item main continue" id="menu-continue" hidden>Продолжить<small id="menu-continue-sub"></small></button>
         <button class="menu-item main" data-go="mode">В бой</button>
         <button class="menu-item" data-go="music">Загрузить музыку</button>
+        <button class="menu-item" data-go="library">Библиотека треков</button>
         <button class="menu-item" data-go="skins">Облик</button>
         <button class="menu-item" data-go="settings">Настройки</button>
         <button class="menu-item" data-go="tutorial">Обучение</button>
@@ -207,6 +226,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <h2 class="title h2">Музыка</h2>
         <div class="row">
           <label class="btn primary file-btn">Выбрать MP3<input type="file" id="file-input" accept=".mp3,audio/mpeg,audio/mp3,audio/*"></label>
+          <button class="btn" data-go="library">Библиотека</button>
           <button class="btn" id="btn-demo">Демо-трек</button>
         </div>
       </div>
@@ -239,6 +259,25 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <button class="btn" data-go="menu">Назад</button>
         <button class="btn" data-go="sync">Калибровка синхронизации</button>
         <button class="btn primary" id="music-fight">В бой</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ БИБЛИОТЕКА ============ -->
+  <section class="screen" id="scr-library" hidden>
+    <div class="panel">
+      <div class="topbar">
+        <h2 class="title h2">Библиотека</h2>
+        <span class="mono muted" id="lib-info">—</span>
+      </div>
+      <div class="card">
+        <div class="lib-list" id="lib-list"></div>
+        <p class="hint" id="lib-empty" hidden>Здесь появятся загруженные треки. Каждый MP3, который вы откроете, сохраняется автоматически вместе с анализом ритма.</p>
+      </div>
+      <p class="hint" id="lib-note">Треки хранятся только на этом устройстве. Когда место заканчивается, автоматически удаляется трек, который вы дольше всего не запускали.</p>
+      <div class="row">
+        <button class="btn" id="lib-back">Назад</button>
+        <label class="btn primary file-btn">Добавить MP3<input type="file" id="lib-file" accept=".mp3,audio/mpeg,audio/mp3,audio/*"></label>
       </div>
     </div>
   </section>
