@@ -1,0 +1,616 @@
+/* =====================================================================
+   CombatSystem — выбор цели и атаки, хитбоксы, урон, комбо, очки.
+   AttackDirector — справедливое распределение атак врагов.
+   WaveDirector — волны, спавн по сильным долям, режимы.
+   ===================================================================== */
+
+/* Атаки игрока. impact — время от старта до удара (для подгонки к доле). */
+const ATTACKS = {
+  slash1:   { kind: "melee",  startup: 0.06, active: 0.08, recovery: 0.17, cancel: 0.11, dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 120, arc: [-2.3, 0.7], name: "Нокс-9" },
+  slash2:   { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.17, cancel: 0.1,  dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 140, arc: [0.9, -2.0], name: "Нокс-9" },
+  slash3:   { kind: "melee",  startup: 0.08, active: 0.1,  recovery: 0.26, cancel: 0.2,  dmg: 22, reach: 40, knock: 330, stun: 0.45, lunge: 170, arc: [-2.8, 2.6], spin: true, name: "Нокс-вихрь" },
+  airSlash: { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.14, cancel: 0.1,  dmg: 11, reach: 30, knock: 160, stun: 0.25, lunge: 0, arc: [-2.0, 1.4], moveControl: 0.6, name: "Нокс-9" },
+  dash:     { kind: "dash",   startup: 0.05, active: 0.09, recovery: 0.17, cancel: 0.12, dmg: 16, reach: 30, knock: 220, stun: 0.35, speed: 1050, maxTravel: 0.17, arc: [-2.4, 1.2], name: "Рывок" },
+  shot:     { kind: "ranged", startup: 0.05, active: 0.02, recovery: 0.16, cancel: 0.09, dmg: 8,  speed: 900, knock: 90, stun: 0.15, moveControl: 0.35, name: "Импульс-7" },
+  charged:  { kind: "ranged", startup: 0.09, active: 0.02, recovery: 0.24, cancel: 0.16, dmg: 20, speed: 1150, knock: 240, stun: 0.35, pierce: true, name: "Импульс-заряд" },
+  dive:     { kind: "dive",   startup: 0.04, active: 0.35, recovery: 0.1,  cancel: 0.1,  dmg: 14, reach: 22, knock: 120, stun: 0.3, name: "Пике" },
+};
+const RATING_ORDER = ["perfect", "good", "early", "late", "miss"];
+
+class CombatSystem {
+  constructor(game) {
+    this.game = game;
+    this.projectiles = [];
+    this.reset();
+  }
+  reset() {
+    this.projectiles.length = 0;
+    this.score = 0; this.kills = 0;
+    this.combo = 0; this.maxCombo = 0; this.comboT = 0;
+    this.chain = 0;            // серия точных нажатий
+    this.ratings = { perfect: 0, good: 0, early: 0, late: 0, miss: 0 };
+    this.perfectDodges = 0; this.damageTaken = 0; this.hits = 0;
+    this.lastRating = null; this.lastRatingT = 0;
+    this.lastTarget = null;
+    this.comboStep = 0; this.lastMeleeT = -9;
+    this.lastAction = null; this.lastActionT = -9; this.lastSlash3HitT = -9;
+    this.shotChain = 0;
+    this.buffer = null;        // отложенное нажатие {song, real}
+    this.time = 0;
+    this.comboLabel = ""; this.comboLabelT = 0;
+  }
+
+  /* ---------- ввод ---------- */
+  onAttackPress(songT) {
+    const p = this.game.player;
+    if (!p.alive || p.state === "victory") return;
+    const act = p.action;
+    const busy = !p.canAct || (act && act.t < act.cancel);
+    if (busy) { this.buffer = { song: songT, real: this.time }; return; }
+    this.execute(songT);
+  }
+
+  /** Отложенное нажатие исполняется, как только персонаж может действовать (окно 0.22 с). */
+  updateBuffer() {
+    const b = this.buffer;
+    if (!b) return;
+    if (this.time - b.real > 0.22) { this.buffer = null; return; }
+    const p = this.game.player, act = p.action;
+    if (p.canAct && (!act || act.t >= act.cancel)) { this.buffer = null; this.execute(b.song); }
+  }
+
+  execute(pressSong) {
+    const g = this.game, p = g.player, clock = g.clock;
+    const j = clock.judge(pressSong);
+    const target = this.selectTarget();
+    const name = this.chooseAttack(target, j);
+    const def = ATTACKS[name];
+    this.registerRating(j);
+
+    // мощность: точность × сильная доля × контратака после идеального уклона
+    let power = RATING[j.rating].mult;
+    const empowered = j.rating === "perfect" && j.strong;
+    if (empowered) power *= 1.3;
+    if (p.counterT > 0) { power *= 1.5; p.counterT = 0; this.flashLabel("КОНТРУДАР"); }
+
+    const act = {
+      name, def, t: 0, phase: "startup", target, judge: j, power, empowered,
+      startup: def.startup, active: def.active, recovery: def.recovery, cancel: def.cancel,
+      hit: new Set(), fired: false, iframes: false, noGravity: false, dir: p.facing,
+      travel: 0, startX: p.x, startY: p.y,
+    };
+    if (target) { act.dir = sign(target.x - p.x); p.facing = act.dir; }
+
+    // рывок: время пути до цели
+    if (def.kind === "dash" && target) {
+      const dist = Math.max(0, Math.abs(target.x - p.x) - target.w * target.scale * 0.5 - 14);
+      act.travel = Math.min(def.maxTravel, dist / def.speed);
+      act.dashTo = target.x - act.dir * (target.w * target.scale * 0.5 + 12);
+    }
+    // подгонка к доле: раннее нажатие растягивает подготовку, чтобы удар пришёлся точно на долю
+    const impact = act.startup + (def.kind === "dash" ? act.travel : 0);
+    if (g.settings.v.assist) {
+      const toBeat = j.beatTime - g.songNow;
+      const maxHold = Math.min(0.16, 0.3 * j.period);
+      if (toBeat > impact && toBeat - impact < maxHold) act.startup += toBeat - impact;
+    }
+    act.total = act.startup + act.travel + act.active + act.recovery;
+    act.cancel = Math.min(def.cancel + (act.startup - def.startup) + act.travel, act.total);
+    p.action = act;
+    p.setState("attack");
+    p.eyeBoost = j.rating === "perfect" ? 1 : 0.4;
+
+    // связки
+    const since = this.time - this.lastActionT;
+    if (def.kind === "ranged" && this.time - this.lastSlash3HitT < 0.6) { act.echo = true; act.power *= 1.25; this.flashLabel("ЭХО"); }
+    if (def.kind === "dash" && this.lastAction && ATTACKS[this.lastAction].kind === "ranged" && since < 0.6) { act.duet = true; act.power *= 1.2; this.flashLabel("ДУЭТ"); }
+    if (def.kind === "melee") { this.comboStep = name === "slash1" ? 1 : name === "slash2" ? 2 : name === "slash3" ? 3 : this.comboStep; this.lastMeleeT = this.time; }
+    if (def.kind === "ranged") this.shotChain = since < 0.7 && this.lastAction && ATTACKS[this.lastAction].kind === "ranged" ? this.shotChain + 1 : 1;
+    else this.shotChain = 0;
+    this.lastAction = name; this.lastActionT = this.time;
+
+    // звук и вспышки
+    if (def.kind === "dash") { g.sfx("dash"); }
+    else if (def.kind === "melee" || def.kind === "dive") g.sfx("slash", name === "slash3" ? 1.4 : 1);
+    if (def.kind === "ranged") p.pistolT = 0.5;
+    if (j.rating === "perfect") g.sfx("perfect");
+  }
+
+  registerRating(j) {
+    this.ratings[j.rating]++;
+    this.lastRating = j.rating; this.lastRatingT = this.time;
+    if (j.rating === "perfect" || j.rating === "good") this.chain++;
+    else this.chain = 0;
+    const p = this.game.player;
+    const R = RATING[j.rating];
+    this.game.fx.text(p.x, p.y - 52, R.label, R.color, j.rating === "perfect" ? 15 : 12, 0.7);
+  }
+
+  flashLabel(s) { this.comboLabel = s; this.comboLabelT = 1.2; }
+
+  /* ---------- цель и выбор атаки ---------- */
+  selectTarget() {
+    const g = this.game, p = g.player;
+    let best = null, bs = -1e9;
+    const pushing = Math.abs(g.input.moveX) > 0.3 ? sign(g.input.moveX) : 0;
+    for (const e of g.enemies) {
+      if (!e.targetable) continue;
+      const dx = e.x - p.x, adx = Math.abs(dx);
+      const dy = e.centerY - p.centerY;
+      if (adx > 520 || Math.abs(dy) > 240) continue;
+      let s = -adx - Math.abs(dy) * 0.8;
+      if (sign(dx) === p.facing) s += 110;
+      if (pushing && sign(dx) === pushing) s += 90;
+      if (e === this.lastTarget) s += 60;
+      s += (1 - e.hp / e.maxHp) * 30;
+      if (e.state === "windup") s += 40;        // угроза в приоритете
+      if (s > bs) { bs = s; best = e; }
+    }
+    this.lastTarget = best;
+    return best;
+  }
+
+  chooseAttack(target, j) {
+    const p = this.game.player;
+    const air = !p.onGround;
+    const nextSlash = () => {
+      const recent = this.time - this.lastMeleeT < 0.75;
+      if (!recent || this.comboStep >= 3) return "slash1";
+      return this.comboStep === 1 ? "slash2" : "slash3";
+    };
+    if (!target) return air ? "airSlash" : nextSlash();
+    const dx = Math.abs(target.x - p.x) - (target.w * target.scale) / 2 - p.w / 2;
+    const dy = target.centerY - p.centerY;
+    const good = j.rating === "perfect" || j.rating === "good";
+    if (air) {
+      if (dy > 22 && Math.abs(target.x - p.x) < 70) return "dive";
+      if (dx < 38 && Math.abs(dy) < 40) return "airSlash";
+      return "shot";
+    }
+    if (dx <= 34 && Math.abs(dy) < 40) return nextSlash();
+    const dashRange = 170 + (good ? 40 : 0);
+    if (dx <= dashRange && Math.abs(dy) < 45) {
+      if (j.rating === "miss" && dx > 110) return "shot";
+      return "dash";
+    }
+    if (this.shotChain >= 2 && j.rating === "perfect") return "charged";
+    return "shot";
+  }
+
+  /* ---------- исполнение действия (вызывается из Player.update) ---------- */
+  updateAction(p, act, dt) {
+    const g = this.game, def = act.def;
+    act.t += dt;
+    const tA = act.startup + act.travel;           // начало активной фазы
+    act.phase = act.t < act.startup ? "startup" : act.t < tA ? "travel" : act.t < tA + act.active ? "active" : "recovery";
+
+    if (def.kind === "melee") {
+      if (act.phase === "startup") p.vx = damp(p.vx, 0, 12, dt);
+      if (act.phase === "active" && !act.fired) {
+        act.fired = true;
+        if (p.onGround) p.vx = act.dir * def.lunge;
+        this._slashFx(p, act);
+      }
+      if (act.phase === "active") this._meleeHits(p, act, def.spin);
+      if (act.phase === "recovery") p.vx = damp(p.vx, 0, 10, dt);
+    } else if (def.kind === "dash") {
+      if (act.phase === "startup") { p.vx = damp(p.vx, 0, 15, dt); }
+      if (act.phase === "travel") {
+        act.iframes = true; act.noGravity = true; p.vy = 0;
+        const to = act.dashTo != null ? act.dashTo : p.x + act.dir * 120;
+        const k = clamp((act.t - act.startup) / Math.max(0.01, act.travel), 0, 1);
+        const nx = lerp(act.startX, to, easeOut(k));
+        p.vx = (nx - p.x) / Math.max(dt, 1e-4);
+        g.addAfterimage(p);
+      }
+      if (act.phase === "active") {
+        act.iframes = false; act.noGravity = false;
+        if (!act.fired) { act.fired = true; p.vx = act.dir * 60; this._slashFx(p, act); }
+        this._meleeHits(p, act, false);
+      }
+      if (act.phase === "recovery") p.vx = damp(p.vx, 0, 10, dt);
+      if (act.phase === "startup") act.startX = p.x;
+    } else if (def.kind === "ranged") {
+      if (act.phase !== "startup" && !act.fired) {
+        act.fired = true;
+        this._fire(p, act);
+      }
+    } else if (def.kind === "dive") {
+      if (act.phase === "startup") { p.vy = Math.min(p.vy, -60); p.vx *= 0.5; }
+      else if (act.phase === "active" || act.phase === "travel") {
+        p.vy = 560; act.noGravity = true;
+        this._meleeHits(p, act, false, true);
+        if (p.onGround) { act.t = tA + act.active; g.fx.dust(p.x, p.y, 6); g.camera.shake(0.15); }
+      }
+    }
+    if (act.t >= act.total) {
+      p.action = null;
+      p.setState(p.onGround ? "idle" : "fall");
+    }
+  }
+
+  /** Поза атаки для AnimationSystem. */
+  actionPose(p, act) {
+    const def = act.def, P = { tuck: 0, legAmp: 0, legSpread: 1.25, sx: 1, sy: 1, wBlend: 0, headTilt: 0, armB: -0.6, elbowF: 0.15, bodyY: 0.5 };
+    const tA = act.startup + act.travel;
+    const kS = clamp(act.t / Math.max(0.01, act.startup), 0, 1);
+    const kA = clamp((act.t - tA) / Math.max(0.01, act.active), 0, 1);
+    const kR = clamp((act.t - tA - act.active) / Math.max(0.01, act.recovery), 0, 1);
+    if (def.kind === "melee" || def.kind === "dash") {
+      const [a0, a1] = def.arc;
+      const back = a0 - 0.4, fwd = a1;
+      let arm;
+      if (act.phase === "startup") arm = lerp(0.3, back, easeOut(kS));
+      else if (act.phase === "travel") arm = back;
+      else if (act.phase === "active") arm = lerp(back, fwd, easeOut(kA));
+      else arm = lerp(fwd, 0.4, easeInOut(kR));
+      Object.assign(P, { armF: arm, lean: act.phase === "startup" ? -0.12 : act.phase === "travel" ? 0.6 : act.phase === "active" ? 0.3 : 0.15 * (1 - kR) });
+      if (act.phase === "travel") Object.assign(P, { tuck: 0.4, sx: 1.15, sy: 0.88, cloak: -0.8, bodyY: 2 });
+      if (def.spin && act.phase === "active") Object.assign(P, { sx: 1.1, sy: 0.92, bodyY: 2, cloak: -1 });
+      if (!p.onGround) P.tuck = 0.4;
+    } else if (def.kind === "ranged") {
+      const tg = act.target;
+      const hy = p.y - 20, ang = tg ? Math.atan2(tg.centerY - hy, Math.abs(tg.x - p.x)) : 0;
+      const recoil = act.phase === "recovery" ? (1 - kR) : 0;
+      Object.assign(P, { armF: Math.PI / 2 - ang - recoil * 0.45, elbowF: 0, lean: -0.05 - recoil * 0.12, armB: 0.4, bodyY: recoil * 1.2 });
+    } else if (def.kind === "dive") {
+      Object.assign(P, { armF: 0.15, elbowF: 0, wBlend: 1, wAngle: Math.PI / 2, lean: 0.25, tuck: 0.6, sx: 0.9, sy: 1.12 });
+    }
+    return P;
+  }
+
+  _slashFx(p, act) {
+    const g = this.game, def = act.def, col = p.skin.accent;
+    const cx = p.x + act.dir * 6, cy = p.y - 20;
+    const r = def.spin ? 34 : 26;
+    const [a0, a1] = def.arc;
+    // дуга в мировых углах: локальные углы руки → экранные
+    const toWorld = a => (act.dir > 0 ? Math.PI / 2 - a : Math.PI / 2 + a);
+    let w0 = toWorld(a0 - 0.4), w1 = toWorld(a1);
+    if (act.dir < 0) { const t = w0; w0 = w1; w1 = t; }
+    if (w1 < w0) w1 += TAU;
+    g.fx.slashArc(cx, cy, r, w0, w1, col, act.empowered ? 9 : 6, 0.2);
+    g.fx.slashArc(cx, cy, r - 5, w0, w1, "#ffffff", 2, 0.12);
+    if (def.spin) g.fx.ring(cx, cy, 10, 48, col, 0.3, 3);
+  }
+
+  _meleeHits(p, act, spin, dive = false) {
+    const g = this.game, def = act.def;
+    const reach = def.reach;
+    const box = dive
+      ? { x: p.x - 14, y: p.y - 10, w: 28, h: 26 }
+      : spin
+        ? { x: p.x - reach, y: p.y - 38, w: reach * 2, h: 40 }
+        : { x: act.dir > 0 ? p.x - 4 : p.x - reach + 4, y: p.y - 34, w: reach, h: 36 };
+    for (const e of g.enemies) {
+      if (!e.targetable || act.hit.has(e.id)) continue;
+      const eb = { x: e.x - e.w * e.scale / 2, y: e.y - e.h * e.scale, w: e.w * e.scale, h: e.h * e.scale };
+      if (!rectsOverlap(box, eb)) continue;
+      act.hit.add(e.id);
+      this._applyHit(e, act, sign(e.x - p.x) || act.dir, e.x, e.centerY);
+      if (dive) { p.vy = -400; act.t = act.startup + act.travel + act.active; p.airJumps = 1; this.flashLabel("ПРОБОЙ"); }
+    }
+  }
+
+  _fire(p, act) {
+    const g = this.game, def = act.def;
+    const hand = CharacterRenderer.handWorld(p, 8);
+    let ang;
+    if (act.target) ang = Math.atan2(act.target.centerY - hand.y, act.target.x - hand.x);
+    else ang = act.dir > 0 ? 0 : Math.PI;
+    this.spawnProjectile({ x: hand.x, y: hand.y, vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed, owner: "player", act, r: def.pierce ? 6 : 3.5, color: p.skin.accent, life: 0.9, pierce: !!def.pierce });
+    g.fx.sparks(hand.x, hand.y, act.empowered ? 9 : 5, p.skin.accent, 240, ang, 0.7, 0.2);
+    g.fx.ring(hand.x, hand.y, 2, act.empowered ? 18 : 11, "#ffffff", 0.14, 2);
+    g.sfx("shot", def.pierce);
+    g.camera.kick(0.004);
+  }
+
+  spawnProjectile(o) { o.hit = new Set(); this.projectiles.push(o); }
+
+  /** Попадание по врагу: урон, отбрасывание, комбо, эффекты. */
+  _applyHit(e, act, dirX, hx, hy) {
+    const g = this.game, def = act.def, j = act.judge;
+    const dmg = def.dmg * act.power * g.diff.playerDmg;
+    const broke = e.damage(dmg, dirX, def.knock * (act.empowered ? 1.3 : 1), g, def.stun);
+    const killed = !e.alive;
+    const perfect = j.rating === "perfect";
+    // комбо и очки
+    this.combo++; this.comboT = 3; this.hits++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    const comboMult = 1 + Math.min(this.combo, 40) / 20;
+    const chainMult = 1 + Math.min(this.chain, 10) * 0.1;
+    this.score += Math.round(50 * RATING[j.rating].score * comboMult * chainMult * (act.empowered ? 1.5 : 1));
+    if ([10, 25, 50, 100].includes(this.combo)) { g.sfx("combo", this.combo / 10); this.flashLabel(this.combo + " КОМБО"); }
+    if (act.name === "slash3") this.lastSlash3HitT = this.time;
+    // эффекты по силе
+    const col = g.player.skin.accent;
+    g.sfx("hit", killed ? 1.3 : act.empowered ? 1.2 : 1, perfect);
+    g.fx.sparks(hx, hy, perfect ? 14 : 8, col, perfect ? 340 : 240, dirX > 0 ? 0 : Math.PI, 1.6);
+    g.fx.sparks(hx, hy, 4, "#ffffff", 200, null);
+    g.fx.ring(hx, hy, 4, perfect ? 30 : 20, perfect ? "#ffffff" : col, 0.22, perfect ? 3 : 2);
+    g.hitstop(perfect ? 0.075 : 0.045);
+    g.camera.shake(act.empowered ? 0.35 : perfect ? 0.22 : 0.12);
+    g.camera.kick(perfect ? 0.02 : 0.008);
+    if (killed) this._onKill(e, act);
+    // особо зрелищные моменты — замедление времени
+    if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered)) {
+      g.slowmo(0.4, 0.3);
+      this.flashLabel(act.name === "slash3" ? "НОКС-ВИХРЬ" : "ФИНАЛ");
+    } else if (act.name === "slash3") this.flashLabel("НОКС-ВИХРЬ");
+    if (def.kind === "ranged" && act.def.pierce) this.flashLabel("ЗАРЯД");
+    return broke;
+  }
+
+  _onKill(e, act) {
+    const g = this.game;
+    this.kills++;
+    this.score += Math.round(e.T.score * (1 + Math.min(this.combo, 40) / 40));
+    g.sfx("death");
+    g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 26 : 14, e.look.accent, 260);
+    g.fx.shards(e.x, e.centerY, 6, "#0b0c10", 200);
+    g.fx.ring(e.x, e.centerY, 6, e.kind === "brute" ? 60 : 36, e.look.accent, 0.4, 3);
+  }
+
+  /** Вражеский хитбокс по игроку (вызывается из Enemy). */
+  enemyHit(enemy, box, dmg) {
+    const g = this.game, p = g.player;
+    if (!p.alive || enemy.hitIds.has("p")) return;
+    const pb = { x: p.x - p.w / 2, y: p.y - p.h, w: p.w, h: p.h };
+    if (!rectsOverlap(box, pb)) return;
+    enemy.hitIds.add("p");
+    this._hitPlayer(dmg, enemy.x);
+  }
+
+  _hitPlayer(dmg, fromX) {
+    const g = this.game, p = g.player;
+    if (p.state === "dodge" && p.stateT < 0.16 && !p.perfectDodgeUsed) {
+      // идеальный уклон: удар пришёлся в самое начало уклонения
+      p.perfectDodgeUsed = true;
+      this.perfectDodges++;
+      this.score += 300;
+      p.counterT = 1.0;
+      g.slowmo(0.5, 0.3);
+      g.sfx("perfect");
+      g.fx.ring(p.x, p.y - 16, 6, 44, p.skin.accent, 0.4, 3);
+      this.flashLabel("ИДЕАЛЬНЫЙ УКЛОН");
+      return;
+    }
+    if (p.invulnerable) return;
+    if (p.hurt(dmg, fromX, g)) {
+      this.damageTaken += dmg;
+      this.combo = 0; this.chain = 0;
+      g.sfx("hurt");
+      g.camera.shake(0.45);
+      g.hurtFlash = 1;
+      g.fx.sparks(p.x, p.y - 16, 10, "#ff2d4a", 220, null);
+    }
+  }
+
+  update(dt) {
+    const g = this.game;
+    this.time += dt;
+    this.comboT -= dt;
+    if (this.comboT <= 0 && this.combo > 0) this.combo = 0;
+    this.comboLabelT = Math.max(0, this.comboLabelT - dt);
+    if (g.player.state !== "dodge") g.player.perfectDodgeUsed = false;
+    this.updateBuffer();
+    // снаряды
+    const P = this.projectiles;
+    for (let i = P.length - 1; i >= 0; i--) {
+      const b = P[i];
+      b.life -= dt;
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      let remove = b.life <= 0 || b.x < 0 || b.x > WORLD.w || b.y > 4 || b.y < -500;
+      if (b.wave) b.y = -5;
+      if (!remove && b.owner === "player") {
+        for (const e of g.enemies) {
+          if (!e.targetable || b.hit.has(e.id)) continue;
+          const eb = { x: e.x - e.w * e.scale / 2 - b.r, y: e.y - e.h * e.scale - b.r, w: e.w * e.scale + b.r * 2, h: e.h * e.scale + b.r * 2 };
+          if (b.x > eb.x && b.x < eb.x + eb.w && b.y > eb.y && b.y < eb.y + eb.h) {
+            b.hit.add(e.id);
+            this._applyHit(e, b.act, sign(b.vx), b.x, b.y);
+            g.sfx("bulletHit");
+            if (!b.pierce) { remove = true; break; }
+          }
+        }
+      } else if (!remove && b.owner === "enemy") {
+        const p = g.player;
+        if (p.alive && !b.hit.has("p")) {
+          const top = p.y - p.h;
+          const inside = b.wave ? Math.abs(b.x - p.x) < 10 && p.y > -14 : b.x > p.x - p.w / 2 - b.r && b.x < p.x + p.w / 2 + b.r && b.y > top - b.r && b.y < p.y + b.r;
+          if (inside) {
+            b.hit.add("p");
+            const before = p.hp;
+            this._hitPlayer(b.dmg, b.x - b.vx * 0.01);
+            if (p.hp < before || !b.wave) remove = true;
+          }
+        }
+      }
+      if (remove) {
+        if (b.life > 0 && !b.wave) g.fx.sparks(b.x, b.y, 4, b.color, 140, null, Math.PI, 0.2);
+        P.splice(i, 1);
+      }
+    }
+  }
+
+  drawProjectiles(ctx, hq) {
+    for (const b of this.projectiles) {
+      const sp = Math.hypot(b.vx, b.vy) || 1;
+      const len = b.wave ? 0 : b.owner === "player" ? 22 : 12;
+      if (b.wave) {
+        ctx.fillStyle = rgba(b.color, 0.8);
+        ctx.beginPath(); ctx.moveTo(b.x - 10, 0); ctx.quadraticCurveTo(b.x, -16, b.x + 10, 0); ctx.fill();
+        continue;
+      }
+      ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(b.x - b.vx / sp * len, b.y - b.vy / sp * len); ctx.lineTo(b.x, b.y);
+      if (hq) { ctx.strokeStyle = rgba(b.color, 0.3); ctx.lineWidth = b.r * 1.4; ctx.stroke(); }
+      ctx.strokeStyle = b.owner === "player" ? "#ffffff" : b.color; ctx.lineWidth = b.r * 0.45; ctx.stroke();
+      ctx.fillStyle = b.owner === "player" ? "#ffffff" : b.color; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.5, 0, TAU); ctx.fill();
+    }
+  }
+}
+
+/* ---------- AttackDirector ---------- */
+class AttackDirector {
+  constructor(game) { this.game = game; this.reset(); }
+  reset() { this.active = new Set(); this.lastStart = -9; this.lastSide = 0; this.maxTokens = 1; this.maxRanged = 1; }
+  setLimits(tokens, ranged) { this.maxTokens = tokens; this.maxRanged = ranged; }
+  request(e) {
+    const g = this.game, now = g.combat.time;
+    for (const a of this.active) if (!a.alive || !g.enemies.includes(a)) this.active.delete(a);
+    if (this.active.size >= this.maxTokens) return false;
+    if (e.kind === "gunner") {
+      let r = 0; for (const a of this.active) if (a.kind === "gunner") r++;
+      if (r >= this.maxRanged) return false;
+    }
+    const side = sign(e.x - g.player.x);
+    // атака с другой стороны требует большего зазора — без атак «со всех сторон сразу»
+    const gap = this.lastSide && side !== this.lastSide && this.active.size > 0 ? 0.7 : 0.35;
+    if (now - this.lastStart < gap) return false;
+    this.active.add(e);
+    this.lastStart = now; this.lastSide = side;
+    return true;
+  }
+  release(e) { this.active.delete(e); }
+}
+
+/* ---------- WaveDirector ---------- */
+const WAVES = [
+  ["blade", "blade", "blade"],
+  ["blade", "blade", "gunner", "blade"],
+  ["blade", "swift", "gunner", "swift", "blade"],
+  ["brute", "blade", "gunner", "blade", "swift"],
+  ["swift", "gunner", "blade", "swift", "gunner", "blade"],
+  ["brute", "swift", "gunner", "blade", "brute", "swift", "gunner"],
+];
+const PRACTICE_STEPS = [
+  { text: "Двигайтесь: джойстик слева или A / D", check: g => g.player.moveDist > 220 },
+  { text: "Прыгните, а в воздухе прыгните ещё раз", check: g => g.player.didDoubleJump },
+  { text: "Атакуйте в такт: кольцо внизу сжимается к доле", spawn: [["blade", true]], check: g => g.combat.ratings.perfect + g.combat.ratings.good >= 4 || g.combat.kills >= 1 },
+  { text: "Враг вспыхивает перед ударом — нажмите «Уклон» в момент удара", spawn: [["blade", false]], check: g => g.combat.perfectDodges >= 1 || g.player.dodgeCount >= 3 },
+  { text: "Стрелок держит дистанцию: атака издалека — выстрел", spawn: [["gunner", false]], check: g => g.combat.kills >= 3 },
+  { text: "Свободный бой. Выйти — через паузу", free: true },
+];
+
+class WaveDirector {
+  constructor(game) { this.game = game; this.reset("waves"); }
+  reset(mode) {
+    this.mode = mode;
+    this.wave = 0; this.queue = []; this.between = 1.2; this.spawnTimer = 0;
+    this.done = false; this.banner = ""; this.bannerT = 0;
+    this.step = 0; this.stepT = 0; this.freeT = 0;
+    this.trackSpawnT = 2;
+  }
+  get totalWaves() { return WAVES.length; }
+
+  aliveCount() { return this.game.enemies.filter(e => e.alive).length; }
+
+  update(dt) {
+    const g = this.game;
+    this.bannerT = Math.max(0, this.bannerT - dt);
+    if (this.done || !g.player.alive) return;
+    const strongBeat = g.clock.events.some(e => e.type === "strongBeat");
+    const beat = g.clock.events.some(e => e.type === "beat");
+    this.spawnTimer -= dt;
+
+    if (this.mode === "practice") return this._practice(dt, strongBeat || beat);
+
+    if (this.mode === "track") {
+      // натиск следует за энергией музыки
+      const I = g.clock.intensitySmooth;
+      const prog = g.audio.duration ? clamp(g.songNow / g.audio.duration, 0, 1) : 0;
+      const target = Math.round(1 + I * 3.2 + prog * 1.5 + g.diff.extra);
+      g.director.setLimits(clamp(1 + Math.round(I * 2) + g.diff.extra, 1, 3), I > 0.6 ? 2 : 1);
+      this.wave = 1 + Math.floor(prog * 5);
+      if (this.aliveCount() < target && (strongBeat || this.spawnTimer < -2.5) && this.spawnTimer <= 0) {
+        const pool = ["blade", "blade", "gunner"];
+        if (prog > 0.15 || I > 0.6) pool.push("swift");
+        if (prog > 0.35 && I > 0.55) pool.push("brute");
+        if (I > 0.7) pool.push("swift", "gunner");
+        const kind = pick(pool);
+        if (kind !== "brute" || !g.enemies.some(e => e.alive && e.kind === "brute")) this.spawn(kind);
+        this.spawnTimer = 0.6;
+      }
+      return;
+    }
+
+    // режим «Волны»
+    if (this.between > 0) {
+      this.between -= dt;
+      if (this.between <= 0) this.startWave(this.wave + 1);
+      return;
+    }
+    const maxAlive = 3 + Math.floor(this.wave / 2);
+    if (this.queue.length && this.aliveCount() < maxAlive && this.spawnTimer <= 0 && (strongBeat || this.spawnTimer < -2)) {
+      this.spawn(this.queue.shift());
+      this.spawnTimer = 0.5;
+    }
+    if (!this.queue.length && this.aliveCount() === 0) {
+      if (this.wave >= WAVES.length) { this.done = true; g.onVictory(); }
+      else {
+        this.between = 3.2;
+        this.showBanner("ВОЛНА " + this.wave + " ПРОЙДЕНА");
+        g.player.hp = Math.min(g.player.maxHp, g.player.hp + 15);
+        g.sfx("heal");
+      }
+    }
+  }
+
+  startWave(n) {
+    const g = this.game;
+    this.wave = n;
+    this.queue = WAVES[n - 1].slice();
+    this.showBanner("ВОЛНА " + n + " / " + WAVES.length);
+    g.sfx("waveStart");
+    g.director.setLimits(clamp(1 + Math.floor(n / 2) + g.diff.extra, 1, 3), n >= 5 ? 2 : 1);
+    this.spawnTimer = 0.3;
+  }
+
+  showBanner(s) { this.banner = s; this.bannerT = 2.2; }
+
+  /** Появление врага в точке подальше от игрока, с порталом. */
+  spawn(kind, passive = false) {
+    const g = this.game, p = g.player;
+    const cands = [{ x: 70, y: 0 }, { x: WORLD.w - 70, y: 0 }, { x: p.x - 300, y: 0 }, { x: p.x + 300, y: 0 }];
+    if (kind === "gunner") for (const pl of WORLD.platforms) cands.push({ x: pl.x + pl.w / 2, y: pl.y });
+    let best = cands[0], bs = -1e9;
+    for (const c of cands) {
+      if (c.x < 50 || c.x > WORLD.w - 50) continue;
+      const d = Math.abs(c.x - p.x);
+      let s = d < 160 ? -1000 : -Math.abs(d - 320) + rand(0, 80);
+      for (const e of g.enemies) if (e.alive && Math.abs(e.x - c.x) < 60) s -= 200;
+      if (s > bs) { bs = s; best = c; }
+    }
+    const e = new Enemy(kind, best.x, best.y, g.diff);
+    e.passive = passive;
+    e.facing = sign(p.x - e.x);
+    g.enemies.push(e);
+    g.sfx("spawn");
+    g.fx.ring(e.x, e.y - 18, 4, 40, e.look.accent, 0.6, 2);
+    g.fx.sparks(e.x, e.y - 10, 10, e.look.accent, 140, -Math.PI / 2, 1.2, 0.5);
+    return e;
+  }
+
+  _practice(dt, beat) {
+    const g = this.game;
+    const st = PRACTICE_STEPS[this.step];
+    if (!st) return;
+    this.stepT += dt;
+    if (this.stepT < 0.05 && st.spawn) for (const [k, passive] of st.spawn) this.spawn(k, passive);
+    if (st.free) {
+      g.director.setLimits(2, 1);
+      if (this.aliveCount() < 2 && this.spawnTimer <= 0 && beat) { this.spawn(pick(["blade", "gunner", "swift"])); this.spawnTimer = 2; }
+      return;
+    }
+    g.director.setLimits(1, 1);
+    // противники шага, если их убили раньше времени — возвращаются
+    if (st.spawn && this.aliveCount() === 0 && this.stepT > 1 && !st.check(g)) { for (const [k, passive] of st.spawn) this.spawn(k, passive); this.stepT = 0.06; }
+    if (st.check(g)) {
+      this.step++; this.stepT = 0;
+      g.sfx("combo", 2);
+      this.showBanner("ОТЛИЧНО");
+    }
+  }
+  get practiceText() { const st = PRACTICE_STEPS[this.step]; return st ? st.text : ""; }
+}

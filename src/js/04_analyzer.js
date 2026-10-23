@@ -1,0 +1,545 @@
+/* =====================================================================
+   RhythmAnalyzer — анализ трека.
+   1) Офлайн: STFT → спектральный поток по трём полосам → темп
+      (автокорреляция с априорным весом) → доли (динамическое
+      программирование) → сильные доли → энергия и секции → уверенность.
+   2) Живой: спектр AnalyserNode для визуальной реакции и подстройки фазы.
+   ===================================================================== */
+class FFT {
+  constructor(n) {
+    this.n = n;
+    this.rev = new Uint32Array(n);
+    const bits = Math.log2(n);
+    for (let i = 0; i < n; i++) {
+      let r = 0;
+      for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b);
+      this.rev[i] = r;
+    }
+    this.cos = new Float32Array(n / 2);
+    this.sin = new Float32Array(n / 2);
+    for (let i = 0; i < n / 2; i++) { this.cos[i] = Math.cos(TAU * i / n); this.sin[i] = Math.sin(TAU * i / n); }
+  }
+  /** Прямое БПФ на месте. */
+  transform(re, im) {
+    const n = this.n, rev = this.rev;
+    for (let i = 0; i < n; i++) {
+      const j = rev[i];
+      if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (let size = 2; size <= n; size <<= 1) {
+      const half = size >> 1, step = n / size;
+      for (let i = 0; i < n; i += size) {
+        for (let j = 0, k = 0; j < half; j++, k += step) {
+          const a = i + j, b = a + half;
+          const c = this.cos[k], s = this.sin[k];
+          const tre = re[b] * c + im[b] * s;
+          const tim = -re[b] * s + im[b] * c;
+          re[b] = re[a] - tre; im[b] = im[a] - tim;
+          re[a] += tre; im[a] += tim;
+        }
+      }
+    }
+  }
+}
+
+const BANDS = { low: [30, 160], mid: [160, 2500], high: [2500, 11000] };
+/** Эмпирическая поправка положения события относительно центра кадра (с).
+    Подобрана по демо-треку с известными долями (tools/test-analyzer). */
+const ONSET_BIAS = 0.004;
+
+class RhythmAnalyzer {
+  constructor() {
+    this.live = { low: 0, mid: 0, high: 0, energy: 0, flux: 0, onset: false, onsetStrength: 0 };
+    this._liveBytes = null;
+    this._livePrev = null;
+    this._livePeak = { low: 0.2, mid: 0.2, high: 0.2 };
+    this._fluxAvg = 0;
+    this._lastLiveOnset = -1;
+  }
+
+  /* ------------------------------------------------------------------
+     Офлайн-анализ. onProgress(доля 0..1, подпись).
+     ------------------------------------------------------------------ */
+  async analyze(buffer, onProgress = () => {}) {
+    const t0 = performance.now();
+    const sr0 = buffer.sampleRate;
+    const factor = Math.max(1, Math.round(sr0 / 22050));
+    const sr = sr0 / factor;
+    const nCh = buffer.numberOfChannels;
+    const chans = [];
+    for (let c = 0; c < nCh; c++) chans.push(buffer.getChannelData(c));
+    const n = Math.floor(buffer.length / factor);
+    const mono = new Float32Array(n);
+    const norm = 1 / (nCh * factor);
+    onProgress(0.01, "Подготовка звука");
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      const base = i * factor;
+      for (let c = 0; c < nCh; c++) { const d = chans[c]; for (let k = 0; k < factor; k++) s += d[base + k]; }
+      mono[i] = s * norm;
+      if ((i & 0x7ffff) === 0 && i) { onProgress(0.01 + 0.04 * i / n, "Подготовка звука"); await yieldToUI(); }
+    }
+
+    /* ---- STFT и спектральный поток ---- */
+    const N = 1024, H = 256;
+    const frames = Math.max(8, Math.floor((n - N) / H) + 1);
+    const fps = sr / H;
+    const fft = new FFT(N);
+    const win = new Float32Array(N);
+    for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(TAU * i / (N - 1));
+    const re = new Float32Array(N), im = new Float32Array(N);
+    const binHz = sr / N, half = N / 2;
+    const band = new Uint8Array(half);       // 0 — вне полос, 1 низ, 2 середина, 3 верх
+    for (let k = 1; k < half; k++) {
+      const f = k * binHz;
+      band[k] = f >= BANDS.low[0] && f < BANDS.low[1] ? 1 : f < BANDS.mid[1] && f >= BANDS.mid[0] ? 2 : f >= BANDS.high[0] && f < BANDS.high[1] ? 3 : 0;
+    }
+    const eL = new Float32Array(frames), eM = new Float32Array(frames), eH = new Float32Array(frames);
+    const fL = new Float32Array(frames), fM = new Float32Array(frames), fH = new Float32Array(frames);
+    const rms = new Float32Array(frames), cent = new Float32Array(frames);
+    let mL = 0, mM = 0, mH = 0;   // суммы амплитуд по полосам (для признаков)
+    const prevLog = new Float32Array(half);
+    for (let f = 0; f < frames; f++) {
+      const off = f * H;
+      let sq = 0;
+      for (let i = 0; i < N; i++) { const x = off + i < n ? mono[off + i] : 0; re[i] = x * win[i]; im[i] = 0; sq += x * x; }
+      rms[f] = Math.sqrt(sq / N);
+      fft.transform(re, im);
+      let el = 0, em = 0, eh = 0, fl = 0, fm = 0, fh = 0, cw = 0, cs = 0;
+      for (let k = 1; k < half; k++) {
+        const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+        const lg = Math.log1p(mag);
+        const d = lg - prevLog[k];
+        prevLog[k] = lg;
+        const p = mag * mag;
+        cw += mag * k; cs += mag;
+        switch (band[k]) {
+          case 1: el += p; mL += mag; if (d > 0) fl += d; break;
+          case 2: em += p; mM += mag; if (d > 0) fm += d; break;
+          case 3: eh += p; mH += mag; if (d > 0) fh += d; break;
+        }
+      }
+      eL[f] = el; eM[f] = em; eH[f] = eh;
+      fL[f] = fl; fM[f] = fm; fH[f] = fh;
+      cent[f] = cs > 0 ? (cw / cs) * binHz : 0;
+      if ((f & 255) === 0) { onProgress(0.05 + 0.6 * f / frames, "Спектральный анализ"); await yieldToUI(); }
+    }
+    fL[0] = fM[0] = fH[0] = 0;
+    // нормировка полос к своему 98-му перцентилю
+    const nrm = arr => { const p = percentile(arr, 0.98, 2) || 1; for (let i = 0; i < arr.length; i++) arr[i] /= p; };
+    nrm(fL); nrm(fM); nrm(fH);
+
+    /* ---- огибающая событий ---- */
+    const O = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) O[i] = 1.0 * fL[i] + 0.7 * fM[i] + 0.45 * fH[i];
+    const W = Math.max(2, Math.round(0.25 * fps));
+    const Od = new Float32Array(frames);
+    {
+      let acc = 0, cnt = 0;
+      for (let i = 0; i < Math.min(frames, W); i++) { acc += O[i]; cnt++; }
+      for (let i = 0; i < frames; i++) {
+        const add = i + W, rem = i - W - 1;
+        if (add < frames) { acc += O[add]; cnt++; }
+        if (rem >= 0) { acc -= O[rem]; cnt--; }
+        const v = O[i] - acc / cnt;
+        Od[i] = v > 0 ? v : 0;
+      }
+    }
+    onProgress(0.68, "Поиск темпа");
+    await yieldToUI();
+
+    /* ---- темп: автокорреляция ---- */
+    const minL = 6, maxL = Math.ceil(60 * fps / 45) * 2 + 4;
+    const AC = new Float32Array(maxL + 2);
+    for (let L = minL; L <= maxL && L < frames; L++) {
+      let s = 0;
+      for (let i = 0; i + L < frames; i++) s += Od[i] * Od[i + L];
+      AC[L] = s / (frames - L);
+    }
+    const acAt = L => {
+      if (L < minL || L >= maxL) return 0;
+      const i = Math.floor(L), t = L - i;
+      return AC[i] * (1 - t) + AC[i + 1] * t;
+    };
+    const tempoScore = bpm => {
+      const L = 60 * fps / bpm;
+      const prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 120) / 0.85, 2));
+      return (acAt(L) + 0.5 * acAt(2 * L) + 0.25 * acAt(L / 2) + 0.25 * acAt(3 * L)) * prior;
+    };
+    let bestBpm = 120, best = -1;
+    const scores = [];
+    for (let bpm = 60; bpm <= 200; bpm += 0.25) {
+      const s = tempoScore(bpm);
+      scores.push(s);
+      if (s > best) { best = s; bestBpm = bpm; }
+    }
+    // уточнение
+    for (let bpm = bestBpm - 0.25; bpm <= bestBpm + 0.25; bpm += 0.02) {
+      const s = tempoScore(bpm);
+      if (s > best) { best = s; bestBpm = bpm; }
+    }
+    const medScore = median(scores);
+    const peakRatio = best > 0 ? (best - medScore) / best : 0;
+    const globalP = 60 * fps / bestBpm;
+
+    /* ---- локальный темп (окна 12 с, шаг 6 с) ---- */
+    const winF = Math.round(12 * fps), hopF = Math.round(6 * fps);
+    const localPts = [];
+    for (let s0 = 0; s0 < frames; s0 += hopF) {
+      const s1 = Math.min(frames, s0 + winF);
+      if (s1 - s0 < winF * 0.5) break;
+      let bL = globalP, bS = -1;
+      for (let L = globalP * 0.9; L <= globalP * 1.1; L += 0.1) {
+        let s = 0;
+        const Li = Math.floor(L), t = L - Li;
+        for (let i = s0; i + Li + 1 < s1; i++) s += Od[i] * (Od[i + Li] * (1 - t) + Od[i + Li + 1] * t);
+        const prior = Math.exp(-0.5 * Math.pow((L - globalP) / (globalP * 0.06), 2));
+        s *= 0.6 + 0.4 * prior;
+        if (s > bS) { bS = s; bL = L; }
+      }
+      localPts.push({ c: (s0 + s1) / 2, L: bL });
+    }
+    const period = new Float32Array(frames).fill(globalP);
+    if (localPts.length > 1) {
+      // сглаживание медианой по трём
+      const Ls = localPts.map((p, i) => {
+        const a = localPts[Math.max(0, i - 1)].L, b = p.L, c = localPts[Math.min(localPts.length - 1, i + 1)].L;
+        return [a, b, c].sort((x, y) => x - y)[1];
+      });
+      let j = 0;
+      for (let i = 0; i < frames; i++) {
+        while (j < localPts.length - 2 && localPts[j + 1].c < i) j++;
+        const a = localPts[j], b = localPts[j + 1];
+        const t = clamp((i - a.c) / (b.c - a.c), 0, 1);
+        period[i] = lerp(Ls[j], Ls[j + 1], t);
+      }
+    }
+    const localBpms = localPts.map(p => 60 * fps / p.L);
+    const meanLB = localBpms.length ? localBpms.reduce((a, b) => a + b, 0) / localBpms.length : bestBpm;
+    const cv = localBpms.length > 1 ? Math.sqrt(localBpms.reduce((a, b) => a + (b - meanLB) * (b - meanLB), 0) / localBpms.length) / meanLB : 0;
+    onProgress(0.75, "Поиск долей");
+    await yieldToUI();
+
+    /* ---- доли: динамическое программирование ---- */
+    let sd = 0, mean = 0;
+    for (let i = 0; i < frames; i++) mean += Od[i];
+    mean /= frames;
+    for (let i = 0; i < frames; i++) sd += (Od[i] - mean) * (Od[i] - mean);
+    sd = Math.sqrt(sd / frames) || 1;
+    const local = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) local[i] = Od[i] / sd;
+    const cum = new Float32Array(frames), back = new Int32Array(frames).fill(-1);
+    const tight = 400;   // высокая «жёсткость» удерживает фазу в брейках без ударных
+    for (let t = 0; t < frames; t++) {
+      const P = period[t];
+      const lo = Math.max(0, Math.round(t - 2 * P)), hi = Math.round(t - P / 2);
+      let bv = -Infinity, bi = -1;
+      for (let p = lo; p <= hi; p++) {
+        const r = Math.log((t - p) / P);
+        const v = cum[p] - tight * r * r;
+        if (v > bv) { bv = v; bi = p; }
+      }
+      cum[t] = local[t] + (bi >= 0 ? bv : 0);
+      back[t] = bi;
+      if ((t & 4095) === 0) await yieldToUI();
+    }
+    // конец цепочки — лучший кадр в последнем периоде
+    let end = frames - 1, ev = -Infinity;
+    for (let t = Math.max(0, Math.floor(frames - globalP)); t < frames; t++) if (cum[t] > ev) { ev = cum[t]; end = t; }
+    let beatFrames = [];
+    for (let t = end; t >= 0; t = back[t]) { beatFrames.push(t); if (back[t] < 0) break; }
+    beatFrames.reverse();
+
+    const toTime = fr => (fr * H + N / 2) / sr + ONSET_BIAS;
+    // уточнение по локальному максимуму с параболической интерполяцией
+    const refine = fr => {
+      let m = fr;
+      for (let k = Math.max(1, fr - 2); k <= Math.min(frames - 2, fr + 2); k++) if (O[k] > O[m]) m = k;
+      const a = O[m - 1] || 0, b = O[m], c = O[m + 1] || 0;
+      const den = a - 2 * b + c;
+      const off = den < 0 ? clamp(0.5 * (a - c) / den, -0.5, 0.5) : 0;
+      return { frame: m + off, peak: b };
+    };
+    const p95 = percentile(O, 0.95, 2) || 1;
+    const frameOf = t => clamp(Math.round(((t - ONSET_BIAS) * sr - N / 2) / H), 0, frames - 1);
+    const measure = t => {
+      const fr = frameOf(t);
+      let lm = 0, mm = 0, pk = 0;
+      for (let k = Math.max(0, fr - 2); k <= Math.min(frames - 1, fr + 2); k++) { lm = Math.max(lm, fL[k]); mm = Math.max(mm, fM[k]); pk = Math.max(pk, O[k]); }
+      return { s: clamp(pk / p95, 0, 1.5) / 1.5, low: lm, mid: mm };
+    };
+    let beats = beatFrames.map(fr => toTime(refine(fr).frame));
+    const P = 60 / bestBpm;
+
+    /* ---- удержание фазы ----
+       В интро и брейках без бочки трекер может уйти на слабые доли
+       (хэты на «и»). Отрезки без опорных ударов, сдвинутые на полдоли
+       относительно соседних опор, перестраиваются по сетке опор. */
+    let phaseFixes = 0;
+    if (beats.length >= 16) {
+      const lows = beats.map(t => measure(t).low);
+      const thr = 0.5 * percentile(lows, 0.9);
+      const anchor = lows.map(v => thr > 0.05 && v > thr);
+      if (anchor.filter(Boolean).length > beats.length * 0.2) {
+        const nb0 = beats.length, out = [];
+        const localP = (from, to) => {
+          const a = clamp(from, 0, nb0 - 1), b = clamp(to, 0, nb0 - 1);
+          if (b - a < 1) return P;
+          const v = (beats[b] - beats[a]) / (b - a);
+          return Math.abs(v - P) / P < 0.1 ? v : P;
+        };
+        let i = 0;
+        while (i < nb0) {
+          if (anchor[i]) { out.push(beats[i]); i++; continue; }
+          let j = i;
+          while (j < nb0 && !anchor[j]) j++;
+          const hasStart = i > 0, hasEnd = j < nb0;
+          if (j - i < 4 || (!hasStart && !hasEnd)) { for (let k = i; k < j; k++) out.push(beats[k]); i = j; continue; }
+          const ref = hasStart ? beats[i - 1] : beats[j];
+          const Pl = hasStart ? localP(i - 5, i - 1) : localP(j, j + 4);
+          let cx = 0, cy = 0;
+          for (let k = i; k < j; k++) { const ph = ((beats[k] - ref) / Pl) * TAU; cx += Math.cos(ph); cy += Math.sin(ph); }
+          let mph = Math.atan2(cy, cx) / TAU; if (mph < 0) mph += 1;
+          // при стабильном темпе отрезки без опор выравниваются по сетке опор всегда,
+          // иначе только если они сдвинуты на полдоли
+          if ((mph > 0.3 && mph < 0.7) || cv < 0.03) {
+            phaseFixes++;
+            if (hasStart && hasEnd) {
+              const a = beats[i - 1], b = beats[j], cnt = Math.max(1, Math.round((b - a) / Pl)), st = (b - a) / cnt;
+              for (let c = 1; c < cnt; c++) out.push(a + c * st);
+            } else if (hasStart) {
+              for (let t = beats[i - 1] + Pl; t < beats[j - 1] + Pl * 0.5; t += Pl) out.push(t);
+            } else {
+              const arr = [];
+              for (let t = beats[j] - Pl; t > beats[i] - Pl * 0.5; t -= Pl) arr.unshift(t);
+              out.push(...arr);
+            }
+          } else for (let k = i; k < j; k++) out.push(beats[k]);
+          i = j;
+        }
+        beats = out;
+      }
+    }
+    let strength = [], lowAt = [], midAt = [];
+    const remeasure = () => {
+      strength = []; lowAt = []; midAt = [];
+      for (const t of beats) { const m = measure(t); strength.push(m.s); lowAt.push(m.low); midAt.push(m.mid); }
+    };
+    remeasure();
+
+    /* ---- уверенность и режим ---- */
+    const support = strength.length ? strength.filter(s => s > 0.22).length / strength.length : 0;
+    const c1 = invLerp(0.25, 0.75, peakRatio);
+    const c2 = invLerp(0.3, 0.85, support);
+    const c3 = invLerp(0.1, 0.015, cv);
+    const confidence = clamp(0.45 * c1 + 0.35 * c2 + 0.2 * c3, 0, 1);
+    let mode = confidence >= 0.6 && cv < 0.035 ? "precise" : confidence >= 0.35 ? "adaptive" : "fallback";
+
+    const duration = buffer.duration;
+    if (mode === "fallback" || beats.length < 8) {
+      // ровная сетка с фазой, лучше всего совпадающей с событиями
+      mode = "fallback";
+      let bestPh = 0, bestS = -1;
+      for (let ph = 0; ph < P; ph += P / 48) {
+        let sc = 0;
+        for (let t = ph; t < duration; t += P) sc += O[frameOf(t)];
+        if (sc > bestS) { bestS = sc; bestPh = ph; }
+      }
+      beats = [];
+      for (let t = bestPh; t < duration; t += P) beats.push(t);
+    } else {
+      // достраиваем сетку назад к началу и вперёд к концу трека
+      const pre = [];
+      let t = beats[0] - P;
+      while (t > -P * 0.25) { pre.unshift(Math.max(0, t)); t -= P; }
+      beats = pre.concat(beats);
+      t = beats[beats.length - 1] + P;
+      while (t < duration) { beats.push(t); t += P; }
+    }
+    remeasure();
+    onProgress(0.86, "Сильные доли и секции");
+    await yieldToUI();
+
+    /* ---- энергия, полосы, границы секций ---- */
+    const nb = beats.length;
+    const DEC = 4, envFps = fps / DEC, envN = Math.ceil(frames / DEC);
+    const dB = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) dB[i] = 10 * Math.log10(eL[i] + eM[i] + eH[i] + 1e-6);
+    const smooth = (arr, w) => {
+      const out = new Float32Array(arr.length);
+      let acc = 0, cnt = 0;
+      for (let i = 0; i < Math.min(arr.length, w); i++) { acc += arr[i]; cnt++; }
+      for (let i = 0; i < arr.length; i++) {
+        if (i + w < arr.length) { acc += arr[i + w]; cnt++; }
+        if (i - w - 1 >= 0) { acc -= arr[i - w - 1]; cnt--; }
+        out[i] = acc / cnt;
+      }
+      return out;
+    };
+    const dBs = smooth(dB, Math.round(0.6 * fps));
+    const lo10 = percentile(dBs, 0.08, 3), hi97 = percentile(dBs, 0.97, 3);
+    const energy = new Float32Array(envN), bl = new Float32Array(envN), bm = new Float32Array(envN), bh = new Float32Array(envN);
+    const lgL = smooth(eL.map(v => Math.log1p(v)), 6), lgM = smooth(eM.map(v => Math.log1p(v)), 6), lgH = smooth(eH.map(v => Math.log1p(v)), 6);
+    const pl = percentile(lgL, 0.97, 3) || 1, pm = percentile(lgM, 0.97, 3) || 1, ph2 = percentile(lgH, 0.97, 3) || 1;
+    for (let i = 0; i < envN; i++) {
+      const f = Math.min(frames - 1, i * DEC);
+      energy[i] = invLerp(lo10, hi97, dBs[f]);
+      bl[i] = clamp(lgL[f] / pl, 0, 1); bm[i] = clamp(lgM[f] / pm, 0, 1); bh[i] = clamp(lgH[f] / ph2, 0, 1);
+    }
+    const eS = smooth(energy, Math.round(1.5 * envFps));
+    const half3 = Math.round(3 * envFps);
+    const novelty = new Float32Array(envN);
+    for (let i = half3; i < envN - half3; i++) {
+      let a = 0, b = 0;
+      for (let k = 1; k <= half3; k++) { a += eS[i - k]; b += eS[i + k]; }
+      novelty[i] = Math.abs(b - a) / half3;
+    }
+    // точная граница: самый резкий рост/спад энергии рядом с пиком новизны
+    const boundIdx = [];
+    let lastB = -1e9;
+    for (let i = 1; i < envN - 1; i++) {
+      if (novelty[i] > 0.14 && novelty[i] >= novelty[i - 1] && novelty[i] >= novelty[i + 1] && (i - lastB) / envFps >= 8) {
+        // уточняем по несглаженной громкости: максимум разницы «после минус до» в окнах 0.25 с
+        const c = i * DEC, w = Math.round(0.25 * fps);
+        let bestJ = c, bestD = -1;
+        for (let j = Math.max(w, c - Math.round(fps)); j < Math.min(frames - w, c + Math.round(fps)); j++) {
+          let a = 0, b = 0;
+          for (let k = 0; k < w; k++) { a += dB[j - 1 - k]; b += dB[j + k]; }
+          const d = Math.abs(b - a);
+          if (d > bestD) { bestD = d; bestJ = j; }
+        }
+        const t = toTime(bestJ);
+        let bi = clamp(lowerIndex(beats, t), 0, nb - 1);
+        if (bi + 1 < nb && Math.abs(beats[bi + 1] - t) < Math.abs(beats[bi] - t)) bi++;
+        boundIdx.push(bi);
+        lastB = i;
+      }
+    }
+
+    /* ---- сильные доли: голосование фазы по модулю 4 ----
+       Признак бочки (низ минус середина) + начала секций, которые
+       почти всегда приходятся на первую долю такта. */
+    let evMag = 0;
+    const evid = beats.map((_, i) => { const v = lowAt[i] - 0.4 * midAt[i]; evMag += Math.abs(v); return v; });
+    evMag = evMag / Math.max(1, nb) || 0.1;
+    const vote = [0, 0, 0, 0];
+    for (let i = 0; i < nb; i++) vote[i % 4] += evid[i];
+    for (const bi of boundIdx) vote[bi % 4] += evMag * 10;
+    const gPhase = vote.indexOf(Math.max(...vote));
+    const strong = new Uint8Array(nb);
+    for (let i = 0; i < nb; i++) strong[i] = i % 4 === gPhase ? 1 : 0;
+
+    /* ---- секции ---- */
+    const bounds = [0];
+    for (const bi of boundIdx) {
+      // сдвиг к ближайшей сильной доле
+      let k = bi;
+      for (let d = 0; d <= 2; d++) {
+        if (bi - d >= 0 && strong[bi - d]) { k = bi - d; break; }
+        if (bi + d < nb && strong[bi + d]) { k = bi + d; break; }
+      }
+      const bt = beats[k];
+      if (bt - bounds[bounds.length - 1] > 6) bounds.push(bt);
+    }
+    const sections = [];
+    for (let s = 0; s < bounds.length; s++) {
+      const a = bounds[s], b = s + 1 < bounds.length ? bounds[s + 1] : duration;
+      let acc = 0, cnt = 0;
+      for (let i = Math.floor(a * envFps); i < Math.min(envN, b * envFps); i++) { acc += energy[i]; cnt++; }
+      const e = cnt ? acc / cnt : 0;
+      sections.push({ start: a, end: b, energy: e, level: e < 0.38 ? "calm" : e > 0.66 ? "intense" : "mid" });
+    }
+
+    /* ---- кандидаты событий по полосам (порог применяется во время игры) ---- */
+    const onsets = { low: [], mid: [], high: [] };
+    const pickBand = (arr, list) => {
+      const w = Math.round(0.4 * fps);
+      const avg = smooth(arr, w);
+      for (let i = 2; i < frames - 2; i++) {
+        const v = arr[i];
+        if (v > arr[i - 1] && v >= arr[i + 1] && v > arr[i - 2] && v >= arr[i + 2]) {
+          const s = v - avg[i] * 1.15;
+          if (s > 0.08) list.push(toTime(i), s);
+        }
+      }
+    };
+    pickBand(fL, onsets.low); pickBand(fM, onsets.mid); pickBand(fH, onsets.high);
+
+    /* ---- признаки трека для подбора арены ---- */
+    const sL = mL, sM = mM, sH = mH, sAll = sL + sM + sH || 1;
+    const rmsDb = [];
+    for (let i = 0; i < frames; i += 2) if (rms[i] > 1e-4) rmsDb.push(20 * Math.log10(rms[i]));
+    rmsDb.sort((a, b) => a - b);
+    const q = p => rmsDb.length ? rmsDb[Math.floor(p * (rmsDb.length - 1))] : -60;
+    let density = 0;
+    for (let i = 1; i < onsets.mid.length; i += 2) if (onsets.mid[i] > 0.3) density++;
+    for (let i = 1; i < onsets.low.length; i += 2) if (onsets.low[i] > 0.3) density++;
+    let meanO = 0, meanOd = 0, meanC = 0;
+    for (let i = 0; i < frames; i++) { meanO += O[i]; meanOd += Od[i]; meanC += cent[i]; }
+    const features = {
+      bpm: bestBpm,
+      low: sL / sAll, mid: sM / sAll, high: sH / sAll,
+      loudness: invLerp(-38, -8, q(0.6)),
+      dynamics: invLerp(4, 26, q(0.95) - q(0.15)),
+      density: density / duration,
+      perc: meanO > 0 ? meanOd / meanO : 0,
+      bright: (meanC / frames) / 4000,
+      energyVar: sections.length > 1 ? Math.max(...sections.map(s => s.energy)) - Math.min(...sections.map(s => s.energy)) : 0,
+    };
+
+    onProgress(1, "Готово");
+    return {
+      duration, bpm: bestBpm, period: P, confidence, mode, stability: 1 - cv,
+      beats: Float64Array.from(beats), strength: Float32Array.from(strength), strong,
+      envFps, energy, low: bl, mid: bm, high: bh, sections, onsets, features,
+      ms: Math.round(performance.now() - t0), phaseFixes,
+    };
+  }
+
+  /* ------------------------------------------------------------------
+     Живой анализ — вызывается каждый кадр, пока играет трек.
+     ------------------------------------------------------------------ */
+  updateLive(audio, dt, sensitivity) {
+    const L = this.live;
+    const an = audio.analyser;
+    if (!an || !audio.playing) {
+      L.low = damp(L.low, 0, 6, dt); L.mid = damp(L.mid, 0, 6, dt); L.high = damp(L.high, 0, 6, dt);
+      L.energy = damp(L.energy, 0, 4, dt); L.onset = false;
+      return L;
+    }
+    const bins = an.frequencyBinCount;
+    if (!this._liveBytes || this._liveBytes.length !== bins) {
+      this._liveBytes = new Uint8Array(bins); this._livePrev = new Uint8Array(bins);
+      const hz = audio.ctx.sampleRate / an.fftSize;
+      this._r = {};
+      for (const k in BANDS) this._r[k] = [Math.max(1, Math.floor(BANDS[k][0] / hz)), Math.min(bins - 1, Math.ceil(BANDS[k][1] / hz))];
+    }
+    const cur = this._liveBytes, prev = this._livePrev;
+    prev.set(cur);
+    an.getByteFrequencyData(cur);
+    const avg = (a, b) => { let s = 0; for (let i = a; i < b; i++) s += cur[i]; return s / Math.max(1, b - a) / 255; };
+    let flux = 0;
+    const [la, lb] = this._r.low, [ma, mb] = this._r.mid;
+    for (let i = la; i < mb; i++) { const d = cur[i] - prev[i]; if (d > 0) flux += i < lb ? d * 2 : d * 0.5; }
+    flux /= (mb - la) * 255;
+    const pk = this._livePeak;
+    for (const k of ["low", "mid", "high"]) {
+      const raw = avg(this._r[k][0], this._r[k][1]);
+      pk[k] = Math.max(raw, pk[k] * Math.exp(-dt * 0.15), 0.08);
+      const v = clamp(raw / pk[k], 0, 1);
+      L[k] = v > L[k] ? damp(L[k], v, 30, dt) : damp(L[k], v, 8, dt);
+    }
+    L.energy = damp(L.energy, (L.low * 1.2 + L.mid + L.high * 0.6) / 2.8, 3, dt);
+    this._fluxAvg = damp(this._fluxAvg, flux, 2.5, dt);
+    const thr = this._fluxAvg * 1.5 + 0.012 / clamp(sensitivity, 0.5, 1.5);
+    const now = performance.now();
+    L.flux = flux;
+    L.onset = false;
+    if (flux > thr && now - this._lastLiveOnset > 110) {
+      L.onset = true;
+      L.onsetStrength = clamp((flux - thr) / (thr + 1e-6), 0, 1);
+      this._lastLiveOnset = now;
+    }
+    return L;
+  }
+}
