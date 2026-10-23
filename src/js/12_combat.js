@@ -418,8 +418,11 @@ class CombatSystem {
   }
 
   _onKill(e, act, cinematic = false) {
-    const g = this.game;
+    const g = this.game, p = g.player;
     this.kills++;
+    // небольшое лечение за каждого побеждённого (больше — за добивание)
+    const heal = (g.diff.killHeal || 0) + (cinematic ? 4 : 0);
+    if (heal > 0 && p.alive) { p.hp = Math.min(p.maxHp, p.hp + heal); g.fx.text(p.x, p.y - 62, "+" + heal, "#b6ff3b", 11, 0.6); }
     this.score += Math.round(e.T.score * (1 + Math.min(this.combo, 40) / 40));
     g.sfx("death");
     g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 26 : 14, e.look.accent, 260);
@@ -572,7 +575,7 @@ class CombatSystem {
 
   _hitPlayer(dmg, fromX) {
     const g = this.game, p = g.player;
-    if (p.state === "dodge" && p.stateT < 0.16 && !p.perfectDodgeUsed) {
+    if (p.state === "dodge" && p.stateT < 0.2 && !p.perfectDodgeUsed) {
       // идеальный уклон: удар пришёлся в самое начало уклонения
       p.perfectDodgeUsed = true;
       this.perfectDodges++;
@@ -675,7 +678,7 @@ class AttackDirector {
     }
     const side = sign(e.x - g.player.x);
     // атака с другой стороны требует большего зазора — без атак «со всех сторон сразу»
-    const gap = this.lastSide && side !== this.lastSide && this.active.size > 0 ? 0.7 : 0.35;
+    const gap = (this.lastSide && side !== this.lastSide && this.active.size > 0 ? 0.7 : 0.35) * (g.diff.extra < 0 ? 1.6 : g.diff.extra === 0 ? 1.35 : 1);
     if (now - this.lastStart < gap) return false;
     this.active.add(e);
     this.lastStart = now; this.lastSide = side;
@@ -730,7 +733,7 @@ class WaveDirector {
       const I = g.clock.intensitySmooth;
       const prog = g.audio.duration ? clamp(g.songNow / g.audio.duration, 0, 1) : 0;
       const target = Math.round(2 + I * 3.5 + prog * 1.8 + g.diff.extra);
-      g.director.setLimits(clamp(1 + Math.round(I * 2) + g.diff.extra, 1, 3), I > 0.6 ? 2 : 1);
+      g.director.setLimits(clamp(1 + Math.round(I * 1.4) + g.diff.extra, 1, 3), I > 0.7 && g.diff.extra >= 0 ? 2 : 1);
       this.wave = 1 + Math.floor(prog * 5);
       if (this.aliveCount() < target && (beat || this.spawnTimer < -1.2) && this.spawnTimer <= 0) {
         const pool = ["blade", "blade", "gunner"];
@@ -750,7 +753,7 @@ class WaveDirector {
       if (this.between <= 0) this.startWave(this.wave + 1);
       return;
     }
-    const maxAlive = 4 + Math.floor(this.wave / 2);
+    const maxAlive = 3 + Math.floor(this.wave / 2) + Math.max(0, g.diff.extra);
     if (this.queue.length && this.aliveCount() < maxAlive && this.spawnTimer <= 0 && (beat || this.spawnTimer < -1.2)) {
       this.spawn(this.queue.shift());
       this.spawnTimer = 0.35;
@@ -772,7 +775,7 @@ class WaveDirector {
     this.queue = WAVES[n - 1].slice();
     this.showBanner("ВОЛНА " + n + " / " + WAVES.length);
     g.sfx("waveStart");
-    g.director.setLimits(clamp(1 + Math.ceil(n / 2) + g.diff.extra, 1, 3), n >= 4 ? 2 : 1);
+    g.director.setLimits(clamp(1 + Math.floor(n / 3) + g.diff.extra, 1, 3), n >= 5 && g.diff.extra >= 0 ? 2 : 1);
     this.spawnTimer = 0.3;
   }
 
@@ -803,7 +806,7 @@ class WaveDirector {
     const e = new Enemy(kind, best.x, best.y, g.diff);
     e.passive = passive;
     e.facing = sign(p.x - e.x);
-    e.attackCD += 0.3;      // появились близко — даём мгновение на реакцию
+    e.attackCD += 0.8;      // появились близко — даём время на реакцию
     g.enemies.push(e);
     g.sfx("spawn");
     g.fx.ring(e.x, e.y - 18, 4, 40, e.look.accent, 0.6, 2);

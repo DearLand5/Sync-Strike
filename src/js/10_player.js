@@ -19,7 +19,7 @@ const PL = {
   grav: 1650, fallMax: 640, jumpV: 505, airJumpV: 440,
   coyote: 0.08, jbuf: 0.11,
   dodgeV: 440, dodgeT: 0.22, dodgeIF: 0.2, dodgeCD: 0.42,
-  hurtT: 0.32, hurtIF: 0.75, maxHp: 130,
+  hurtT: 0.32, hurtIF: 1.0, maxHp: 130,
 };
 
 /** Общая физика тела с полом, стенами и односторонними платформами. */

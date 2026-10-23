@@ -2,10 +2,12 @@
    Game — главный цикл и связывание систем.
    ===================================================================== */
 // Баланс сложностей: HP игрока и врагов, урон, темп атак врагов, лимит одновременных атак.
+// Баланс сложностей: HP игрока и врагов, урон врагов, паузы между их атаками, длина замаха,
+// лимит одновременных атак, лечение за победу над врагом.
 const DIFFS = {
-  easy:   { hp: 0.85, playerHp: 1.3,  dmg: 0.65, cd: 1.25, wind: 1.15, extra: -1, playerDmg: 1.15 },
-  normal: { hp: 1,    playerHp: 1,    dmg: 1,    cd: 1,    wind: 1,    extra: 0,  playerDmg: 1 },
-  hard:   { hp: 1.2,  playerHp: 0.85, dmg: 1.3,  cd: 0.85, wind: 0.85, extra: 1,  playerDmg: 0.95 },
+  easy:   { hp: 0.8,  playerHp: 1.35, dmg: 0.45, cd: 1.6,  wind: 1.3,  extra: -1, playerDmg: 1.2,  killHeal: 6 },
+  normal: { hp: 0.9,  playerHp: 1.15, dmg: 0.65, cd: 1.3,  wind: 1.15, extra: 0,  playerDmg: 1.05, killHeal: 4 },
+  hard:   { hp: 1.2,  playerHp: 0.85, dmg: 1.3,  cd: 0.85, wind: 0.85, extra: 1,  playerDmg: 0.95, killHeal: 1 },
 };
 const SECTION_NAMES = { intro: "ИНТРО", build: "НАРАСТАНИЕ", drop: "ДРОП", climax: "КУЛЬМИНАЦИЯ", break: "БРЕЙК", calm: "ЗАТИШЬЕ", groove: "ГРУВ", outro: "ФИНАЛ" };
 const MODE_NAMES = { waves: "Волны", track: "До конца трека", practice: "Практика" };
