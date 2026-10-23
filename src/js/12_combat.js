@@ -285,12 +285,16 @@ class CombatSystem {
     } else if (def.kind === "melee" || def.kind === "dash") {
       const [a0, a1] = def.arc;
       const back = a0 - 0.4, fwd = a1;
+      const ov = fwd < 2.7 ? 0.24 : 0.08;                  // перелёт руки за точку удара и возврат
       let arm;
-      if (act.phase === "startup") arm = lerp(0.3, back, easeOut(kS));
-      else if (act.phase === "travel") arm = back;
-      else if (act.phase === "active") arm = lerp(back, fwd, easeOut(kA));
-      else arm = lerp(fwd, 0.4, easeInOut(kR));
+      if (act.phase === "startup") arm = lerp(0.3, back - 0.15, easeOut(kS));      // замах чуть дальше назад
+      else if (act.phase === "travel") arm = back - 0.15;
+      else if (act.phase === "active") arm = lerp(back - 0.15, fwd + ov, easeOut(kA));
+      else arm = lerp(fwd + ov, 0.4, easeInOut(kR));
       Object.assign(P, { armF: arm, lean: act.phase === "startup" ? -0.12 : act.phase === "travel" ? 0.6 : act.phase === "active" ? 0.3 : 0.15 * (1 - kR) });
+      // тело: присед перед ударом, выпад в ударе, пружинистая доводка
+      if (act.phase === "startup") Object.assign(P, { bodyY: 0.5 + 1.8 * easeOut(kS), sy: 1 - 0.06 * kS, sx: 1 + 0.04 * kS, legSpread: 1.25 + 0.3 * kS });
+      else if (act.phase === "recovery") Object.assign(P, { bodyY: 0.5 + 1.2 * (1 - easeOut(kR)) + Math.sin(kR * Math.PI) * 0.5, sy: 0.95 + 0.05 * easeOut(kR) });
       if (act.phase === "travel") Object.assign(P, { tuck: 0.4, sx: 1.15, sy: 0.88, cloak: -0.8, bodyY: 2 });
       if (def.spin && act.phase === "active") Object.assign(P, { sx: 1.1, sy: 0.92, bodyY: 2, cloak: -1 });
       if (def.flip) P.spin = act.phase === "active" ? TAU * easeInOut(kA) : 0;   // сальто в воздухе
@@ -303,7 +307,8 @@ class CombatSystem {
       const since = act.t - fireT;
       const recoil = since > 0 ? Math.max(0, 1 - since / 0.12) : 0;
       const aim = Math.PI / 2 - ang;
-      Object.assign(P, { armF: aim - recoil * 0.45, elbowF: 0, lean: -0.05 - recoil * 0.12, armB: 0.4, bodyY: recoil * 1.2 });
+      const raise = easeOut(clamp(act.t / Math.max(act.startup, 0.02), 0, 1));
+      Object.assign(P, { armF: lerp(0.5, aim, raise) - recoil * 0.45, elbowF: 0, lean: -0.05 - recoil * 0.12, armB: 0.4, bodyY: recoil * 1.2 });
       if (def.twoHand) Object.assign(P, { armB: aim - recoil * 0.4, legSpread: 1.6, bodyY: 1.5 + recoil, lean: 0.05 });
       if (def.hip) Object.assign(P, { armF: aim + 0.25 - recoil * 0.3, elbowF: -0.5, lean: 0.18, bodyY: 1.8, legSpread: 1.5, headTilt: 0.1 });
       if (def.backflip) {
@@ -425,9 +430,14 @@ class CombatSystem {
     this.kills++;
     this.score += Math.round(e.T.score * (1 + Math.min(this.combo, 40) / 40));
     g.sfx("death");
-    g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 26 : 14, e.look.accent, 260);
-    g.fx.shards(e.x, e.centerY, 6, "#0b0c10", 200);
-    g.fx.ring(e.x, e.centerY, 6, e.kind === "brute" ? 60 : 36, e.look.accent, 0.4, 3);
+    if (!cinematic) {     // у добиваний свой финал (_finishTakedown) — без двойного салюта
+      g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 20 : 11, e.look.accent, 240);
+      g.fx.shards(e.x, e.centerY, 4, "#0b0c10", 180);
+      g.fx.ring(e.x, e.centerY, 6, e.kind === "brute" ? 60 : 36, e.look.accent, 0.4, 2.5);
+    }
+    // жест после убийства в такт: клинок/пистолет проворачивается в руке (полный оборот — за точный удар)
+    const r = act && act.judge && act.judge.rating;
+    if (!cinematic && (r === "perfect" || r === "good") && g.player.alive) { g.player.killT = 0.38; g.player.killAmt = r === "perfect" ? 1 : 0.5; }
     // последний враг волны (в очереди никого): короткое замедление «на выдохе», кроме добивания (у него своё)
     const w = g.waves;
     if (!cinematic && w.mode === "waves" && !w.done && !w.queue.length && !g.enemies.some(x => x !== e && x.alive)) {
@@ -435,7 +445,11 @@ class CombatSystem {
     }
   }
 
-  /* ---------- добивания (takedown) ---------- */
+  /* ---------- добивания (takedown) ----------
+     Принципы визуала: одна идея на кадр — ясная поза удара, тонкие заострённые росчерки вместо толстых
+     линий, мало частиц (искры и осколки только в момент удара), вспышка локальная (glow), а не заливка
+     экрана; камера плавно догоняет цель без случайных наклонов; игрок и враг не перекрывают друг друга.
+     Весь сценарий считается от td.t (время × td.speed), поэтому в ускоренном режиме выглядит так же. */
   canTakedown(e, act) {
     // в толпе кинематографичные добивания реже — иначе они идут почти подряд
     let alive = 0; for (const x of this.game.enemies) if (x.alive) alive++;
@@ -454,22 +468,77 @@ class CombatSystem {
     else kind = "xcut";
     const dur = { xcut: 0.78, sky: 0.95, volley: 0.72, colossus: 1.15 }[kind];
     e.executed = true; e.hp = Math.max(0.01, e.hp); e.cancelAttack(g);
-    e.setState("executed"); e.vx = 0; e.vy = 0;
+    e.setState("executed"); e.vx = 0; e.vy = 0; e.hitKick = 1; e.tdPose = null;
     p.action = null; p.scripted = true; p.setState("takedown"); p.vx = 0; p.vy = 0;
     p.facing = sign(e.x - p.x) || p.facing;
-    this.td = { kind, t: 0, dur, e, dir: p.facing, px: p.x, py: p.y, ex: e.x, ey: e.y, step: 0, act, speed: 1 };
+    this.td = { kind, t: 0, dur, e, dir: p.facing, px: p.x, py: p.y, ex: e.x, ey: e.y, step: 0, act, speed: 1, hitT: [0.15, 0.32, 0.49] };
     this.takedowns++;
     this.lastTdT = this.time;
     g.hitstop(0.07);
     // если бюджет замедлений исчерпан — сценарий играется в ускоренном темпе без замедления времени
     const slowed = g.slowmo(dur + 0.15, kind === "colossus" ? 0.25 : 0.35, "takedown");
     if (!slowed) this.td.speed = 1.65;
-    g.camera.focus(lerp(p.x, e.x, 0.6), e.centerY - 6, kind === "colossus" ? 1.35 : 1.45);
+    // камера: фокус на враге, масштаб подбирается так, чтобы оба участника были в кадре
+    const span = Math.abs(e.x - p.x) + 90;
+    const zoom = clamp(g.viewW() * 0.78 / span, 1.12, kind === "colossus" ? 1.35 : kind === "sky" ? 1.3 : 1.45);
+    g.camera.focus(kind === "volley" ? lerp(p.x, e.x, 0.55) : e.x, e.centerY - 6, zoom, this.td.dir);
     g.letterboxTarget = 1;
     g.sfx("perfect");
     const names = { xcut: "РАССЕЧЕНИЕ", sky: "НЕБЕСНАЯ КАЗНЬ", volley: "РАССТРЕЛ", colossus: "ПАДЕНИЕ КОЛОССА" };
     this.flashLabel(names[kind]);
     g.takedownTitle = names[kind]; g.takedownTitleT = 1.4;
+  }
+
+  /** Эффекты живут в игровом времени, а сценарий идёт в реальном: при замедлении сокращаем жизнь, чтобы росчерки не висели после удара. */
+  _tdLife(x) {
+    const td = this.td, ts = clamp(this.game.timeScale, 0.3, 1);
+    return x * ts / Math.sqrt(td ? td.speed : 1);
+  }
+
+  /** Поза игрока во время добивания (вызывается из Player._pose): антиципация → удар → доводка. */
+  tdPose(p, td) {
+    const t = td.t, ph = (a, b) => clamp((t - a) / (b - a), 0, 1);
+    const P = { legAmp: 0, legSpread: 1.7, tuck: 0, sx: 1, sy: 1, wBlend: 0, wAngle: 0, headTilt: 0, elbowF: 0.2, armB: -1.0, cloak: 0, bodyY: 0, spin: 0 };
+    const strike = { lean: 0.75, bodyY: 2, tuck: 0.3, sx: 1.22, sy: 0.84, armF: 1.45, elbowF: 0.1, wBlend: 1, wAngle: 0, armB: -1.5, cloak: -1.1 };
+    if (td.kind === "xcut") {
+      if (t < 0.1) { const k = easeOut(ph(0, 0.1)); Object.assign(P, { lean: 0.3 * k, bodyY: 3 * k, sx: 1 + 0.06 * k, sy: 1 - 0.08 * k, armF: lerp(0.3, -1.3, k), elbowF: 0.3, armB: 0.9 * k, cloak: -0.4 * k }); }
+      else if (t < 0.2) Object.assign(P, strike);
+      else if (t < 0.3) { const k = easeOut(ph(0.2, 0.3)); Object.assign(P, { lean: lerp(0.5, 0.25, k), bodyY: 3, sx: 1.08, sy: 0.9, armF: lerp(1.2, -1.2, k), elbowF: 0.3, armB: 0.8, cloak: lerp(-0.6, 0.4, k), headTilt: 0.1 }); }
+      else if (t < 0.4) Object.assign(P, strike);
+      else if (t < 0.5) { const k = easeOut(ph(0.4, 0.5)); Object.assign(P, { lean: lerp(0.45, 0.12, k), bodyY: lerp(2, 1, k), sx: 1.06, sy: 0.94, armF: lerp(1.3, 0.5, k), wBlend: 0, cloak: lerp(-0.8, 0, k) }); }
+      else { const k = easeInOut(ph(0.5, 0.78)); Object.assign(P, { lean: lerp(0.1, -0.05, k), bodyY: lerp(1, 0, k), armF: lerp(0.5, 0.12, k), armB: lerp(-0.6, -0.25, k), headTilt: -0.12 * Math.sin(k * Math.PI), legSpread: lerp(1.7, 1.1, k), cloak: 0.35 * (1 - k) }); }
+    } else if (td.kind === "sky") {
+      if (t < 0.12) { const k = easeOut(ph(0, 0.12)); Object.assign(P, { lean: 0.25 * k, bodyY: 3.5 * k, sx: 1.08, sy: 1 - 0.12 * k, armF: lerp(0.3, -1.0, k), armB: 0.8 * k }); }
+      else if (t < 0.42) {
+        Object.assign(P, { tuck: 0.5, lean: 0.1, sx: 0.94, sy: 1.08, armB: -1.2 });
+        if (t < 0.22) Object.assign(P, { armF: lerp(-0.6, 2.6, easeOut(ph(0.15, 0.22))), lean: -0.15 });         // удар снизу вверх
+        else if (t < 0.3) Object.assign(P, { armF: lerp(2.6, -0.8, easeOut(ph(0.23, 0.3))), lean: 0.3 });        // обратный
+        else Object.assign(P, { armF: 0.5, elbowF: 0.1, spin: TAU * easeInOut(ph(0.3, 0.44)), tuck: 0.8 });       // сальто над врагом
+      }
+      else if (t < 0.64) Object.assign(P, { armF: 0.2, elbowF: 0, wBlend: 1, wAngle: Math.PI / 2, lean: 0.12, tuck: 0.6, sx: 0.88, sy: 1.14, armB: -1.6, cloak: 0.9 });
+      else { const k = easeOut(ph(0.64, 0.82)); Object.assign(P, { lean: lerp(0.3, -0.05, k), bodyY: lerp(4, 0, k), sx: lerp(1.16, 1, k), sy: lerp(0.82, 1, k), armF: lerp(0.5, 0.2, k), elbowF: 0.1, wBlend: lerp(1, 0, easeOut(ph(0.66, 0.76))), wAngle: Math.PI / 2, armB: lerp(0.3, -0.3, k), cloak: lerp(-0.4, 0, k) }); }
+    } else if (td.kind === "volley") {
+      const ang = Math.atan2(td.e.centerY - (p.y - 20), Math.abs(td.e.x - p.x)), aim = Math.PI / 2 - ang;
+      let kick = 0;
+      for (const st of [0.06, 0.16, 0.26, 0.44]) { const s = t - st; if (s >= 0 && s < 0.12) kick = Math.max(kick, (1 - s / 0.12) * (st > 0.4 ? 1.7 : 1)); }
+      const ready = easeOut(ph(0, 0.06));
+      Object.assign(P, { armF: lerp(0.5, aim, ready) - kick * 0.3, elbowF: 0, armB: lerp(-0.3, aim, ready) - kick * 0.3, bodyY: 2 + kick, lean: 0.06 - kick * 0.1, legSpread: 1.8, sx: 1 + kick * 0.03, headTilt: -0.05 });
+      if (t > 0.54) {      // эффектное вращение пистолета и убирание в кобуру
+        const k = ph(0.54, 0.72);
+        Object.assign(P, { armF: lerp(aim, 1.0, easeOut(k)), armB: lerp(aim, -0.3, easeOut(k)), elbowF: 0.6, wBlend: 1, wAngle: TAU * easeInOut(k), lean: -0.04, bodyY: lerp(2, 0, k), legSpread: lerp(1.8, 1.2, k), headTilt: -0.1 });
+      }
+    } else if (td.kind === "colossus") {
+      const hits = td.hitT || [0.15, 0.32, 0.49];
+      let idx = -1;
+      for (let i = 0; i < hits.length; i++) if (t >= hits[i] - 0.07) idx = i;
+      if (idx >= 0 && t < hits[hits.length - 1] + 0.12) {
+        const dt = t - hits[idx];
+        if (dt < 0) Object.assign(P, strike);                                   // рывок к цели
+        else { const k = easeOut(clamp(dt / 0.1, 0, 1)); Object.assign(P, { lean: lerp(0.6, 0.25, k), bodyY: 2.5, sx: 1.12, sy: 0.9, armF: idx % 2 ? lerp(2.8, 2.2, k) : lerp(-0.2, 2.5, k), wBlend: 0, armB: -0.9, cloak: -0.8 + k * 0.5, headTilt: 0.1 }); }
+      } else if (t < hits[0] - 0.07) { const k = easeOut(ph(0, hits[0] - 0.07)); Object.assign(P, { lean: 0.25 * k, bodyY: 3 * k, sy: 1 - 0.08 * k, armF: lerp(0.3, -1.2, k), armB: 0.9 * k }); }
+      else { const k = easeInOut(ph(0.61, 0.95)); Object.assign(P, { lean: lerp(0.2, -0.05, k), bodyY: lerp(2, 0, k), armF: lerp(0.8, 0.12, k), armB: lerp(-0.5, -0.25, k), headTilt: -0.12 * Math.sin(k * Math.PI), legSpread: lerp(1.7, 1.1, k), cloak: 0.3 * (1 - k) }); }
+    }
+    return P;
   }
 
   /** Сценарий добивания; идёт в реальном времени (поверх замедления). */
@@ -478,62 +547,119 @@ class CombatSystem {
     if (!td) return;
     const g = this.game, p = g.player, e = td.e, col = p.skin.accent, ec = e.look.accent;
     td.t += dt * td.speed;
-    const t = td.t, cy = e.y - e.h * e.scale * 0.5;
+    const t = td.t, cy = e.y - e.h * e.scale * 0.5, d = td.dir;
+    const life = x => this._tdLife(x);                  // время жизни эффекта с поправкой на замедление и ускорение сценария
+    const low = g.fx.low;
     const events = td.events || (td.events = new Set());
     const once = (key, time, fn) => { if (t >= time && !events.has(key)) { events.add(key); fn(); } };
+    // след рывка — одна тонкая линия по высоте корпуса вместо россыпи остаточных силуэтов (они закрывали врага)
+    const streak = (x0, x1, y = p.y - 5) => { g.fx.cut(x0, y, x1, y, col, 2.4, life(0.3)); g.fx.cut(x0, y, x1, y, "#ffffff", 0.9, life(0.22)); };
+    // фокус камеры плавно идёт за действием (без рывков)
+    const cam = g.camera;
+    e.hitKick = Math.max(0, e.hitKick - dt * 5);
 
     if (td.kind === "xcut") {
-      once("dash", 0.1, () => {
-        const nx = clamp(e.x + td.dir * 30, 40, WORLD.w - 40);
-        for (let i = 0; i <= 6; i++) { p.x = lerp(td.px, nx, i / 6); g._aiT = 0; g.addAfterimage(p); }
-        p.x = nx; p.facing = -td.dir;
-        g.fx.line(e.x - 26, cy - 26, e.x + 26, cy + 26, col, 6, 0.5);
-        g.fx.line(e.x - 26, cy - 26, e.x + 26, cy + 26, "#ffffff", 2, 0.35);
-        g.sfx("dash"); g.sfx("slash", 1.4); g.camera.shake(0.25); e.flash = 1;
-      });
-      once("cut2", 0.26, () => {
-        g.fx.line(e.x + 26, cy - 26, e.x - 26, cy + 26, col, 6, 0.5);
-        g.fx.line(e.x + 26, cy - 26, e.x - 26, cy + 26, "#ffffff", 2, 0.35);
-        g.sfx("slash", 1.5); g.hitstop(0.05); e.flash = 1;
-      });
-      once("kill", 0.46, () => this._finishTakedown(true));
+      const pass = clamp(e.x + d * 36, 40, WORLD.w - 40), back = clamp(e.x - d * 36, 40, WORLD.w - 40);
+      p.y = td.py;
+      if (t < 0.1) p.x = td.px;
+      else if (t < 0.2) p.x = lerp(td.px, pass, easeInOut((t - 0.1) / 0.1));
+      else if (t < 0.3) p.x = pass + d * 4 * (1 - easeOut((t - 0.2) / 0.1));        // короткое торможение
+      else if (t < 0.4) p.x = lerp(pass, back, easeInOut((t - 0.3) / 0.1));
+      else p.x = back;
+      p.facing = t < 0.2 ? d : -d;
+      const reach = 34 * Math.max(1, e.scale);
+      const cut = (from, key) => {
+        const x0 = e.x + from * d * reach, x1 = e.x - from * d * reach;
+        g.fx.cut(x0, cy - reach * 0.8, x1, cy + reach * 0.8, col, 3.4, life(0.5));
+        g.fx.cut(x0, cy - reach * 0.8, x1, cy + reach * 0.8, "#ffffff", 1.2, life(0.38));
+        if (!low) g.fx.glow(e.x, cy, 4, 16, col, life(0.2), 0.3);
+        g.fx.sparks(e.x, cy, 4, col, 170, null, Math.PI, 0.25);
+        e.flash = 0.5; e.hitKick = 1;
+      };
+      once("d1", 0.11, () => streak(td.px, pass));
+      once("cut1", 0.15, () => { cut(-1); g.sfx("dash"); g.sfx("slash", 1.4); g.camera.shake(0.14); });
+      once("d2", 0.31, () => streak(pass, back));
+      once("cut2", 0.34, () => { cut(1); g.sfx("slash", 1.5); g.hitstop(0.05); });
+      once("kill", 0.5, () => this._finishTakedown(true));
     } else if (td.kind === "sky") {
-      const k = clamp(t / 0.4, 0, 1);
-      if (t < 0.5) {
-        e.y = Math.min(td.ey, td.ey - 120 * easeOut(k)) ; e.x = td.ex;
-        p.y = td.py - (td.py - (td.ey - 145)) * easeOut(clamp(t / 0.35, 0, 1)); p.x = lerp(td.px, td.ex - td.dir * 10, easeOut(k));
-      }
-      for (const hitT of [0.18, 0.26, 0.34]) once("h" + hitT, hitT, () => {
-        const a = rand(0, TAU);
-        g.fx.slashArc(e.x, e.y - 15, 22, a, a + 2.4, col, 5, 0.2);
-        g.fx.sparks(e.x, e.y - 15, 6, col, 220, null); g.sfx("hit", 0.8); e.flash = 1; g.camera.shake(0.12);
+      const gnd = td.ey, top = gnd - 118;
+      if (t < 0.12) { p.x = td.px; p.y = td.py; }
+      else if (t < 0.3) {
+        // подброс: враг взлетает, игрок догоняет и встаёт сбоку (силуэты не слипаются)
+        const k = easeOut((t - 0.12) / 0.18);
+        e.y = lerp(gnd, top, k); e.x = td.ex;
+        p.y = lerp(td.py, top + 2, k); p.x = lerp(td.px, td.ex - d * 18, k);
+        p.facing = d;
+      } else if (t < 0.5) {
+        // сальто над врагом: перелёт на другую сторону и зависание над ним
+        const k = easeInOut((t - 0.3) / 0.2);
+        e.y = top;
+        p.x = lerp(td.ex - d * 18, td.ex + d * 6, k); p.y = lerp(top + 2, top - 24, k) - 26 * Math.sin(k * Math.PI);
+        p.facing = k > 0.45 ? -d : d;
+      } else if (t < 0.64) {
+        const k = easeIn((t - 0.5) / 0.14);
+        e.y = lerp(top, gnd, k); p.y = lerp(top - 24, gnd - 4, k); p.x = td.ex + d * 6; p.facing = -d;
+      } else { e.y = gnd; p.x = td.ex + d * 6; p.y = lerp(p.y, gnd, 0.4); p.facing = -d; }
+      p.x = clamp(p.x, 30, WORLD.w - 30);
+      const hit = (key, time, x0, y0, x1, y1) => once(key, time, () => {
+        const cx = e.x, ccy = e.y - 15;
+        g.fx.cut(cx + x0, ccy + y0, cx + x1, ccy + y1, col, 3.2, life(0.4));
+        g.fx.cut(cx + x0, ccy + y0, cx + x1, ccy + y1, "#ffffff", 1.1, life(0.3));
+        g.fx.sparks(cx, ccy, 4, col, 170, null);
+        g.sfx("hit", 0.8); e.flash = 0.5; e.hitKick = 1; g.camera.shake(0.08);
       });
-      if (t >= 0.5 && t < 0.62) {
-        const k2 = clamp((t - 0.5) / 0.12, 0, 1);
-        e.y = lerp(td.ey - 120, 0, easeIn(k2)); p.y = lerp(td.ey - 145, -20, easeIn(k2)) ;
-        g.addAfterimage(p);
-      }
-      once("slam", 0.62, () => { e.y = 0; p.y = -2; this._finishTakedown(true); g.fx.shockwave(e.x, 0, col, 180); g.fx.dust(e.x, 0, 14); });
+      hit("h1", 0.19, -14, 24, 14, -24); hit("h2", 0.27, 14, 24, -14, -24); hit("h3", 0.37, -22, 0, 22, 0);
+      // камера следует за парой по высоте — оба в кадре
+      cam.retarget(e.x, (Math.min(e.y, p.y) + gnd) * 0.5 - 12);
+      once("drop", 0.5, () => { if (!low) g.fx.cut(p.x, p.y - 8, p.x, gnd - 4, col, 2.6, life(0.32)); });
+      once("slam", 0.64, () => {
+        this._finishTakedown(true);
+        g.fx.shockwave(e.x, gnd, col, 150); g.fx.dust(e.x, gnd, low ? 4 : 8);
+      });
     } else if (td.kind === "volley") {
       p.pistolT = 0.8;
-      for (const st of [0.06, 0.16, 0.26]) once("s" + st, st, () => this._tracer(p, e, 2, false));
-      once("final", 0.44, () => { this._tracer(p, e, 5, true); this._finishTakedown(true); });
+      p.x = td.px; p.y = td.py;
+      for (const st of [0.06, 0.16, 0.26]) once("s" + st, st, () => this._tracer(p, e, 1, false));
+      once("final", 0.44, () => { this._tracer(p, e, 2.2, true); this._finishTakedown(true); });
     } else if (td.kind === "colossus") {
-      const spots = [[0.15, -1], [0.32, 1], [0.49, -1]];
-      for (const [st, side] of spots) once("c" + st, st, () => {
-        const nx = clamp(e.x + side * 40, 40, WORLD.w - 40);
-        g._aiT = 0; g.addAfterimage(p);
-        p.x = nx; p.facing = -side;
-        const a = side > 0 ? 2.4 : -0.7;
-        g.fx.slashArc(e.x, e.y - 30, 34, a, a + 2.2, col, 7, 0.3);
-        g.fx.sparks(e.x, e.y - 30, 10, ec, 260, null); g.sfx("hit", 1.2); e.flash = 1; g.camera.shake(0.25);
+      const hits = td.hitT, sides = [-1, 1, -1];
+      const pos = i => clamp(e.x + sides[i] * 46, 40, WORLD.w - 40);
+      // позиция: рывок к следующей точке за 0.07 с до каждого удара, после третьего — шаг назад
+      let from = td.px;
+      const from0 = [];
+      for (let i = 0; i < 3; i++) {
+        const a = hits[i] - 0.07;
+        from0.push(from);
+        if (t >= a) { const k = easeInOut(clamp((t - a) / 0.07, 0, 1)); p.x = lerp(from, pos(i), k); p.facing = -sides[i]; }
+        from = pos(i);
+      }
+      if (t >= hits[2] + 0.1) p.x = lerp(pos(2), clamp(pos(2) + sides[2] * 44, 40, WORLD.w - 40), easeInOut(clamp((t - hits[2] - 0.1) / 0.22, 0, 1)));
+      p.y = td.py;
+      const W = 38, H = e.h * e.scale * 0.45;
+      const lines = [[-W, -H, W, H], [W, -H, -W, H], [-6, -H * 1.2, 6, H * 1.2]];
+      hits.forEach((st, i) => {
+        once("d" + i, st - 0.065, () => streak(from0[i], pos(i)));
+        once("c" + i, st, () => {
+          const [x0, y0, x1, y1] = lines[i];
+          g.fx.cut(e.x + x0, cy + y0, e.x + x1, cy + y1, col, 4.2, life(0.55));
+          g.fx.cut(e.x + x0, cy + y0, e.x + x1, cy + y1, "#ffffff", 1.4, life(0.4));
+          if (!low) g.fx.glow(e.x, cy, 6, 22, ec, life(0.22), 0.3);
+          g.fx.sparks(e.x, cy, 4, ec, 190, null, Math.PI, 0.25);
+          g.sfx("hit", 1.2); e.flash = 0.5; e.hitKick = 1; g.camera.shake(0.14);
+        });
       });
-      e.anim.pose.lean = -0.6 * clamp((t - 0.5) / 0.3, 0, 1);
-      once("fall", 0.8, () => { this._finishTakedown(true); g.fx.shockwave(e.x, 0, ec, 260); g.fx.shockwave(e.x, 0, "#ffffff", 160); g.fx.dust(e.x, 0, 20, "#2a2633"); g.sfx("slam"); });
+      // колосс шатается и оседает на колено, затем опрокидывается
+      const sag = clamp((t - 0.15) / 0.5, 0, 1);
+      e.tdPose = { lean: -0.12 - 0.25 * sag, bodyY: 1.5 + 4 * sag, sy: 1 - 0.1 * sag, tuck: 0, headTilt: -0.3 * sag };
+      once("fall", 0.8, () => {
+        this._finishTakedown(true);
+        g.fx.shockwave(e.x, 0, ec, 220); g.fx.dust(e.x, 0, low ? 6 : 12, "#2a2633"); g.sfx("slam");
+      });
     }
     if (t >= td.dur) {
       this.td = null;
       p.scripted = false;
+      p.y = td.kind === "sky" ? Math.min(0, p.y) : p.y;
       if (p.state === "takedown") p.setState(p.onGround ? "idle" : "fall");
       p.iframes = Math.max(p.iframes, 0.35);
       g.camera.release();
@@ -542,35 +668,83 @@ class CombatSystem {
   }
 
   _tracer(p, e, w, big) {
-    const g = this.game, col = p.skin.accent;
+    const g = this.game, col = p.skin.accent, low = g.fx.low;
     const h = CharacterRenderer.handWorld(p, 8);
-    const cy = e.y - e.h * e.scale * 0.5;
-    g.fx.line(h.x, h.y, e.x + (big ? sign(e.x - p.x) * 200 : 0), cy, col, w * 1.6, big ? 0.4 : 0.15);
-    g.fx.line(h.x, h.y, e.x, cy, "#ffffff", w * 0.5, 0.12);
-    g.fx.ring(h.x, h.y, 2, big ? 22 : 12, "#ffffff", 0.15, 2);
-    g.fx.sparks(e.x, cy, big ? 14 : 6, col, 260, sign(e.x - p.x) > 0 ? 0 : Math.PI, 1.4);
+    const cy = e.y - e.h * e.scale * 0.5, dir = sign(e.x - p.x);
+    // тонкий трассер: цветной контур и белая сердцевина, без колец на каждый выстрел
+    const ex = big ? e.x + dir * 120 : e.x;
+    g.fx.cut(h.x, h.y, ex, cy, col, w * 2.2, this._tdLife(big ? 0.45 : 0.28));
+    g.fx.cut(h.x, h.y, ex, cy, "#ffffff", w * 0.8, this._tdLife(big ? 0.35 : 0.2));
+    if (!low) g.fx.glow(h.x, h.y, 2, big ? 12 : 8, "#ffffff", this._tdLife(0.14), 0.5);
+    g.fx.sparks(e.x, cy, big ? 6 : 3, col, 210, dir > 0 ? 0 : Math.PI, 1.2, 0.22);
     g.sfx("shot", big); g.sfx("bulletHit");
-    e.flash = 1; e.x += sign(e.x - p.x) * 3;
-    g.camera.kick(big ? 0.03 : 0.01); g.camera.shake(big ? 0.35 : 0.12);
+    e.flash = 0.5; e.hitKick = 1; e.x += dir * (big ? 2 : 3);
+    g.camera.kick(big ? 0.02 : 0.008); g.camera.shake(big ? 0.22 : 0.08);
   }
 
   _finishTakedown() {
-    const td = this.td, g = this.game, e = td.e, p = g.player;
+    const td = this.td, g = this.game, e = td.e, p = g.player, low = g.fx.low;
+    const style = { xcut: "split", sky: "slam", volley: "shot", colossus: "topple" }[td.kind];
     e.executed = false;
     e.hp = 0;
+    e.deathStyle = style;
+    e.tdPose = null;
     e.die(td.dir, g);
+    // каждый вид добивания оставляет врага в своей позе: половинки, удар о землю, отброс, падение
+    if (style === "split") { e.vx = 0; e.vy = 0; e.splitAng = td.dir * 0.75; }
+    else if (style === "slam") { e.vx = td.dir * 20; e.vy = -70; }
+    else if (style === "shot") { e.vx = td.dir * 300; e.vy = -130; }
+    else { e.vx = 0; e.vy = 0; }
     this._onKill(e, td.act, true);
     this.score += 500;
-    g.flashT = 1;
+    g.flashT = 0.2;             // мягкая вспышка: пик ≈ 0.11 прозрачности, без пересвета
     g.hitstop(0.09);
-    g.camera.shake(td.kind === "colossus" ? 0.9 : 0.6);
-    g.camera.kick(0.05);
+    g.camera.shake(td.kind === "colossus" ? 0.55 : 0.38);
+    g.camera.kick(0.035);
     g.sfx("hit", 1.6, true);
-    // разлёт на две половины + большой взрыв осколков
-    g.fx.shards(e.x, e.centerY, e.kind === "brute" ? 40 : 26, e.look.accent, 380);
-    g.fx.shards(e.x, e.centerY, 14, p.skin.accent, 320);
-    g.fx.ring(e.x, e.centerY, 8, e.kind === "brute" ? 110 : 70, "#ffffff", 0.5, 4);
-    g.fx.ring(e.x, e.centerY, 4, e.kind === "brute" ? 80 : 50, p.skin.accent, 0.6, 3);
+    // чистый финал: акцентные осколки аккуратным веером, тонкое кольцо и локальная вспышка
+    const big = e.kind === "brute";
+    g.fx.shards(e.x, e.centerY, big ? 14 : 8, e.look.accent, 280);
+    if (style !== "split") g.fx.ring(e.x, e.centerY, 6, big ? 80 : 46, "#ffffff", this._tdLife(0.4), 1.6);
+    if (!low) g.fx.glow(e.x, e.centerY, 6, big ? 38 : 26, e.look.accent, this._tdLife(0.25), 0.35);
+  }
+
+  /** Отрисовка врага с учётом особых смертей: половинки после рассечения и падение вокруг ступней. */
+  drawEnemy(ctx, e) {
+    if (e.state === "dead" && e.deathStyle === "split") {
+      const t = e.stateT, k = easeOut(clamp(t / 0.32, 0, 1)), a = e.splitAng || 0.75, cy = e.y - e.h * e.scale * 0.5;
+      const nx = Math.sin(a), ny = -Math.cos(a);            // нормаль к линии разреза (в сторону «верхней» половины)
+      for (const side of [1, -1]) {
+        ctx.save();
+        const sep = k * 13 * side, fall = side < 0 ? t * t * 70 : -t * 6;
+        ctx.translate(e.x + nx * sep, cy + ny * sep + fall);
+        ctx.rotate(side * 0.28 * k * (e.facing || 1));
+        ctx.translate(-e.x, -cy);
+        ctx.beginPath(); ctx.translate(e.x, cy); ctx.rotate(a);
+        if (side > 0) ctx.rect(-80, -160, 160, 160); else ctx.rect(-80, 0, 160, 160);
+        ctx.rotate(-a); ctx.translate(-e.x, -cy);
+        ctx.clip();
+        CharacterRenderer.draw(ctx, e);
+        ctx.restore();
+      }
+      // светящийся край разреза: гаснет по мере расхождения половинок
+      const ea = clamp(1 - t / 0.3, 0, 1) * (e.alpha == null ? 1 : e.alpha);
+      if (ea > 0.02) {
+        ctx.save(); ctx.translate(e.x, cy); ctx.rotate(a);
+        ctx.globalAlpha *= ea * 0.9; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 0.9; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(-17 * e.scale, 0); ctx.lineTo(17 * e.scale, 0); ctx.stroke();
+        ctx.restore();
+      }
+      return;
+    }
+    if (e.deathRot) {
+      ctx.save();
+      ctx.translate(e.x, e.y); ctx.rotate(e.deathRot); ctx.translate(-e.x, -e.y);
+      CharacterRenderer.draw(ctx, e);
+      ctx.restore();
+      return;
+    }
+    CharacterRenderer.draw(ctx, e);
   }
 
   /** Вражеский хитбокс по игроку (вызывается из Enemy). */

@@ -76,6 +76,13 @@ class Player {
     this.groundY = 0;
     this.moveDist = 0; this.didDoubleJump = false;
     this.counterT = 0;          // окно контратаки после идеального уклона
+    this.landT = 0; this.landDur = 0.09; this.landK = 0;    // приземление: длительность и сила
+    this.skid = 0; this.skidFx = 0;                          // занос при развороте на бегу
+    this.accLean = 0; this.prevVx = 0;                       // наклон от ускорения/торможения
+    this.idleT = 0; this.idleVar = 0; this.idleVarT = 0; this.idleVarDur = 1;   // idle-вариации
+    this.killT = 0; this.killAmt = 1;                        // жест после убийства
+    this.turnT = 0; this.prevFacing = 1;                     // разворот на месте
+    this.airT = 0;                                           // время в воздухе (высота прыжка)
     this.anim = new AnimState();
   }
 
@@ -218,12 +225,17 @@ class Player {
       this.anim.squashT = h;
       game.sfx("land", h);
       game.fx.dust(this.x, this.y, Math.round(3 + h * 4));
+      // сила приземления: после высокого прыжка — глубокая амортизация, рука касается земли
+      this.landK = clamp((vyBefore - 250) / 350, 0, 1);
+      this.landDur = lerp(0.08, 0.24, this.landK);
+      if (this.landK > 0.7) game.fx.ring(this.x, this.y - 1, 3, 26, this.skin.accent, 0.25, 1.5);
       if (!this.action && this.state !== "dodge" && this.state !== "hurt") this.setState("land");
     }
+    this.airT = this.onGround ? 0 : this.airT + dt;
 
     // ---- автоматические состояния движения ----
     if (!this.action && ["idle", "walk", "run", "jump", "fall", "land"].includes(this.state)) {
-      if (this.state === "land" && this.stateT < 0.09) { /* держим позу приземления */ }
+      if (this.state === "land" && this.stateT < this.landDur) { /* держим позу приземления */ }
       else if (this.onGround) {
         const sp = Math.abs(this.vx);
         this.setState(sp > 110 ? "run" : sp > 12 ? "walk" : "idle");
@@ -236,6 +248,20 @@ class Player {
     }
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
     this.weapon = this.pistolT > 0 ? "pistol" : "dagger";
+    // ускорение → наклон корпуса: разгон вперёд, торможение назад (плавно, независимо от кадра)
+    const ax = (this.vx - this.prevVx) / Math.max(dt, 1e-4) * this.facing; this.prevVx = this.vx;
+    this.accLean = damp(this.accLean, clamp(ax / 1600 * 0.1, -0.16, 0.1), 14, dt);
+    // разворот на бегу: игрок давит в обратную сторону, а скорость ещё прежняя — занос с пылью
+    const want = Math.abs(inp.moveX) > 0.2 ? sign(inp.moveX) : 0;
+    if (this.onGround && !this.action && want && Math.abs(this.vx) > 100 && sign(this.vx) !== want && (this.state === "run" || this.state === "walk" || this.state === "idle")) {
+      this.skid = 0.16;
+      this.skidFx -= dt;
+      if (this.skidFx <= 0) { this.skidFx = 0.05; game.fx.dust(this.x - sign(this.vx) * 3, this.y, 1); }
+    } else this.skid = Math.max(0, this.skid - dt);
+    // поворот на месте: короткое сжатие по ширине, пока силуэт «переворачивается»
+    if (this.facing !== this.prevFacing) { this.prevFacing = this.facing; if (!this.action && this.state !== "dodge") { this.turnT = 0.14; this.anim.cloakV -= 4 * this.facing; } }
+    this.turnT = Math.max(0, this.turnT - dt);
+    this.killT = Math.max(0, this.killT - dt);
     this.queuePose(dt, game);
   }
 
@@ -244,31 +270,67 @@ class Player {
   queuePose(dt, game) { if (game.deferPose) this._poseDt = (this._poseDt || 0) + dt; else this._pose(dt, game); }
   flushPose(game) { if (this._poseDt > 0) { const dt = this._poseDt; this._poseDt = 0; this._pose(dt, game); } }
 
+  /** Idle-вариации: на сильной доле после паузы — переступание, проверка клинка, встряхивание кисти; между волнами — трюк с клинком. */
+  _tickIdle(dt, game) {
+    const c = game.clock;
+    if (this.state !== "idle" || this.action || !this.onGround) { this.idleT = 0; this.idleVar = 0; this.idleVarT = 0; return; }
+    this.idleT += dt;
+    if (this.idleVarT > 0) { this.idleVarT -= dt; if (this.idleVarT <= 0) this.idleVar = 0; return; }
+    if (this.idleT < 2.0 || !c.events.some(e => e.type === "strongBeat")) return;
+    const calm = game.battleActive && game.waves && game.waves.mode === "waves" && !game.enemies.some(e => e.alive);
+    this.idleVar = calm && Math.random() < 0.7 ? 4 : randi(1, 3);
+    this.idleVarDur = [0, 0.9, 1.1, 0.8, 1.0][this.idleVar];
+    this.idleVarT = this.idleVarDur;
+    this.idleT = 0.6;
+  }
+
   _pose(dt, game) {
     const c = game.clock, st = this.state, t = this.stateT;
     const P = {};
     const pulse = c.pulse, strong = c.strongPulse;
+    const acc = this.accLean;
     let rate = 16;
+    if (st === "idle") this._tickIdle(dt, game);
     switch (st) {
-      case "idle":
-        Object.assign(P, { bodyY: 0.5 * Math.sin(performance.now() / 420) + pulse * 1.0, sx: 1 + pulse * 0.03, sy: 1 - pulse * 0.04, lean: 0.03 - strong * 0.05, legAmp: 0, legSpread: 1, tuck: 0, armF: 0.25 + pulse * 0.1, elbowF: 0.55, armB: -0.25, wBlend: 0, headTilt: -strong * 0.08, cloak: 0 });
+      case "idle": {
+        Object.assign(P, { bodyY: 0.5 * Math.sin(performance.now() / 420) + pulse * 1.0, sx: 1 + pulse * 0.03, sy: 1 - pulse * 0.04, lean: 0.03 - strong * 0.05 + acc, legAmp: 0, legSpread: 1, tuck: 0, armF: 0.25 + pulse * 0.1, elbowF: 0.55, armB: -0.25, wBlend: 0, headTilt: -strong * 0.08, cloak: 0 });
+        const iv = this.idleVar;
+        if (iv) {
+          const ph = clamp(1 - this.idleVarT / this.idleVarDur, 0, 1), k = Math.sin(Math.PI * ph);
+          if (iv === 1) Object.assign(P, { legSpread: 1 + 0.55 * k, bodyY: P.bodyY + 0.9 * k, lean: P.lean + 0.05 * k, headTilt: 0.1 * k, sx: P.sx + 0.03 * k, armB: -0.25 + 0.3 * k });   // переступание
+          else if (iv === 2) Object.assign(P, { armF: lerp(P.armF, 1.5, k), elbowF: lerp(0.55, 1.2, k), wBlend: k, wAngle: -1.1 * k, headTilt: 0.22 * k, lean: P.lean + 0.06 * k });   // осмотр клинка
+          else if (iv === 3) Object.assign(P, { armF: 0.25 + Math.sin(ph * 26) * 0.3 * k, elbowF: 0.55 + 0.4 * k, headTilt: Math.sin(ph * 12) * 0.1 * k, sy: P.sy + 0.02 * k, bodyY: P.bodyY + 0.6 * k });   // встряхнуть кисть
+          else if (iv === 4) {     // трюк с клинком между волнами: оборот в руке и кивок
+            const sp = easeInOut(clamp(ph * 1.3, 0, 1));
+            Object.assign(P, { armF: lerp(0.25, 1.9, k), elbowF: 0.6, wBlend: k > 0.05 ? 1 : 0, wAngle: -0.6 + TAU * 2 * sp, headTilt: -0.12 * k, lean: P.lean - 0.05 * k, bodyY: P.bodyY - 0.6 * k, legSpread: 1 + 0.25 * k });
+          }
+        }
         break;
+      }
       case "walk":
-        Object.assign(P, { legPhase: this.runPhase, legAmp: 0.55, lean: 0.08, bodyY: Math.abs(Math.sin(this.runPhase)) * -0.6 + pulse * 0.5, armF: 0.1 + Math.sin(this.runPhase) * 0.3, elbowF: 0.5, armB: -0.1 - Math.sin(this.runPhase) * 0.3, tuck: 0, sx: 1, sy: 1, wBlend: 0, headTilt: 0 });
+        Object.assign(P, { legPhase: this.runPhase, legAmp: 0.55, lean: 0.08 + acc, bodyY: Math.abs(Math.sin(this.runPhase)) * -0.6 + pulse * 0.5, armF: 0.1 + Math.sin(this.runPhase) * 0.3, elbowF: 0.5, armB: -0.1 - Math.sin(this.runPhase) * 0.3, tuck: 0, sx: 1, sy: 1, wBlend: 0, headTilt: 0 });
         break;
       case "run":
-        Object.assign(P, { legPhase: this.runPhase, legAmp: 1.0, lean: 0.24, bodyY: Math.abs(Math.sin(this.runPhase)) * -1.2 + pulse * 0.6, armF: -0.6, elbowF: 0.9, armB: 0.5, tuck: 0, sx: 1, sy: 1, cloak: 0.3, wBlend: 0, headTilt: 0.05 });
+        Object.assign(P, { legPhase: this.runPhase, legAmp: 1.0, lean: 0.24 + acc, bodyY: Math.abs(Math.sin(this.runPhase)) * -1.2 + pulse * 0.6, armF: -0.6, elbowF: 0.9, armB: 0.5, tuck: 0, sx: 1, sy: 1, cloak: 0.3, wBlend: 0, headTilt: 0.05 });
         break;
       case "jump":
-        Object.assign(P, { tuck: 0.35, legAmp: 0.25, legPhase: 1.2, lean: 0.1, armF: -0.5, elbowF: 0.6, armB: -0.9, sx: 0.94, sy: 1.08, bodyY: 0, wBlend: 0, headTilt: -0.1 });
+        Object.assign(P, { tuck: 0.35, legAmp: 0.25, legPhase: 1.2, lean: 0.1 + acc, armF: -0.5, elbowF: 0.6, armB: -0.9, sx: 0.94, sy: 1.08, bodyY: 0, wBlend: 0, headTilt: -0.1 });
         break;
-      case "fall":
-        Object.assign(P, { tuck: 0.1, legAmp: 0.15, legPhase: 2, legSpread: 1.3, lean: 0.05, armF: 1.4, elbowF: -0.4, armB: -1.6, sx: 1, sy: 1.04, bodyY: 0, wBlend: 0, headTilt: 0.05 });
+      case "fall": {
+        // чем дольше падение — тем шире раскинуты руки и вытянутее силуэт
+        const f = clamp(this.airT / 0.7, 0, 1);
+        Object.assign(P, { tuck: 0.1, legAmp: 0.15, legPhase: 2, legSpread: 1.3 + 0.3 * f, lean: 0.05 + acc, armF: 1.4 + 0.5 * f, elbowF: -0.4, armB: -1.6 - 0.3 * f, sx: 1 - 0.03 * f, sy: 1.04 + 0.05 * f, bodyY: 0, wBlend: 0, headTilt: 0.05 });
         break;
-      case "land":
-        Object.assign(P, { bodyY: 2.5, sx: 1.1, sy: 0.9, tuck: 0, legAmp: 0, legSpread: 1.4, lean: 0.12, armF: 0.6, armB: -0.6 });
+      }
+      case "land": {
+        // амортизация: проседание, затем подъём с лёгким перелётом; жёсткая посадка — рука касается пола
+        const h = this.landK, k = clamp(t / this.landDur, 0, 1);
+        const sink = k < 0.4 ? easeOut(k / 0.4) : 1 - easeInOut((k - 0.4) / 0.6) * 0.65;
+        Object.assign(P, { bodyY: (1.5 + 3.2 * h) * sink, sx: 1 + (0.05 + 0.08 * h) * sink, sy: 1 - (0.05 + 0.1 * h) * sink, tuck: 0, legAmp: 0, legSpread: 1.3 + 0.35 * h, lean: 0.1 + 0.28 * h * sink, armF: 0.6 + 0.6 * h, armB: -0.6 - 0.5 * h, headTilt: 0.1 * h * sink, cloak: 0.5 * sink });
+        if (h > 0.7) Object.assign(P, { armF: 0.2, elbowF: 0.1, armB: 0.1 });
         rate = 30;
         break;
+      }
       case "dodge": {
         const k = clamp(t / PL.dodgeT, 0, 1);
         if (this.dodgeType === "roll") {
@@ -286,36 +348,41 @@ class Player {
       }
       case "takedown": {
         const td = game.combat.td;
-        const ranged = td && td.kind === "volley";
-        if (ranged) {
-          const e = td.e, ang = Math.atan2(e.centerY - (this.y - 20), Math.abs(e.x - this.x));
-          const kick = Math.max(0, Math.sin(t * 40)) * 0.3;
-          Object.assign(P, { armF: Math.PI / 2 - ang - kick, elbowF: 0, armB: Math.PI / 2 - ang - kick, legSpread: 1.7, bodyY: 2, lean: 0.05 - kick * 0.3, wBlend: 0 });
-        } else {
-          // клинок наготове, низкая стойка, резкие смены позы при каждом ударе
-          const ph = Math.floor(t * 9) % 2;
-          Object.assign(P, { armF: ph ? 2.3 : -1.4, elbowF: 0.2, armB: -1.2, lean: 0.4, bodyY: 3, sx: 1.08, sy: 0.92, legSpread: 1.8, tuck: this.y < -10 ? 0.6 : 0, cloak: -1, headTilt: 0.15 });
-        }
-        rate = 45;
+        if (td) Object.assign(P, game.combat.tdPose(this, td));
+        rate = 42;
         break;
       }
-      case "hurt":
-        Object.assign(P, { lean: -0.38, armF: -0.7, elbowF: 0.3, armB: -1.1, headTilt: -0.35, bodyY: 1, tuck: 0.2, sx: 1, sy: 1 });
+      case "hurt": {
+        // удар: резкий отклон назад с перелётом и сжатием, затем плавное выпрямление
+        const k = easeOut(clamp(t / 0.07, 0, 1)), r = clamp((t - 0.07) / 0.25, 0, 1);
+        Object.assign(P, { lean: lerp(-0.2, -0.5, k) + 0.2 * r, armF: -0.7, elbowF: 0.3, armB: -1.1, headTilt: -0.35 * (1 - r * 0.5), bodyY: 1 + (1 - r), tuck: 0.2, sx: 1 - 0.06 * (1 - r), sy: 1 + 0.05 * (1 - r) });
         rate = 28;
         break;
+      }
       case "victory":
         Object.assign(P, { armF: 3.0 - pulse * 0.2, elbowF: 0.1, armB: -0.5, lean: -0.06 - strong * 0.05, headTilt: -0.18, bodyY: pulse * 1.2, legSpread: 1.3, legAmp: 0, tuck: 0, sx: 1, sy: 1, wBlend: 0 });
         break;
-      case "dead":
-        Object.assign(P, { lean: clamp(t * 4, 0, 1.35), bodyY: clamp(t * 30, 0, 7), sy: 0.85, armF: 1.2, armB: 1.0, legSpread: 1.6, headTilt: 0.5, tuck: 0 });
-        rate = 10;
+      case "dead": {
+        // сначала пошатнулся и опустился на колено, затем завалился вперёд
+        const k = clamp((t - 0.22) / 0.5, 0, 1);
+        Object.assign(P, { lean: t < 0.22 ? -0.3 * easeOut(t / 0.22) : lerp(-0.3, 1.4, easeIn(k)), bodyY: t < 0.22 ? 1 : clamp(1 + (t - 0.22) * 14, 1, 7), sy: 1 - 0.15 * easeOut(k), armF: t < 0.22 ? -0.9 : lerp(-0.9, 1.2, k), armB: t < 0.22 ? -1.3 : lerp(-1.3, 1.0, k), legSpread: 1 + 0.6 * k, headTilt: t < 0.22 ? -0.4 : 0.5 * k, tuck: 0 });
+        rate = 14;
         break;
+      }
       case "attack":
         if (this.action) { Object.assign(P, game.combat.actionPose(this, this.action)); rate = 40; }
         break;
     }
+    // занос при развороте на бегу: корпус откинут против движения, ноги широко, руки для баланса
+    if (this.skid > 0 && (st === "run" || st === "walk" || st === "idle")) Object.assign(P, { lean: -0.32, legAmp: 0.2, legSpread: 2.0, bodyY: 2, armF: 1.0, armB: -1.2, sx: 1.04, sy: 0.94, cloak: -0.9, headTilt: 0.1 });
+    // жест после убийства: клинок/пистолет прокручивается в руке, голова чуть откинута
+    if (this.killT > 0 && (st === "idle" || st === "walk" || st === "run" || st === "land" || st === "jump" || st === "fall" || (st === "attack" && this.action && this.action.phase === "recovery"))) {
+      const k = 1 - this.killT / 0.38;
+      Object.assign(P, { armF: 1.7, elbowF: 0.5, wBlend: 1, wAngle: -0.6 + TAU * this.killAmt * easeOut(k), headTilt: -0.12, lean: Math.min(P.lean == null ? 0 : P.lean, 0) - 0.04 });
+    }
     AnimationSystem.blend(this.anim, P, rate, dt);
     if (P.legPhase != null) this.anim.pose.legPhase = P.legPhase;
+    if (this.turnT > 0) this.anim.pose.sx *= 1 - 0.28 * Math.sin(Math.PI * (1 - this.turnT / 0.14));
     AnimationSystem.secondary(this.anim, this, dt);
   }
 }

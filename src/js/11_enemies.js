@@ -10,6 +10,9 @@ const ENEMY_TYPES = {
   brute:  { name: "Молот",  hp: 185, speed: 55,  w: 22, h: 50, poise: 70, sight: 560, reach: 48, wind: 0.85, dmg: 22, cd: [2.2, 3.2], activeT: 0.16, recoverT: 0.8, score: 300 },
 };
 
+/** Длительность «смерти» до исчезновения: тяжёлый Молот падает дольше. */
+const DEAD_DUR = { blade: 0.5, gunner: 0.55, swift: 0.45, brute: 0.85 };
+
 let _enemyId = 1;
 class Enemy {
   constructor(kind, x, y, diff) {
@@ -43,6 +46,9 @@ class Enemy {
     this.dodgeCD = 0;
     this.runPhase = rand(0, 6);
     this.passive = false;     // для обучения: не атакует
+    this.hitKick = 0;         // визуальная реакция на удар (затухает), не влияет на геймплей
+    this.deathStyle = null;   // split | slam | shot | topple — особая смерть после добивания
+    this.deathDir = 1; this.deathRot = 0; this.tdPose = null;
   }
 
   get targetable() { return this.alive && this.state !== "spawn" && !this.executed; }
@@ -54,6 +60,7 @@ class Enemy {
     if (!this.alive || this.state === "spawn") return false;
     this.hp -= amount;
     this.flash = 1;
+    this.hitKick = 1;
     // суперброня: начатый удар (вторая половина замаха и сам удар) не прерывается;
     // после оглушения — короткая защита от повторного, чтобы не было бесконечного станлока
     const armored = (this.state === "windup" && this.windT > this.windDur * 0.5) || this.state === "attack" || this.staggerImmune > 0;
@@ -76,6 +83,7 @@ class Enemy {
     this.alive = false;
     this.cancelAttack(game);
     this.setState("dead");
+    this.deathDir = dirX || 1;
     this.vx = dirX * 160; this.vy = -180;
   }
 
@@ -88,6 +96,7 @@ class Enemy {
     const T = this.T, pl = game.player;
     this.stateT += dt;
     this.flash = Math.max(0, this.flash - dt * 5);
+    this.hitKick = Math.max(0, this.hitKick - dt * 5);
     this.attackCD -= dt;
     this.dodgeCD = Math.max(0, this.dodgeCD - dt);
     this.tauntT = Math.max(0, this.tauntT - dt);
@@ -96,7 +105,7 @@ class Enemy {
     this.staggerImmune = Math.max(0, (this.staggerImmune || 0) - dt);
 
     if (this.executed) {      // добивание: позиции задаёт сценарий
-      this.flash = Math.max(this.flash, 0);
+      this.flash = Math.max(0, this.flash - dt * 6);      // под замедлением вспышка не должна висеть: силуэт врага остаётся читаемым
       this.queuePose(dt, game);
       return;
     }
@@ -108,12 +117,13 @@ class Enemy {
       return;
     }
     if (this.state === "dead") {
-      this.alpha = clamp(1 - this.stateT / 0.45, 0, 1);
+      const dd = this.deathStyle === "split" ? 0.5 : DEAD_DUR[this.kind];
+      this.alpha = clamp((dd - this.stateT) / 0.22, 0, 1);       // растворяется только в конце падения
       this.vx = damp(this.vx, 0, 4, dt);
       this.vy += 900 * dt;
       this._physics(dt);
       this.queuePose(dt, game);
-      if (this.stateT > 0.45) this.dead = true;
+      if (this.stateT > dd) this.dead = true;
       return;
     }
     this.alpha = 1;
@@ -269,6 +279,40 @@ class Enemy {
     if (this.stateT >= T.activeT) this.setState("recover");
   }
 
+  /** Смерть зависит от типа врага и от того, как он убит. deathRot — поворот всего тела вокруг ступней (рисует CombatSystem.drawEnemy). */
+  _deathPose(P, t) {
+    const d = this.deathDir, style = this.deathStyle, kind = this.kind;
+    let rot = 0;
+    if (style === "split") { Object.assign(P, { lean: -0.2, armF: -1.0, armB: -1.2, bodyY: 1 }); }
+    else if (style === "slam") {
+      const k = easeOut(clamp(t / 0.12, 0, 1));
+      Object.assign(P, { lean: 0.1, bodyY: 3 * k, sy: 1 - 0.2 * k, sx: 1 + 0.1 * k, armF: 1.0, armB: 0.8, headTilt: 0.3 });
+      rot = d * 0.35 * easeOut(clamp((t - 0.1) / 0.3, 0, 1));
+    } else if (style === "shot") {
+      Object.assign(P, { lean: -0.7, armF: -1.4, armB: -1.5, headTilt: -0.5, bodyY: 1, tuck: 0.4 });
+      rot = d * 1.3 * easeOut(clamp(t / 0.3, 0, 1));
+    } else if (kind === "brute" || style === "topple") {
+      // колено → пауза → тяжёлое падение назад
+      const k = clamp((t - 0.3) / 0.45, 0, 1);
+      Object.assign(P, { lean: -0.3, armF: lerp(0.8, -1.2, k), armB: -0.9, bodyY: 3 + 3 * easeOut(clamp(t / 0.3, 0, 1)), sy: 0.9, headTilt: -0.4, legSpread: 1.6 });
+      rot = d * 1.5 * easeIn(k);
+    } else if (kind === "gunner") {
+      // ноги подкашиваются, падает вперёд лицом
+      const k = clamp((t - 0.22) / 0.3, 0, 1);
+      Object.assign(P, { lean: lerp(0.1, 0.5, k), armF: lerp(0.9, 1.4, k), armB: 0.7, bodyY: 1 + 5 * easeOut(clamp(t / 0.22, 0, 1)), sy: 0.9, headTilt: 0.4, legSpread: 1.5 });
+      rot = -d * 1.4 * easeIn(k);
+    } else if (kind === "swift") {
+      // закручивается в воздухе и обрушивается
+      Object.assign(P, { lean: -0.4, armF: -1.2, armB: -1.4, tuck: 0.8, bodyY: 1, spin: d * TAU * easeOut(clamp(t / 0.32, 0, 1)) });
+      rot = d * 1.45 * easeIn(clamp((t - 0.3) / 0.15, 0, 1));
+    } else {
+      // клинок: отброшен ударом, летит спиной вперёд и падает
+      Object.assign(P, { lean: -0.6, armF: -1.2, armB: -1.4, headTilt: -0.5, bodyY: 2, sy: 0.92, tuck: 0.3 });
+      rot = d * 1.35 * easeOut(clamp(t / 0.35, 0, 1));
+    }
+    this.deathRot = rot;
+  }
+
   /** Поза считается раз в кадр (не на каждом шаге физики): время копится и применяется в flushPose. */
   queuePose(dt, game) { if (game.deferPose) this._poseDt = (this._poseDt || 0) + dt; else this._pose(dt, game); }
   flushPose(game) { if (this._poseDt > 0) { const dt = this._poseDt; this._poseDt = 0; this._pose(dt, game); } }
@@ -291,7 +335,7 @@ class Enemy {
         Object.assign(P, { bodyY: (1 - t / 0.6) * 6, sy: 0.7 + 0.3 * clamp(t / 0.6, 0, 1), armF: 0.3, armB: -0.3, lean: 0.2 });
         break;
       case "think":
-        Object.assign(P, { bodyY: c.pulse * 1.0, sy: 1 - c.pulse * 0.05, sx: 1 + c.pulse * 0.03, lean: moving ? 0.18 : 0.05, armF: gun ? 0.5 : 0.7, elbowF: gun ? 0.2 : 0.8, armB: -0.3 });
+        Object.assign(P, { bodyY: c.pulse * 1.0 + Math.sin(performance.now() / 520 + this.id * 1.7) * 0.35, sy: 1 - c.pulse * 0.05, sx: 1 + c.pulse * 0.03, lean: moving ? 0.18 : 0.05, armF: gun ? 0.5 : 0.7, elbowF: gun ? 0.2 : 0.8, armB: -0.3 });
         if (this.tauntT > 0) Object.assign(P, { lean: -0.18, armF: 2.6, elbowF: 0.2, headTilt: -0.25 });
         break;
       case "windup": {
@@ -311,19 +355,25 @@ class Enemy {
       case "recover":
         Object.assign(P, { armF: gun ? 0.6 : 1.2, elbowF: 0.6, lean: 0.12, bodyY: 0.5 });
         break;
-      case "executed":
-        Object.assign(P, { lean: -0.35 + Math.sin(t * 30) * 0.08, armF: -0.9, armB: -1.3, headTilt: -0.35, bodyY: 1.5, sy: 0.96, tuck: this.y < -5 ? 0.5 : 0 });
-        rate = 30;
+      case "executed": {
+        // оглушён и удерживается на месте: ровная стойка, без дрожи; каждый удар сценария — отклон назад с возвратом
+        Object.assign(P, { lean: -0.25, armF: -0.9, armB: -1.3, headTilt: -0.3, bodyY: 1.5, sy: 0.97, tuck: this.y < -5 ? 0.5 : 0, legSpread: 1.3 });
+        if (this.tdPose) Object.assign(P, this.tdPose);
+        P.lean -= 0.28 * this.hitKick; P.headTilt -= 0.2 * this.hitKick; P.sx = 1 - 0.05 * this.hitKick;
+        rate = 26;
         break;
-      case "hurt":
-        Object.assign(P, { lean: -0.45, armF: -0.6, armB: -1.0, headTilt: -0.3, bodyY: 1 });
-        rate = 30;
+      }
+      case "hurt": {
+        // реакция на удар: резкий отклон назад (hitKick), согнутые колени, затем неустойчивая стойка до конца оглушения
+        const hk = this.hitKick;
+        Object.assign(P, { lean: -0.22 - 0.35 * hk, armF: -0.6 - 0.4 * hk, armB: -1.0 - 0.3 * hk, headTilt: -0.3, bodyY: 1.5 + 1.2 * hk, sx: 1 - 0.06 * hk, sy: 0.96 + 0.04 * hk, tuck: this.onGround ? 0 : 0.5 });
+        rate = 34;
         break;
-      case "dead":
-        Object.assign(P, { lean: -0.6, armF: -1.2, armB: -1.4, headTilt: -0.5, bodyY: 2, sy: 0.9 });
-        rate = 20;
-        break;
+      }
+      case "dead": this._deathPose(P, t); rate = 24; break;
     }
+    // лёгкий отклон на любое попадание (в том числе по врагу с суперброней)
+    if (st !== "hurt" && st !== "executed" && st !== "dead" && this.hitKick > 0) { P.lean = (P.lean || 0) - 0.14 * this.hitKick; P.sy = (P.sy || 1) - 0.04 * this.hitKick; }
     if (st !== "windup") this.eyeBoost = Math.max(0, this.eyeBoost - dt * 3);
     AnimationSystem.blend(this.anim, P, rate, dt);
     this.anim.pose.legPhase = this.runPhase;
