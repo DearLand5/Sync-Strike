@@ -363,11 +363,15 @@ class ArenaRenderer {
 
   /** Пересобирает тайлы параллакса при смене размеров/темы/качества. */
   ensureTiles(v, dpr) {
-    const key = this.theme.id + "|" + Math.round(v.w) + "|" + Math.round(v.floorY) + "|" + dpr;
+    // Тайлы строятся под положение пола «в покое» (без прыжков, толчков и наезда камеры):
+    // движение камеры только сдвигает готовую картинку. Раньше ключ включал текущий floorY,
+    // и тайлы пересобирались сотни раз за бой — отсюда фризы.
+    const restY = v.restFloorY != null ? v.restFloorY : v.floorY;
+    const key = this.theme.id + "|" + Math.round(v.w) + "|" + Math.round(restY) + "|" + dpr;
     if (key === this.key) return;
     this.key = key;
     const tileW = Math.max(900, Math.ceil(v.w));
-    const tileH = Math.max(50, Math.ceil(v.floorY));
+    const tileH = Math.max(50, Math.ceil(restY));
     this.tileW = tileW; this.tileH = tileH;
     const rng = mulberry32(this.theme.id.length * 977 + 13);
     this.tiles = this.theme.layers.map(L => {

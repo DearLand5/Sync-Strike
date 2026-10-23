@@ -146,12 +146,12 @@ class Player {
     const wasGround = this.onGround;
     const st = this.state;
 
-    if (this.scripted) { this.iframes = Math.max(this.iframes, 0.1); this._pose(dt, game); return; }
+    if (this.scripted) { this.iframes = Math.max(this.iframes, 0.1); this.queuePose(dt, game); return; }
     if (st === "dead" || st === "victory") {
       this.vx = damp(this.vx, 0, 6, dt);
       this.vy = Math.min(this.vy + PL.grav * dt, PL.fallMax);
       moveBody(this, dt);
-      this._pose(dt, game);
+      this.queuePose(dt, game);
       return;
     }
 
@@ -236,10 +236,14 @@ class Player {
     }
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
     this.weapon = this.pistolT > 0 ? "pistol" : "dagger";
-    this._pose(dt, game);
+    this.queuePose(dt, game);
   }
 
   /** Целевая поза по состоянию + музыкальные акценты, затем смешивание. */
+  /** Поза считается раз в кадр (не на каждом шаге физики): время копится и применяется в flushPose. */
+  queuePose(dt, game) { if (game.deferPose) this._poseDt = (this._poseDt || 0) + dt; else this._pose(dt, game); }
+  flushPose(game) { if (this._poseDt > 0) { const dt = this._poseDt; this._poseDt = 0; this._pose(dt, game); } }
+
   _pose(dt, game) {
     const c = game.clock, st = this.state, t = this.stateT;
     const P = {};

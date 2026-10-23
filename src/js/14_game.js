@@ -58,6 +58,8 @@ class Game {
     this.track = null;
     this.songNow = 0;
     this.acc = 0; this.hitstopT = 0; this.slowT = 0; this.slowDur = 0; this.slowScale = 1;
+    this.timeScale = 1; this.tsFrom = 1; this.tsTo = 1; this.tsT = 1; this.tsDur = 1; this.afterStop = 1;
+    this.deferPose = false; this._m = { onsets: [] };
     this.hurtFlash = 0; this.endT = 0; this.endWin = false;
     this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitle = ""; this.takedownTitleT = 0;
     this.sectionTitle = ""; this.sectionTitleT = 0;
@@ -239,6 +241,7 @@ class Game {
     this.afterimages = [];
     this.camera.x = this.player.x; this.camera.trauma = 0;
     this.hitstopT = 0; this.slowT = 0; this.hurtFlash = 0; this.endT = 0;
+    this.timeScale = 1; this.tsFrom = 1; this.tsTo = 1; this.tsT = 1; this.afterStop = 1;
     this.battleActive = true;
     this.state = "battle";
     this.input.active = true; this.input.clear();
@@ -369,7 +372,28 @@ class Game {
 
   /* ---------- эффекты времени ---------- */
   hitstop(t) { this.hitstopT = Math.max(this.hitstopT, t); }
-  slowmo(dur, scale) { this.slowT = dur; this.slowDur = dur; this.slowScale = scale; this.sfx("slowmo"); }
+  /** Замедление времени. Наложенные замедления объединяются (глубже и дольше), а не перезапускаются. */
+  slowmo(dur, scale) {
+    if (this.slowT > 0) { this.slowScale = Math.min(this.slowScale, scale); this.slowT = Math.max(this.slowT, dur); }
+    else { this.slowScale = scale; this.slowT = dur; this.sfx("slowmo"); }
+  }
+  /**
+   * Масштаб времени кадра. Вход в замедление — за 0.08 с, выход — за 0.35 с, по кривой easeInOut.
+   * После стоп-кадра скорость не прыгает, а коротко разгоняется к текущему масштабу.
+   */
+  updateTimeScale(dtReal) {
+    if (this.slowT > 0) this.slowT -= dtReal;
+    const target = this.slowT > 0 ? this.slowScale : 1;
+    if (target !== this.tsTo) {
+      this.tsFrom = this.timeScale; this.tsTo = target; this.tsT = 0;
+      this.tsDur = target < this.timeScale ? 0.08 : 0.35;
+    }
+    this.tsT += dtReal;
+    this.timeScale = lerp(this.tsFrom, this.tsTo, easeInOut(this.tsT / this.tsDur));
+    if (this.hitstopT > 0) { this.hitstopT -= dtReal; this.afterStop = 0; return 0; }
+    if (this.afterStop < 0.06) { this.afterStop += dtReal; return this.timeScale * lerp(0.25, 1, easeOut(this.afterStop / 0.06)); }
+    return this.timeScale;
+  }
   /** Агрессивность врагов от музыки: <1 — чаще атакуют. */
   aggression() {
     const lv = this.clock.level, I = this.clock.intensitySmooth;
@@ -441,18 +465,13 @@ class Game {
       else if (ev.type === "jump") p.pressJump();
       else if (ev.type === "dodge") p.tryDodge(this);
     }
-    // стоп-кадр и замедление
-    let scale = 1;
-    if (this.hitstopT > 0) { this.hitstopT -= dtReal; scale = 0; }
-    else if (this.slowT > 0) {
-      this.slowT -= dtReal;
-      const k = this.slowT / this.slowDur;
-      scale = k < 0.25 ? lerp(1, this.slowScale, k / 0.25) : this.slowScale;
-    }
+    // стоп-кадр и плавное замедление
+    const scale = this.updateTimeScale(dtReal);
     const dt = dtReal * scale;
     this.strongBeatNow = this.clock.events.some(e => e.type === "strongBeat");
     this.acc += dt;
     let steps = 0;
+    this.deferPose = true;          // позы — один раз за кадр, после шагов физики
     while (this.acc >= STEP && steps < 8) {
       p.update(STEP, this);
       for (const e of this.enemies) e.update(STEP, this);
@@ -461,8 +480,11 @@ class Game {
       this.acc -= STEP; steps++;
     }
     if (steps >= 8) this.acc = 0;
+    this.deferPose = false;
+    p.flushPose(this);
+    for (const e of this.enemies) e.flushPose(this);
     this.combat.updateTakedown(dtReal);
-    this.enemies = this.enemies.filter(e => !e.dead);
+    compactInPlace(this.enemies, e => !e.dead);
     this.letterbox = damp(this.letterbox, this.letterboxTarget, 8, dtReal);
     this.flashT = Math.max(0, this.flashT - dtReal * 3);
     this.takedownTitleT = Math.max(0, this.takedownTitleT - dtReal);
@@ -472,7 +494,7 @@ class Game {
     this._aiT -= dt;
     if (p.state === "dodge") this.addAfterimage(p);
     for (const a of this.afterimages) a.life -= dt;
-    this.afterimages = this.afterimages.filter(a => a.life > 0);
+    compactInPlace(this.afterimages, a => a.life > 0);
     this.hurtFlash = Math.max(0, this.hurtFlash - dtReal * 2.5);
 
     // музыка в мире: толчок камеры на сильных долях, кольцо под ногами, смена частей трека
@@ -496,19 +518,23 @@ class Game {
     if (this.endT > 0) { this.endT -= dtReal; if (this.endT <= 0) this.finishBattle(); }
   }
 
+  /** Музыкальное состояние кадра для арены — один переиспользуемый объект без лишних аллокаций. */
   musicState(dt) {
-    const c = this.clock;
-    return {
-      pulse: c.pulse, strong: c.strongPulse, low: c.bands.low, mid: c.bands.mid, high: c.bands.high,
-      intensity: c.intensitySmooth, beat: Math.max(0, c.idx), beatF: Math.max(0, c.idx) + c.phase, phase: c.phase,
-      time: performance.now() / 1000, level: c.level,
-      sectionEvent: c.events.some(e => e.type === "section"),
-      sectionKind: (c.events.find(e => e.type === "section") || {}).kind,
-      strongEvent: c.events.some(e => e.type === "strongBeat"),
-      kind: c.kind, trend: c.trend, timeToNext: c.timeToNext, bassy: c.bassy, bright: c.bright,
-      dropSoon: (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0,
-      halfPulse: c.halfPulse, onsets: c.events.filter(e => e.type === "onset"),
-    };
+    const c = this.clock, m = this._m;
+    m.pulse = c.pulse; m.strong = c.strongPulse; m.low = c.bands.low; m.mid = c.bands.mid; m.high = c.bands.high;
+    m.intensity = c.intensitySmooth; m.beat = Math.max(0, c.idx); m.beatF = m.beat + c.phase; m.phase = c.phase;
+    m.time = performance.now() / 1000; m.level = c.level;
+    m.sectionEvent = false; m.sectionKind = undefined; m.strongEvent = false;
+    m.onsets.length = 0;
+    for (const e of c.events) {
+      if (e.type === "section") { m.sectionEvent = true; m.sectionKind = e.kind; }
+      else if (e.type === "strongBeat") m.strongEvent = true;
+      else if (e.type === "onset") m.onsets.push(e);
+    }
+    m.kind = c.kind; m.trend = c.trend; m.timeToNext = c.timeToNext; m.bassy = c.bassy; m.bright = c.bright;
+    m.dropSoon = (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0;
+    m.halfPulse = c.halfPulse;
+    return m;
   }
 
   render(dt) {
@@ -518,7 +544,10 @@ class Game {
     const cam = this.camera;
     const zs = this.viewScale() * cam.zoom;
     const floorY = h / 2 + (0 - cam.y) * zs + cam.oy;
-    const v = { w, h, floorY, camX: cam.x, scale: zs, playerX: (this.player.x - cam.x) * zs + w / 2 + cam.ox };
+    const v = this._v || (this._v = {});
+    v.w = w; v.h = h; v.floorY = floorY; v.camX = cam.x; v.scale = zs;
+    v.playerX = (this.player.x - cam.x) * zs + w / 2 + cam.ox;
+    v.restFloorY = h / 2 + 108 * this.viewScale();     // пол в покое — для стабильных тайлов фона
     const m = this.musicState(dt);
     const R = { dpr: this.tileDpr, dt, amount: this.effQuality === "low" ? 0.45 : 1, flashes: this.settings.v.flashes, amb: this.arena.amb };
     this.arena.drawBack(ctx, v, m, R);

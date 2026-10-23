@@ -97,14 +97,14 @@ class Enemy {
 
     if (this.executed) {      // добивание: позиции задаёт сценарий
       this.flash = Math.max(this.flash, 0);
-      this._pose(dt, game);
+      this.queuePose(dt, game);
       return;
     }
     if (this.state === "spawn") {
       this.alpha = clamp(this.stateT / 0.6, 0, 1);
       if (this.stateT > 0.65) this.setState("think");
       this._physics(dt);
-      this._pose(dt, game);
+      this.queuePose(dt, game);
       return;
     }
     if (this.state === "dead") {
@@ -112,7 +112,7 @@ class Enemy {
       this.vx = damp(this.vx, 0, 4, dt);
       this.vy += 900 * dt;
       this._physics(dt);
-      this._pose(dt, game);
+      this.queuePose(dt, game);
       if (this.stateT > 0.45) this.dead = true;
       return;
     }
@@ -144,7 +144,7 @@ class Enemy {
     }
     this._physics(dt);
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
-    this._pose(dt, game);
+    this.queuePose(dt, game);
   }
 
   _physics(dt) {
@@ -268,6 +268,10 @@ class Enemy {
     }
     if (this.stateT >= T.activeT) this.setState("recover");
   }
+
+  /** Поза считается раз в кадр (не на каждом шаге физики): время копится и применяется в flushPose. */
+  queuePose(dt, game) { if (game.deferPose) this._poseDt = (this._poseDt || 0) + dt; else this._pose(dt, game); }
+  flushPose(game) { if (this._poseDt > 0) { const dt = this._poseDt; this._poseDt = 0; this._pose(dt, game); } }
 
   _pose(dt, game) {
     const c = game.clock, st = this.state, t = this.stateT;

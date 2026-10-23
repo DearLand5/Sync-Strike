@@ -48,8 +48,13 @@ const AnimationSystem = {
     // вращение (кувырки, сальто) задаётся напрямую — плавный возврат дал бы обратный оборот
     if (target.spin == null) p.spin = 0;
   },
-  /** Вторичная анимация: плащ отстаёт от движения, шарф — цепочка Верле. */
+  /** Вторичная анимация с подшагами 1/120 с — результат не зависит от частоты кадров. */
   secondary(st, ch, dt) {
+    const n = clamp(Math.round(dt * 120), 1, 8), h = dt / n;
+    for (let i = 0; i < n; i++) this._secondary(st, ch, h);
+  },
+  /** Плащ отстаёт от движения, шарф — цепочка Верле. */
+  _secondary(st, ch, dt) {
     const target = clamp(-ch.vx * 0.012 * ch.facing, -1.2, 0.6) + (ch.vy < -50 ? -0.3 : ch.vy > 80 ? 0.35 : 0) + st.pose.cloak;
     st.cloakV += ((target - st.cloak) * 180 - st.cloakV * 16) * dt;
     st.cloak += st.cloakV * dt;

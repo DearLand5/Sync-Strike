@@ -58,7 +58,7 @@ function rgba(hex, a) {
   if (!s) {
     const [r, g, b] = hexToRgb(hex);
     s = `rgba(${r},${g},${b},${a})`;
-    if (_rgbaCache.size > 4000) _rgbaCache.clear();
+    if (_rgbaCache.size > 30000) _rgbaCache.clear();
     _rgbaCache.set(key, s);
   }
   return s;
@@ -105,4 +105,12 @@ class Emitter {
 /* ---------- Прямоугольники ---------- */
 function rectsOverlap(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/** Удаляет элементы массива на месте (без создания нового массива). */
+function compactInPlace(arr, keep) {
+  let j = 0;
+  for (let i = 0; i < arr.length; i++) if (keep(arr[i])) arr[j++] = arr[i];
+  arr.length = j;
+  return arr;
 }
