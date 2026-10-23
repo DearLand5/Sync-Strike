@@ -142,7 +142,7 @@ class HUD {
     }
     if (g.settings.v.showFps) {
       ctx.textAlign = "left"; ctx.font = "500 11px 'JetBrains Mono', monospace"; ctx.fillStyle = "#b6ff3b";
-      ctx.fillText(Math.round(g.fps) + " FPS · " + g.effQuality + " · ч:" + g.fx.count, L, h - 10 - safe.b);
+      ctx.fillText(Math.round(g.fps) + " FPS · " + g.effQuality + " · ч:" + g.fx.count + " · сбросы GPU: " + g.gpuResets, L, h - 10 - safe.b);
     }
     ctx.restore();
   }
@@ -312,6 +312,7 @@ class UIManager {
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.addEventListener("click", () => { S.set("slowmoMode", b.dataset.s); this.refreshSettings(); this.sfx("uiClick"); }));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.addEventListener("click", () => { S.set("sfxStyle", b.dataset.x); this.refreshSettings(); this.sfx("hit"); }));
+    document.querySelectorAll("#seg-fps [data-f]").forEach(b => b.addEventListener("click", () => { S.set("fpsCap", +b.dataset.f); this.refreshSettings(); this.sfx("uiClick"); }));
     $("settings-back").addEventListener("click", () => { this.sfx("uiBack"); this.show(this.settingsReturn === "pause" ? "pause" : "menu"); });
     $("btn-layout-reset").addEventListener("click", () => { S.resetLayout(); g.input.touch.layout(); this.toast("Раскладка сброшена"); });
     $("btn-editor").addEventListener("click", () => g.openEditor());
@@ -374,6 +375,7 @@ class UIManager {
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.q === this.game.settings.v.quality)));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.s === this.game.settings.v.slowmoMode)));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.x === this.game.settings.v.sfxStyle)));
+    document.querySelectorAll("#seg-fps [data-f]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.f === (+this.game.settings.v.fpsCap || 0))));
   }
 
   refreshMusic() {

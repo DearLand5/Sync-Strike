@@ -78,6 +78,11 @@ class Game {
     this.ui = new UIManager(this);
 
     this.audio.on("ended", () => this.onTrackEnded());
+    // Сброс GPU (Android при нагреве/нехватке видеопамяти): основной холст браузер восстановит сам,
+    // а фон, нарисованный один раз во внеэкранных холстах, нужно перерисовать.
+    this.gpuLost = false; this.gpuResets = 0; this._lostCheckT = 0;
+    this.canvas.addEventListener("contextlost", () => { this.gpuLost = true; this.gpuResets++; });
+    this.canvas.addEventListener("contextrestored", () => { this.gpuLost = false; this.arena.invalidate(); });
     const onResize = () => { this.resize(); this.checkOrientation(); };
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", () => setTimeout(onResize, 250));
@@ -145,6 +150,7 @@ class Game {
     }
   }
   onVisibility() {
+    if (!document.hidden) this.arena.checkLost();
     if (document.hidden) {
       if (this.state === "battle") this.pause();
       else if (this.audio.playing) { this.audio.pause(); this._menuPausedByHide = true; }
@@ -463,6 +469,15 @@ class Game {
   /* ---------- цикл ---------- */
   loop(now) {
     requestAnimationFrame(this.loop);
+    // ограничение частоты кадров (настройка): на экранах 90/120 Гц снижает нагрузку на видеочип
+    // накопитель времени: на 120 Гц «90» пропускает каждый 4-й кадр, «60» — каждый второй
+    const cap = +this.settings.v.fpsCap || 0;
+    const rafDt = now - (this._rafPrev || now); this._rafPrev = now;
+    if (cap) {
+      this._capAcc = Math.min((this._capAcc || 0) + rafDt, 2000 / cap);
+      if (this._capAcc < 1000 / cap - 1) return;
+      this._capAcc -= 1000 / cap;
+    }
     const dtReal = clamp((now - this.last) / 1000, 0.001, 0.05);
     this.last = now;
     this._ft = lerp(this._ft, dtReal * 1000, 0.05);
@@ -590,6 +605,12 @@ class Game {
 
   render(dt) {
     const ctx = this.ctx, w = this.cssW, h = this.cssH;
+    if (this.gpuLost || (ctx.isContextLost && ctx.isContextLost())) return;   // во время сброса рисовать некуда
+    this._lostCheckT += dt;
+    if (this._lostCheckT > 0.5) {
+      this._lostCheckT = 0;
+      if (this.arena.checkLost()) this.gpuResets++;
+    }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     const cam = this.camera;

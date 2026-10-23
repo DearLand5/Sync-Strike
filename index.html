@@ -357,6 +357,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <div class="tabpanel" data-panel="graphics" hidden>
         <div class="card">
           <div class="toggle"><span>Качество эффектов</span><div class="seg" id="seg-quality"><button data-q="auto">Авто</button><button data-q="high">Высокое</button><button data-q="low">Упрощённое</button></div></div>
+          <div class="toggle"><span>Частота кадров</span><div class="seg" id="seg-fps"><button data-f="0">Макс</button><button data-f="90">90</button><button data-f="60">60</button></div></div>
           <div class="toggle"><span>Замедления времени</span><div class="seg" id="seg-slowmo"><button data-s="normal">Обычные</button><button data-s="rare">Редкие</button><button data-s="off">Выкл</button></div></div>
           <div class="slider"><label for="set-shake">Тряска экрана</label><input type="range" id="set-shake" min="0" max="100" step="5"><output></output></div>
           <div class="toggle"><span>Яркие вспышки и стробы</span><input type="checkbox" id="set-flash"></div>
@@ -566,6 +567,7 @@ const DEFAULT_SETTINGS = {
   forceLandscape: true,     // горизонтальный экран по умолчанию (поворот интерфейса в портрете)
   slowmoMode: "rare",       // замедления времени: normal | rare | off
   showFps: false,
+  fpsCap: 0,                // ограничение кадров: 0 — без ограничения, 90, 60
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5
   windowScale: 1.0,         // 0.7..1.5
@@ -3266,16 +3268,35 @@ class ArenaRenderer {
     const tileH = Math.max(50, Math.ceil(restY));
     this.tileW = tileW; this.tileH = tileH;
     const rng = mulberry32(this.theme.id.length * 977 + 13);
+    this.releaseTiles();
     this.tiles = this.theme.layers.map(L => {
       const cv = document.createElement("canvas");
       cv.width = Math.ceil(tileW * dpr); cv.height = Math.ceil(tileH * dpr);
       const c = cv.getContext("2d");
       c.scale(dpr, dpr);
       L.paint(c, tileW, tileH, rng);
-      return { cv, f: L.f };
+      // после сброса GPU содержимое холста теряется — перерисовать при восстановлении
+      cv.addEventListener("contextrestored", () => this.invalidate());
+      return { cv, ctx: c, f: L.f };
     });
     if (this.theme.build) this.theme.build(rng, tileW, tileH);
     this._vig = null;
+  }
+
+  /** Сбросить кэш фона: тайлы пересоберутся на следующем кадре. */
+  invalidate() { this.key = ""; this._vig = null; }
+  /** Освободить видеопамять старых тайлов сразу, не дожидаясь сборки мусора. */
+  releaseTiles(list = this.tiles) {
+    for (const t of list || []) { t.cv.width = 0; t.cv.height = 0; }
+  }
+  /**
+   * Проверка после возможного сброса GPU (Android сбрасывает графический процесс браузера при нагреве
+   * или нехватке видеопамяти): содержимое внеэкранных холстов стирается, а сами они рисуются только
+   * один раз — фон терял здания/горы. Если контекст потерян или был потерян — пересобираем тайлы.
+   */
+  checkLost() {
+    for (const t of this.tiles) if (t.ctx && t.ctx.isContextLost && t.ctx.isContextLost()) { this.invalidate(); return true; }
+    return false;
   }
 
   /** m — музыкальное состояние кадра, v — параметры вида. */
@@ -3505,11 +3526,12 @@ class ArenaRenderer {
   preview(canvas, theme) {
     const c = canvas.getContext("2d"), w = canvas.width, h = canvas.height;
     const saved = this.theme, savedKey = this.key, savedTiles = this.tiles, sw = this.tileW, sh = this.tileH;
-    this.theme = theme; this.key = "";
+    this.theme = theme; this.key = ""; this.tiles = [];     // живые тайлы игры не трогаем
     const v = { w, h, floorY: h * 0.78, camX: 300, scale: 1 };
     const m = { pulse: 0.6, strong: 0.5, low: 0.6, mid: 0.5, high: 0.5, I: 0.85, intensity: 0.7, beat: 3, beatF: 0.3, phase: 0.3, time: 2, level: "mid" };
     try { this.drawBack(c, v, m, { dpr: 1, dt: 0, amount: 0.4, amb: [], flashes: false }); }
     catch (e) { c.fillStyle = theme.pal.sky[1]; c.fillRect(0, 0, w, h); }
+    this.releaseTiles();      // тайлы превью больше не нужны — освобождаем видеопамять сразу
     this.theme = saved; this.tiles = savedTiles; this.tileW = sw; this.tileH = sh;
     this.key = theme === saved ? "" : savedKey;   // состояние темы перестроено под превью
   }
@@ -5162,7 +5184,7 @@ class HUD {
     }
     if (g.settings.v.showFps) {
       ctx.textAlign = "left"; ctx.font = "500 11px 'JetBrains Mono', monospace"; ctx.fillStyle = "#b6ff3b";
-      ctx.fillText(Math.round(g.fps) + " FPS · " + g.effQuality + " · ч:" + g.fx.count, L, h - 10 - safe.b);
+      ctx.fillText(Math.round(g.fps) + " FPS · " + g.effQuality + " · ч:" + g.fx.count + " · сбросы GPU: " + g.gpuResets, L, h - 10 - safe.b);
     }
     ctx.restore();
   }
@@ -5332,6 +5354,7 @@ class UIManager {
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.addEventListener("click", () => { S.set("slowmoMode", b.dataset.s); this.refreshSettings(); this.sfx("uiClick"); }));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.addEventListener("click", () => { S.set("sfxStyle", b.dataset.x); this.refreshSettings(); this.sfx("hit"); }));
+    document.querySelectorAll("#seg-fps [data-f]").forEach(b => b.addEventListener("click", () => { S.set("fpsCap", +b.dataset.f); this.refreshSettings(); this.sfx("uiClick"); }));
     $("settings-back").addEventListener("click", () => { this.sfx("uiBack"); this.show(this.settingsReturn === "pause" ? "pause" : "menu"); });
     $("btn-layout-reset").addEventListener("click", () => { S.resetLayout(); g.input.touch.layout(); this.toast("Раскладка сброшена"); });
     $("btn-editor").addEventListener("click", () => g.openEditor());
@@ -5394,6 +5417,7 @@ class UIManager {
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.q === this.game.settings.v.quality)));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.s === this.game.settings.v.slowmoMode)));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.x === this.game.settings.v.sfxStyle)));
+    document.querySelectorAll("#seg-fps [data-f]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.f === (+this.game.settings.v.fpsCap || 0))));
   }
 
   refreshMusic() {
@@ -5659,6 +5683,11 @@ class Game {
     this.ui = new UIManager(this);
 
     this.audio.on("ended", () => this.onTrackEnded());
+    // Сброс GPU (Android при нагреве/нехватке видеопамяти): основной холст браузер восстановит сам,
+    // а фон, нарисованный один раз во внеэкранных холстах, нужно перерисовать.
+    this.gpuLost = false; this.gpuResets = 0; this._lostCheckT = 0;
+    this.canvas.addEventListener("contextlost", () => { this.gpuLost = true; this.gpuResets++; });
+    this.canvas.addEventListener("contextrestored", () => { this.gpuLost = false; this.arena.invalidate(); });
     const onResize = () => { this.resize(); this.checkOrientation(); };
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", () => setTimeout(onResize, 250));
@@ -5726,6 +5755,7 @@ class Game {
     }
   }
   onVisibility() {
+    if (!document.hidden) this.arena.checkLost();
     if (document.hidden) {
       if (this.state === "battle") this.pause();
       else if (this.audio.playing) { this.audio.pause(); this._menuPausedByHide = true; }
@@ -6044,6 +6074,15 @@ class Game {
   /* ---------- цикл ---------- */
   loop(now) {
     requestAnimationFrame(this.loop);
+    // ограничение частоты кадров (настройка): на экранах 90/120 Гц снижает нагрузку на видеочип
+    // накопитель времени: на 120 Гц «90» пропускает каждый 4-й кадр, «60» — каждый второй
+    const cap = +this.settings.v.fpsCap || 0;
+    const rafDt = now - (this._rafPrev || now); this._rafPrev = now;
+    if (cap) {
+      this._capAcc = Math.min((this._capAcc || 0) + rafDt, 2000 / cap);
+      if (this._capAcc < 1000 / cap - 1) return;
+      this._capAcc -= 1000 / cap;
+    }
     const dtReal = clamp((now - this.last) / 1000, 0.001, 0.05);
     this.last = now;
     this._ft = lerp(this._ft, dtReal * 1000, 0.05);
@@ -6171,6 +6210,12 @@ class Game {
 
   render(dt) {
     const ctx = this.ctx, w = this.cssW, h = this.cssH;
+    if (this.gpuLost || (ctx.isContextLost && ctx.isContextLost())) return;   // во время сброса рисовать некуда
+    this._lostCheckT += dt;
+    if (this._lostCheckT > 0.5) {
+      this._lostCheckT = 0;
+      if (this.arena.checkLost()) this.gpuResets++;
+    }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
     const cam = this.camera;

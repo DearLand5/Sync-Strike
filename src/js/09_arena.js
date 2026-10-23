@@ -374,16 +374,35 @@ class ArenaRenderer {
     const tileH = Math.max(50, Math.ceil(restY));
     this.tileW = tileW; this.tileH = tileH;
     const rng = mulberry32(this.theme.id.length * 977 + 13);
+    this.releaseTiles();
     this.tiles = this.theme.layers.map(L => {
       const cv = document.createElement("canvas");
       cv.width = Math.ceil(tileW * dpr); cv.height = Math.ceil(tileH * dpr);
       const c = cv.getContext("2d");
       c.scale(dpr, dpr);
       L.paint(c, tileW, tileH, rng);
-      return { cv, f: L.f };
+      // после сброса GPU содержимое холста теряется — перерисовать при восстановлении
+      cv.addEventListener("contextrestored", () => this.invalidate());
+      return { cv, ctx: c, f: L.f };
     });
     if (this.theme.build) this.theme.build(rng, tileW, tileH);
     this._vig = null;
+  }
+
+  /** Сбросить кэш фона: тайлы пересоберутся на следующем кадре. */
+  invalidate() { this.key = ""; this._vig = null; }
+  /** Освободить видеопамять старых тайлов сразу, не дожидаясь сборки мусора. */
+  releaseTiles(list = this.tiles) {
+    for (const t of list || []) { t.cv.width = 0; t.cv.height = 0; }
+  }
+  /**
+   * Проверка после возможного сброса GPU (Android сбрасывает графический процесс браузера при нагреве
+   * или нехватке видеопамяти): содержимое внеэкранных холстов стирается, а сами они рисуются только
+   * один раз — фон терял здания/горы. Если контекст потерян или был потерян — пересобираем тайлы.
+   */
+  checkLost() {
+    for (const t of this.tiles) if (t.ctx && t.ctx.isContextLost && t.ctx.isContextLost()) { this.invalidate(); return true; }
+    return false;
   }
 
   /** m — музыкальное состояние кадра, v — параметры вида. */
@@ -613,11 +632,12 @@ class ArenaRenderer {
   preview(canvas, theme) {
     const c = canvas.getContext("2d"), w = canvas.width, h = canvas.height;
     const saved = this.theme, savedKey = this.key, savedTiles = this.tiles, sw = this.tileW, sh = this.tileH;
-    this.theme = theme; this.key = "";
+    this.theme = theme; this.key = ""; this.tiles = [];     // живые тайлы игры не трогаем
     const v = { w, h, floorY: h * 0.78, camX: 300, scale: 1 };
     const m = { pulse: 0.6, strong: 0.5, low: 0.6, mid: 0.5, high: 0.5, I: 0.85, intensity: 0.7, beat: 3, beatF: 0.3, phase: 0.3, time: 2, level: "mid" };
     try { this.drawBack(c, v, m, { dpr: 1, dt: 0, amount: 0.4, amb: [], flashes: false }); }
     catch (e) { c.fillStyle = theme.pal.sky[1]; c.fillRect(0, 0, w, h); }
+    this.releaseTiles();      // тайлы превью больше не нужны — освобождаем видеопамять сразу
     this.theme = saved; this.tiles = savedTiles; this.tileW = sw; this.tileH = sh;
     this.key = theme === saved ? "" : savedKey;   // состояние темы перестроено под превью
   }

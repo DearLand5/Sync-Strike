@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   forceLandscape: true,     // горизонтальный экран по умолчанию (поворот интерфейса в портрете)
   slowmoMode: "rare",       // замедления времени: normal | rare | off
   showFps: false,
+  fpsCap: 0,                // ограничение кадров: 0 — без ограничения, 90, 60
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5
   windowScale: 1.0,         // 0.7..1.5
