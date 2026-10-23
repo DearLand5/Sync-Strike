@@ -10,8 +10,9 @@ class ParticleSystem {
     this.count = 0;
     this.cap = max;
     this.mult = 1;
+    this.low = false;          // упрощённые эффекты (добивания без свечения и лишних искр)
   }
-  setQuality(q) { this.cap = q === "low" ? 220 : this.pool.length; this.mult = q === "low" ? 0.45 : 1; }
+  setQuality(q) { this.low = q === "low"; this.cap = this.low ? 220 : this.pool.length; this.mult = this.low ? 0.45 : 1; }
   clear() { for (const p of this.pool) p.on = false; this.count = 0; }
 
   spawn(type, x, y, o = {}) {
@@ -68,6 +69,10 @@ class ParticleSystem {
     for (let i = 0; i < n; i++) this.spawn("smoke", x + rand(-8, 8), y - 1, { vx: rand(-60, 60), vy: rand(-30, -5), life: rand(0.3, 0.6), size: rand(1.5, 3), size2: rand(4, 8), color, drag: 4 });
   }
   line(x, y, x2, y2, color, width = 3, life = 0.2) { this.spawn("line", x, y, { a0: x2, a1: y2, color, size: width, life, add: true, drag: 0 }); }
+  /** Чистый разрез: тонкий заострённый росчерк от (x,y) к (x2,y2); быстро вытягивается и истончается. */
+  cut(x, y, x2, y2, color, width = 3, life = 0.4) { this.spawn("cut", x, y, { a0: x2, a1: y2, color, size: width, life, add: true, drag: 0 }); }
+  /** Мягкая вспышка в точке (вместо заливки экрана): круг, растущий и гаснущий. */
+  glow(x, y, r0, r1, color, life = 0.25, alpha = 0.5) { this.spawn("glow", x, y, { size: r0, size2: r1, color, life, add: true, alpha, drag: 0 }); }
   shockwave(x, y, color, reach = 140) { this.spawn("wave", x, y, { size: 4, size2: reach, color, life: 0.45, add: true }); }
 
   update(dt) {
@@ -119,6 +124,23 @@ class ParticleSystem {
           ctx.strokeStyle = p.color; ctx.lineWidth = p.size * k; ctx.lineCap = "round";
           ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.a0, p.a1); ctx.stroke();
           break;
+        case "cut": {
+          const t = 1 - k, ext = easeOut(Math.min(1, t / 0.2));
+          const dx = p.a0 - p.x, dy = p.a1 - p.y, l = Math.hypot(dx, dy) || 1;
+          const ex = p.x + dx * ext, ey = p.y + dy * ext;
+          const nx = -dy / l, ny = dx / l, w = p.size * (0.3 + 0.7 * Math.min(1, k * 1.4)) * 0.5;
+          ctx.fillStyle = p.color;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo((p.x + ex) / 2 + nx * w, (p.y + ey) / 2 + ny * w); ctx.lineTo(ex, ey);
+          ctx.lineTo((p.x + ex) / 2 - nx * w, (p.y + ey) / 2 - ny * w); ctx.closePath(); ctx.fill();
+          break;
+        }
+        case "glow": {
+          const r = lerp(p.size2, p.size, k * k);
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.alpha * 0.28 * k; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
+          ctx.globalAlpha = p.alpha * 0.45 * k; ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.55, 0, TAU); ctx.fill();
+          break;
+        }
         case "wave": {
           const r = lerp(p.size2, p.size, k);
           ctx.strokeStyle = p.color; ctx.lineWidth = 3 * k;
@@ -147,7 +169,9 @@ class Camera {
   shake(a) { this.trauma = Math.min(1, this.trauma + a); }
   kick(a) { this.bump = Math.min(0.06, this.bump + a); }
   /** Кинематографичный фокус: камера наезжает на точку с приближением. */
-  focus(x, y, zoom) { this.fx = x; this.fy = y; this.fz = zoom; this.fTarget = 1; this.tilt = (Math.random() < 0.5 ? -1 : 1) * 0.035; }
+  focus(x, y, zoom, tiltDir = 0) { this.fx = x; this.fy = y; this.fz = zoom; this.fTarget = 1; this.tilt = (tiltDir || (Math.random() < 0.5 ? -1 : 1)) * 0.018; }
+  /** Плавно сместить точку фокуса (камера догоняет её сама — без рывков). */
+  retarget(x, y, zoom) { this.fx = x; this.fy = y; if (zoom) this.fz = zoom; }
   release() { this.fTarget = 0; }
   update(dt, tx, ty, worldW, viewW, shakeAmount) {
     this.t += dt;

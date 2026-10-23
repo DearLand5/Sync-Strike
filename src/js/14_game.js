@@ -718,7 +718,7 @@ class Game {
       }
       if (ev.type === "strongBeat") {
         this.camera.kick(0.006 * this.clock.intensitySmooth);
-        this.fx.shockwave(p.x, p.groundY, p.skin.accent, 60 + 40 * this.clock.intensitySmooth);
+        if (!this.combat.td) this.fx.shockwave(p.x, p.groundY, p.skin.accent, 60 + 40 * this.clock.intensitySmooth);   // без лишних колец во время добивания
       } else if (ev.type === "onset" && ev.band === "high" && ev.strength > 0.5 && this.effQuality === "high") {
         this.fx.spawn("dot", p.x + rand(-200, 200), rand(-220, -40), { vy: -20, life: 0.6, size: 1.6, color: this.arena.theme.pal.neonB, add: true });
       }
@@ -781,7 +781,7 @@ class Game {
     this._drawWalls(ctx, m);
     const hq = this.effQuality === "high";
     for (const e of this.enemies) this._drawTelegraph(ctx, e);
-    for (const e of this.enemies) CharacterRenderer.draw(ctx, e);
+    for (const e of this.enemies) this.combat.drawEnemy(ctx, e);
     for (const a of this.afterimages) {
       ctx.save(); ctx.globalAlpha = (a.life / a.max) * 0.45;
       CharacterRenderer.draw(ctx, a, { tint: a.skin ? a.skin.accent : "#ffffff" });
@@ -846,7 +846,7 @@ class Game {
     const tgt = this.combat.lastTarget;
     for (const e of this.enemies) {
       if (!e.alive || e.state === "spawn") continue;
-      if (e.hp >= e.maxHp && e !== tgt) continue;
+      if (e.executed || (e.hp >= e.maxHp && e !== tgt)) continue;
       const bw = 24 * e.scale, x = e.x - bw / 2, y = e.y - e.h * e.scale - 18 * e.scale;
       ctx.fillStyle = "rgba(232,226,214,.18)"; ctx.fillRect(x, y, bw, 2);
       ctx.fillStyle = e.look.accent; ctx.fillRect(x, y, bw * clamp(e.hp / e.maxHp, 0, 1), 2);
