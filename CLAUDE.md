@@ -149,6 +149,7 @@ spawnGrace/gap/tokens(n)/ranged(n)/alive(n)/waveHeal. Хардкод сложн�
   нажатия переводятся в музыкальное время по `event.timeStamp`.
 
 ## Android APK
+- **Собирать APK только по явной просьбе пользователя** (не после каждого изменения).
 - `bash tools/build-apk.sh` → `dist/SyncStrike.apk` (dist/ и android/build/ в .gitignore). Без Gradle:
   aapt2 → javac (-source/-target 1.8, bootclasspath android.jar) → d8 → zipalign → apksigner.
   **build-tools 35.0.0 обязательно**: d8 8.2.2 из build-tools 34 падает с NPE на вложенных классах.
