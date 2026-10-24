@@ -837,7 +837,8 @@ class ArenaRenderer {
     const th = this.theme, pal = th.pal;
     this.ensureTiles(v, R.dpr);
     v.tileW = this.tileW; v.tileH = this.tileH;
-    v.layerOff = f => { const o = -(v.camX * v.scale * f) % this.tileW; return o > 0 ? o - this.tileW : o; };
+    // drift — собственная скорость слоя, px/с (поезд: пейзаж летит мимо даже когда герой стоит)
+    v.layerOff = (f, drift) => { const o = -(v.camX * v.scale * f + (drift ? m.time * drift : 0)) % this.tileW; return o > 0 ? o - this.tileW : o; };
     v.repeat = (off, x, fn) => { for (let x0 = off; x0 < v.w + this.tileW; x0 += this.tileW) { const xx = x0 + x; if (xx > -300 && xx < v.w + 300) fn(xx); } };
     if (m.sectionEvent) this.sectionFlash = 1;
     this.sectionFlash = Math.max(0, this.sectionFlash - R.dt * 0.8);
@@ -857,7 +858,7 @@ class ArenaRenderer {
     th.back(ctx, v, m, pal, R);
     // слои от дальнего к ближнему; анимированная часть слоя (dyn) — сразу после его тайла, с тем же сдвигом
     for (let i = 0; i < this.tiles.length; i++) {
-      const t = this.tiles[i], L = th.layers[i], off = v.layerOff(t.f);
+      const t = this.tiles[i], L = th.layers[i], off = v.layerOff(t.f, L.drift);
       for (let x = off; x < v.w; x += this.tileW) ctx.drawImage(t.cv, x, v.floorY - t.ch, this.tileW + TILE_PAD, t.ch);
       if (L.dyn) L.dyn(ctx, v, m, pal, R, off, th.A);
     }
@@ -895,7 +896,7 @@ class ArenaRenderer {
       if (!L.refl) continue;
       any = true;
       ctx.save(); ctx.globalAlpha = L.refl; ctx.translate(0, v.floorY); ctx.scale(1, -1);
-      for (let x = v.layerOff(t.f); x < v.w; x += this.tileW) ctx.drawImage(t.cv, 0, t.cv.height - rh * t.dpr, t.cv.width, rh * t.dpr, x, -rh, this.tileW + TILE_PAD, rh);
+      for (let x = v.layerOff(t.f, L.drift); x < v.w; x += this.tileW) ctx.drawImage(t.cv, 0, t.cv.height - rh * t.dpr, t.cv.width, rh * t.dpr, x, -rh, this.tileW + TILE_PAD, rh);
       ctx.restore();
     }
     if (!any) return;
