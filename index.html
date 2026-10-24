@@ -1199,7 +1199,7 @@ const DemoTrack = {
    ===================================================================== */
 const LIB_MAX_TRACKS = 30;
 const LIB_MAX_BYTES = 400 * 1024 * 1024;
-const ANALYSIS_VERSION = 1;    // увеличить при изменении формата/логики анализатора — карты пересчитаются
+const ANALYSIS_VERSION = 2;    // увеличить при изменении формата/логики анализатора — карты пересчитаются
 
 class TrackLibrary {
   constructor() {
@@ -1433,6 +1433,10 @@ class RhythmAnalyzer {
     const rms = new Float32Array(frames), cent = new Float32Array(frames);
     let mL = 0, mM = 0, mH = 0;   // суммы амплитуд по полосам (для признаков)
     const prevLog = new Float32Array(half);
+    // грубая «хрома»: 22 полосы 43–1980 Гц (ноты баса и аккордов) — для смены гармонии на первой доле такта
+    const HZE = [43, 64, 86, 107, 129, 150, 172, 194, 215, 258, 301, 344, 408, 473, 559, 645, 753, 882, 1033, 1205, 1420, 1680, 1980];
+    const NH = HZE.length - 1, harm = new Float32Array(frames * NH), hb = new Uint8Array(half).fill(255);
+    for (let k = 1; k < half; k++) { const f = k * binHz; for (let b = 0; b < NH; b++) if (f >= HZE[b] && f < HZE[b + 1]) hb[k] = b; }
     for (let f = 0; f < frames; f++) {
       const off = f * H;
       let sq = 0;
@@ -1446,6 +1450,7 @@ class RhythmAnalyzer {
         const d = lg - prevLog[k];
         prevLog[k] = lg;
         const p = mag * mag;
+        if (hb[k] < 255) harm[f * NH + hb[k]] += mag;
         cw += mag * k; cs += mag;
         switch (band[k]) {
           case 1: el += p; mL += mag; if (d > 0) fl += d; break;
@@ -1483,7 +1488,7 @@ class RhythmAnalyzer {
     await yieldToUI();
 
     /* ---- темп: автокорреляция ---- */
-    const minL = 6, maxL = Math.ceil(60 * fps / 45) * 2 + 4;
+    const minL = 6, maxL = Math.ceil(4.2 * fps);
     const AC = new Float32Array(maxL + 2);
     for (let L = minL; L <= maxL && L < frames; L++) {
       let s = 0;
@@ -1498,7 +1503,7 @@ class RhythmAnalyzer {
     const tempoScore = bpm => {
       const L = 60 * fps / bpm;
       const prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 120) / 0.85, 2));
-      return (acAt(L) + 0.5 * acAt(2 * L) + 0.25 * acAt(L / 2) + 0.25 * acAt(3 * L)) * prior;
+      return (acAt(L) + 0.5 * acAt(2 * L) + 0.25 * acAt(L / 2) + 0.25 * acAt(3 * L) + 0.4 * acAt(4 * L)) * prior;
     };
     let bestBpm = 120, best = -1;
     const scores = [];
@@ -1514,43 +1519,105 @@ class RhythmAnalyzer {
     }
     const medScore = median(scores);
     const peakRatio = best > 0 ? (best - medScore) / best : 0;
-    const globalP = 60 * fps / bestBpm;
 
-    /* ---- локальный темп (окна 12 с, шаг 6 с) ---- */
-    const winF = Math.round(12 * fps), hopF = Math.round(6 * fps);
-    const localPts = [];
-    for (let s0 = 0; s0 < frames; s0 += hopF) {
-      const s1 = Math.min(frames, s0 + winF);
-      if (s1 - s0 < winF * 0.5) break;
-      let bL = globalP, bS = -1;
-      for (let L = globalP * 0.9; L <= globalP * 1.1; L += 0.1) {
-        let s = 0;
-        const Li = Math.floor(L), t = L - Li;
-        for (let i = s0; i + Li + 1 < s1; i++) s += Od[i] * (Od[i + Li] * (1 - t) + Od[i + Li + 1] * t);
-        const prior = Math.exp(-0.5 * Math.pow((L - globalP) / (globalP * 0.06), 2));
-        s *= 0.6 + 0.4 * prior;
-        if (s > bS) { bS = s; bL = L; }
-      }
-      localPts.push({ c: (s0 + s1) / 2, L: bL });
+    /* ---- кривая темпа: оценка в окнах 10 с (шаг 2,5 с) + Витерби по лог-темпу ----
+       Окно даёт оценку на всей сетке 60–200 BPM; переход между состояниями штрафуется
+       линейно по разнице октав (L1), поэтому плавный дрейф почти бесплатен, а резкая смена
+       темпа проходит за 1–2 окна. Пустые (тихие) окна берут темп у соседей. */
+    const GSTEP = 0.25, NS = scores.length;
+    const gB = new Float32Array(NS), logG = new Float32Array(NS), priorG = new Float32Array(NS), gNorm = new Float32Array(NS);
+    for (let j = 0; j < NS; j++) {
+      gB[j] = 60 + j * GSTEP; logG[j] = Math.log2(gB[j]);
+      priorG[j] = Math.exp(-0.5 * Math.pow(Math.log2(gB[j] / 120) / 0.85, 2));
+      gNorm[j] = best > 0 ? scores[j] / best : 0;
     }
-    const period = new Float32Array(frames).fill(globalP);
-    if (localPts.length > 1) {
-      // сглаживание медианой по трём
-      const Ls = localPts.map((p, i) => {
-        const a = localPts[Math.max(0, i - 1)].L, b = p.L, c = localPts[Math.min(localPts.length - 1, i + 1)].L;
-        return [a, b, c].sort((x, y) => x - y)[1];
-      });
+    const winF = Math.round(10 * fps), hopF = Math.round(2.5 * fps);
+    let meanOdAll = 0;
+    for (let i = 0; i < frames; i++) meanOdAll += Od[i];
+    meanOdAll = meanOdAll / frames || 1e-6;
+    const wins = [];
+    {
+      const lac = new Float32Array(maxL + 2);
+      for (let s0 = 0; s0 < frames; s0 += hopF) {
+        const s1 = Math.min(frames, s0 + winF), len = s1 - s0;
+        if (len < winF * 0.6 && wins.length) break;
+        const lim = Math.min(maxL, Math.floor(len * 0.75));
+        let mo = 0;
+        for (let i = s0; i < s1; i++) mo += Od[i];
+        mo /= len;
+        lac.fill(0);
+        for (let L = minL; L <= lim; L++) {
+          let s = 0;
+          for (let i = s0; i + L < s1; i++) s += Od[i] * Od[i + L];
+          lac[L] = s / (len - L);
+        }
+        const at = L => { if (L < minL || L >= lim) return 0; const i = Math.floor(L), t = L - i; return lac[i] * (1 - t) + lac[i + 1] * t; };
+        const sc = new Float32Array(NS);
+        let mx = 0;
+        for (let j = 0; j < NS; j++) {
+          const L = 60 * fps / gB[j];
+          const v = (at(L) + 0.5 * at(2 * L) + 0.25 * at(L / 2) + 0.25 * at(3 * L) + 0.4 * at(4 * L)) * priorG[j];
+          sc[j] = v; if (v > mx) mx = v;
+        }
+        const w = clamp(1.5 * mo / meanOdAll, 0, 1);
+        for (let j = 0; j < NS; j++) sc[j] = (mx > 0 ? sc[j] / mx * w : 0) + 0.25 * gNorm[j];
+        wins.push({ c: (s0 + s1) / 2, sc, w });
+        if (wins.length % 16 === 0) await yieldToUI();
+      }
+    }
+    let curveBpm = [];   // темп в центре каждого окна
+    if (wins.length >= 2) {
+      const LAM = 2.0;   // штраф за октаву смены темпа
+      const K = wins.length;
+      const srcs = [];
+      let dp = Float32Array.from(wins[0].sc);
+      for (let k = 1; k < K; k++) {
+        const src = new Int32Array(NS), val = Float32Array.from(dp);
+        for (let j = 0; j < NS; j++) src[j] = j;
+        for (let j = 1; j < NS; j++) { const c = val[j - 1] - LAM * (logG[j] - logG[j - 1]); if (c > val[j]) { val[j] = c; src[j] = src[j - 1]; } }
+        for (let j = NS - 2; j >= 0; j--) { const c = val[j + 1] - LAM * (logG[j + 1] - logG[j]); if (c > val[j]) { val[j] = c; src[j] = src[j + 1]; } }
+        const sc = wins[k].sc;
+        for (let j = 0; j < NS; j++) val[j] += sc[j];
+        srcs.push(src); dp = val;
+      }
+      let st = 0;
+      for (let j = 1; j < NS; j++) if (dp[j] > dp[st]) st = j;
+      const path = new Int32Array(K);
+      path[K - 1] = st;
+      for (let k = K - 1; k >= 1; k--) { st = srcs[k - 1][st]; path[k - 1] = st; }
+      curveBpm = Array.from(path, s => gB[s]);
+    }
+    // темп считается постоянным, если опорные окна не отклоняются от глобального более чем на 1,5%
+    let tempoStable = true;
+    for (let k = 0; k < curveBpm.length; k++) if (wins[k].w > 0.3 && Math.abs(curveBpm[k] / bestBpm - 1) > 0.015) tempoStable = false;
+    const period = new Float32Array(frames);
+    let cv = 0;
+    if (tempoStable) {
+      period.fill(60 * fps / bestBpm);
+      const v = curveBpm.filter((_, k) => wins[k].w > 0.3);
+      if (v.length > 1) {
+        const mu = v.reduce((a, b) => a + b, 0) / v.length;
+        cv = Math.sqrt(v.reduce((a, b) => a + (b - mu) * (b - mu), 0) / v.length) / mu;
+      }
+    } else {
+      // глобальный темп — взвешенная медиана кривой; период по кадрам — линейная интерполяция между окнами
+      const ws = curveBpm.map((b, k) => ({ b, w: wins[k].w + 0.05 })).sort((x, y) => x.b - y.b);
+      let tot = 0, acc = 0;
+      for (const x of ws) tot += x.w;
+      for (const x of ws) { acc += x.w; if (acc >= tot / 2) { bestBpm = x.b; break; } }
       let j = 0;
       for (let i = 0; i < frames; i++) {
-        while (j < localPts.length - 2 && localPts[j + 1].c < i) j++;
-        const a = localPts[j], b = localPts[j + 1];
+        while (j < wins.length - 2 && wins[j + 1].c < i) j++;
+        const a = wins[j], b = wins[j + 1];
         const t = clamp((i - a.c) / (b.c - a.c), 0, 1);
-        period[i] = lerp(Ls[j], Ls[j + 1], t);
+        period[i] = 60 * fps / lerp(curveBpm[j], curveBpm[j + 1], t);
       }
+      const v = curveBpm.filter((_, k) => wins[k].w > 0.3);
+      const mu = v.length ? v.reduce((a, b) => a + b, 0) / v.length : bestBpm;
+      cv = v.length > 1 ? Math.sqrt(v.reduce((a, b) => a + (b - mu) * (b - mu), 0) / v.length) / mu : 0;
     }
-    const localBpms = localPts.map(p => 60 * fps / p.L);
-    const meanLB = localBpms.length ? localBpms.reduce((a, b) => a + b, 0) / localBpms.length : bestBpm;
-    const cv = localBpms.length > 1 ? Math.sqrt(localBpms.reduce((a, b) => a + (b - meanLB) * (b - meanLB), 0) / localBpms.length) / meanLB : 0;
+    const globalP = 60 * fps / bestBpm;
+    const tempoCurve = wins.map((w, k) => ({ t: w.c * H / sr, bpm: curveBpm[k] || bestBpm }));
     onProgress(0.75, "Поиск долей");
     await yieldToUI();
 
@@ -1604,6 +1671,7 @@ class RhythmAnalyzer {
     };
     let beats = beatFrames.map(fr => toTime(refine(fr).frame));
     const P = 60 / bestBpm;
+    const Pt = t => period[clamp(frameOf(t), 0, frames - 1)] * H / sr;   // период в момент t (при смене темпа не равен P)
 
     /* ---- удержание фазы ----
        В интро и брейках без бочки трекер может уйти на слабые доли
@@ -1618,9 +1686,10 @@ class RhythmAnalyzer {
         const nb0 = beats.length, out = [];
         const localP = (from, to) => {
           const a = clamp(from, 0, nb0 - 1), b = clamp(to, 0, nb0 - 1);
-          if (b - a < 1) return P;
+          const Pa = Pt(beats[a]);
+          if (b - a < 1) return Pa;
           const v = (beats[b] - beats[a]) / (b - a);
-          return Math.abs(v - P) / P < 0.1 ? v : P;
+          return Math.abs(v - Pa) / Pa < 0.1 ? v : Pa;
         };
         let i = 0;
         while (i < nb0) {
@@ -1684,11 +1753,12 @@ class RhythmAnalyzer {
     } else {
       // достраиваем сетку назад к началу и вперёд к концу трека
       const pre = [];
-      let t = beats[0] - P;
-      while (t > -P * 0.25) { pre.unshift(Math.max(0, t)); t -= P; }
+      const Ps = Pt(beats[0]), Pe = Pt(beats[beats.length - 1]);
+      let t = beats[0] - Ps;
+      while (t > -Ps * 0.25) { pre.unshift(Math.max(0, t)); t -= Ps; }
       beats = pre.concat(beats);
-      t = beats[beats.length - 1] + P;
-      while (t < duration) { beats.push(t); t += P; }
+      t = beats[beats.length - 1] + Pe;
+      while (t < duration) { beats.push(t); t += Pe; }
     }
     remeasure();
     onProgress(0.86, "Сильные доли и секции");
@@ -1717,7 +1787,7 @@ class RhythmAnalyzer {
     const pl = percentile(lgL, 0.97, 3) || 1, pm = percentile(lgM, 0.97, 3) || 1, ph2 = percentile(lgH, 0.97, 3) || 1;
     for (let i = 0; i < envN; i++) {
       const f = Math.min(frames - 1, i * DEC);
-      energy[i] = invLerp(lo10, hi97, dBs[f]);
+      energy[i] = invLerp(lo10, Math.max(hi97, lo10 + 6), dBs[f]);
       bl[i] = clamp(lgL[f] / pl, 0, 1); bm[i] = clamp(lgM[f] / pm, 0, 1); bh[i] = clamp(lgH[f] / ph2, 0, 1);
     }
     const eS = smooth(energy, Math.round(1.5 * envFps));
@@ -1756,12 +1826,51 @@ class RhythmAnalyzer {
     let evMag = 0;
     const evid = beats.map((_, i) => { const v = lowAt[i] - 0.4 * midAt[i]; evMag += Math.abs(v); return v; });
     evMag = evMag / Math.max(1, nb) || 0.1;
-    const vote = [0, 0, 0, 0];
-    for (let i = 0; i < nb; i++) vote[i % 4] += evid[i];
-    for (const bi of boundIdx) vote[bi % 4] += evMag * 10;
-    const gPhase = vote.indexOf(Math.max(...vote));
+    /* Смена гармонии: расстояние между усреднёнными нормированными спектрами «после доли» и «до доли».
+       Аккорд или нота баса меняются обычно на первой доле такта — это спасает плоскую «четвёрку»
+       и сильно сжатый мастеринг, где бочка одинакова на каждой доле. */
+    const chromaAvg = (t0, t1, out) => {
+      out.fill(0);
+      const a = clamp(Math.round(((t0 - ONSET_BIAS) * sr - N / 2) / H), 0, frames - 1), b = clamp(Math.round(((t1 - ONSET_BIAS) * sr - N / 2) / H), a, frames - 1);
+      for (let fr = a; fr <= b; fr++) {
+        let sum = 0;
+        for (let k = 0; k < NH; k++) sum += harm[fr * NH + k];
+        if (sum > 1e-9) for (let k = 0; k < NH; k++) out[k] += harm[fr * NH + k] / sum;
+      }
+      let tot = 0;
+      for (let k = 0; k < NH; k++) tot += out[k];
+      if (tot > 0) for (let k = 0; k < NH; k++) out[k] /= tot;
+    };
+    const hv = new Float32Array(nb), ca = new Float32Array(NH), cb = new Float32Array(NH);
+    let hMean = 0;
+    for (let i = 1; i < nb; i++) {
+      const Pi = period[clamp(frameOf(beats[i]), 0, frames - 1)] * H / sr;
+      chromaAvg(beats[i] + 0.08 * Pi, beats[i] + 0.5 * Pi, ca);
+      chromaAvg(beats[i] - 0.6 * Pi, beats[i] - 0.1 * Pi, cb);
+      let d = 0;
+      for (let k = 0; k < NH; k++) d += Math.abs(ca[k] - cb[k]);
+      hv[i] = d; hMean += d;
+    }
+    hMean = hMean / Math.max(1, nb - 1) || 1;
+    /* Сегменты с разным темпом (резкая смена) голосуют отдельно: после смены такты начинаются заново. */
+    const segStart = [0];
+    {
+      let refP = period[clamp(frameOf(beats[0]), 0, frames - 1)];
+      for (let i = 1; i < nb; i++) {
+        const pi = period[clamp(frameOf(beats[i]), 0, frames - 1)];
+        if (Math.abs(pi / refP - 1) > 0.08) { if (i - segStart[segStart.length - 1] >= 8) segStart.push(i); refP = pi; }
+      }
+    }
     const strong = new Uint8Array(nb);
-    for (let i = 0; i < nb; i++) strong[i] = i % 4 === gPhase ? 1 : 0;
+    for (let s = 0; s < segStart.length; s++) {
+      const a = segStart[s], b = s + 1 < segStart.length ? segStart[s + 1] : nb;
+      const vote = [0, 0, 0, 0], hvote = [0, 0, 0, 0];
+      for (let i = a; i < b; i++) { vote[(i - a) % 4] += evid[i]; hvote[(i - a) % 4] += (hv[i] / hMean - 1) * evMag * 0.8; }
+      for (const bi of boundIdx) if (bi >= a && bi < b) vote[(bi - a) % 4] += evMag * 10;
+      for (let p = 0; p < 4; p++) vote[p] += hvote[p];
+      const gPhase = vote.indexOf(Math.max(...vote));
+      for (let i = a; i < b; i++) strong[i] = (i - a) % 4 === gPhase ? 1 : 0;
+    }
 
     /* ---- секции ---- */
     const bounds = [0];
@@ -1851,7 +1960,7 @@ class RhythmAnalyzer {
       duration, bpm: bestBpm, period: P, confidence, mode, stability: 1 - cv,
       beats: Float64Array.from(beats), strength: Float32Array.from(strength), strong,
       envFps, energy, low: bl, mid: bm, high: bh, sections, onsets, features,
-      ms: Math.round(performance.now() - t0), phaseFixes,
+      ms: Math.round(performance.now() - t0), phaseFixes, tempoCurve, tempoStable,
     };
   }
 
