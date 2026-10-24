@@ -123,7 +123,7 @@ class HUD {
     }
 
     // --- индикатор доли (низ, центр) ---
-    if (g.settings.v.beatGuide) this._beatGuide(ctx, cx, h - 30 - safe.b, accent);
+    if (g.settings.v.beatGuide) this._beatGuide(ctx, cx, h - 38 - safe.b, accent);
 
     // --- баннер волны ---
     const W = g.waves;
@@ -167,6 +167,23 @@ class HUD {
     ctx.strokeStyle = rgba("#e8e2d6", 0.3 + 0.5 * ph); ctx.lineWidth = 1.5; ctx.stroke();
     ctx.beginPath(); ctx.arc(x, y, 4 + c.pulse * 3, 0, TAU);
     ctx.fillStyle = c.strongNow && c.pulse > 0.3 ? "#ff2d4a" : "#e8e2d6"; ctx.fill();
+    // шкала точности «рано ↔ поздно»: центр — доля, отметки последних нажатий затухают
+    const sy = y + 20, half = 88;
+    ctx.fillStyle = "rgba(8,9,13,.45)"; ctx.fillRect(x - 92, y + 13, 184, 14);
+    ctx.fillStyle = "rgba(232,226,214,.22)"; ctx.fillRect(x - half, sy - 0.5, half * 2, 1);
+    ctx.fillStyle = rgba(accent, 0.7); ctx.fillRect(x - 1, sy - 5, 2, 10);
+    const lim = this.game.sync.marks.length ? this.game.sync.marks[this.game.sync.marks.length - 1].lim : 120;
+    for (const m of this.game.sync.marks) {
+      const age2 = cb.time - m.t;
+      if (age2 > 6) continue;
+      const k = clamp(m.d / Math.max(60, lim * 1.6), -1, 1);
+      ctx.globalAlpha = clamp(1 - age2 / 6, 0, 1) * 0.9;
+      ctx.fillStyle = Math.abs(m.d) <= lim * 0.5 ? accent : "#e8e2d6";
+      ctx.fillRect(x + k * (half - 2) - 1.5, sy - 4, 3, 8);
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(232,226,214,.4)"; ctx.font = "500 8px 'Oswald', sans-serif";
+    ctx.textAlign = "left"; ctx.fillText("РАНО", x - 90, sy + 3); ctx.textAlign = "right"; ctx.fillText("ПОЗДНО", x + 90, sy + 3);
     // последняя оценка
     const age = cb.time - cb.lastRatingT;
     if (cb.lastRating && age < 0.9) {
@@ -356,6 +373,7 @@ class UIManager {
     this.bindCheck("set-land", "forceLandscape");
     this.bindCheck("set-fps", "showFps");
     this.bindCheck("set-assist", "assist");
+    this.bindCheck("set-autosync", "autoSync");
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.addEventListener("click", () => { S.set("slowmoMode", b.dataset.s); this.refreshSettings(); this.sfx("uiClick"); }));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.addEventListener("click", () => { S.set("sfxStyle", b.dataset.x); this.refreshSettings(); this.sfx("hit"); }));
@@ -759,6 +777,8 @@ class UIManager {
       const s = document.createElement("small"); s.textContent = k;
       d.append(b, s); box.appendChild(d);
     }
+    const hn = $("res-hint");
+    hn.textContent = stats.hint || ""; hn.hidden = !stats.hint;
     this.show("results");
   }
 }
