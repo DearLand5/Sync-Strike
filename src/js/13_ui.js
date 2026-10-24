@@ -210,7 +210,7 @@ class UIManager {
     this.prevScreen = this.screen;
     this.screen = name;
     if (name === "music") this.refreshMusic();
-    if (name === "library") { if (this.prevScreen !== "library") this.libReturn = this.prevScreen || "menu"; this.refreshLibrary(); }
+    if (name === "library") { if (this.prevScreen !== "library") this.libReturn = this.prevScreen || "menu"; this.refreshLibrary(true); }
     if (name === "mode") this.refreshMode();
     if (name === "settings") this.refreshSettings();
     if (name === "sync") this.refreshSync();
@@ -267,6 +267,35 @@ class UIManager {
       const to = this.libReturn && this.libReturn !== "library" ? this.libReturn : "menu";
       this.show(to === "pause" && !g.battleActive ? "menu" : to);
     });
+    this.libSort = Store.get("libSort", "recent");
+    $("lib-prev").addEventListener("click", () => this.libFlip(-1));
+    $("lib-next").addEventListener("click", () => this.libFlip(1));
+    $("lib-search").addEventListener("input", e => { this.libQuery = e.target.value; this.libPage = 0; this.refreshLibrary(); });
+    document.querySelectorAll("#lib-sort [data-sort]").forEach(b => b.addEventListener("click", () => {
+      this.sfx("uiClick");
+      this.libSort = b.dataset.sort; Store.set("libSort", this.libSort);
+      this.libPage = 0; this.refreshLibrary();
+    }));
+    window.addEventListener("keydown", e => {
+      if (this.screen !== "library" || e.target === $("lib-search")) return;
+      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); this.libFlip(-1); }
+      else if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); this.libFlip(1); }
+    });
+    // свайп по списку влево/вправо листает страницы
+    let sw = null;
+    const libList = $("lib-list");
+    libList.addEventListener("pointerdown", e => { sw = { x: e.clientX, y: e.clientY }; });
+    libList.addEventListener("pointerup", e => {
+      if (!sw) return;
+      let dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+      if ($("app").classList.contains("rot")) [dx, dy] = [dy, -dx];   // интерфейс повёрнут на 90°
+      sw = null;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { this._libSwiped = true; this.libFlip(dx < 0 ? 1 : -1); }
+    });
+    // свайп не должен заодно выбрать трек под пальцем
+    libList.addEventListener("click", e => { if (this._libSwiped) { this._libSwiped = false; e.stopPropagation(); e.preventDefault(); } }, true);
+    libList.addEventListener("pointercancel", () => { sw = null; });
+    window.addEventListener("resize", () => { if (this.screen === "library") this.refreshLibrary(); });
     $("menu-continue").addEventListener("click", () => { this.sfx("uiClick"); g.continueBattle(); });
     $("pl-play").addEventListener("click", () => { if (!g.audio.buffer) return; g.audio.toggle(); this.refreshPlayer(); });
     $("pl-restart").addEventListener("click", () => { if (!g.audio.buffer) return; g.audio.seek(0); if (!g.audio.playing) g.audio.play(0); this.refreshPlayer(); });
@@ -385,35 +414,66 @@ class UIManager {
     if (playable) $("menu-continue-sub").textContent = (a.mode === "waves" ? "волна " + a.wave : fmtTime(a.songPos)) + " · " + a.name;
   }
 
-  refreshLibrary() {
+  /** Сколько строк библиотеки помещается на страницу (по высоте экрана, без учёта поворота). */
+  _libPerPage() {
+    const h = $("app").offsetHeight || window.innerHeight;
+    return clamp(Math.floor((h - (h <= 520 ? 220 : 270)) / (h <= 520 ? 48 : 60)), 3, 8);
+  }
+  /** Список библиотеки: поиск, сортировка, страницы (◀ ▶, стрелки клавиатуры, свайп). toCurrent — открыть страницу текущего трека. */
+  refreshLibrary(toCurrent = false) {
     const g = this.game, L = g.library, list = $("lib-list");
     list.innerHTML = "";
-    const items = L.ok ? L.list() : [];
-    $("lib-info").textContent = L.ok ? `${items.length} / ${L.maxTracks} · ${(L.totalBytes() / 1048576).toFixed(0)} из ${Math.round(L.maxBytes / 1048576)} МБ` : "недоступна";
-    $("lib-empty").hidden = items.length > 0 || !L.ok;
+    const all = L.ok ? L.list() : [];
+    $("lib-info").textContent = L.ok ? `${all.length} / ${L.maxTracks} · ${(L.totalBytes() / 1048576).toFixed(0)} из ${Math.round(L.maxBytes / 1048576)} МБ` : "недоступна";
+    $("lib-empty").hidden = all.length > 0 || !L.ok;
     $("lib-note").textContent = L.ok
       ? "Треки хранятся только на этом устройстве. Когда место заканчивается, автоматически удаляется трек, который вы дольше всего не запускали."
       : "Этот браузер не даёт сохранять файлы (приватный режим или встроенный просмотр). Треки можно открывать, но библиотека не сохранится.";
+    $("lib-tools").hidden = all.length < 2;
+    const sort = this.libSort || "recent", q = (this.libQuery || "").trim().toLowerCase();
+    document.querySelectorAll("#lib-sort [data-sort]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.sort === sort)));
+    let items = q ? all.filter(m => m.name.toLowerCase().includes(q)) : all;
+    if (sort === "name") items = items.slice().sort((a, b) => a.name.localeCompare(b.name, "ru"));
+    else if (sort === "bpm") items = items.slice().sort((a, b) => a.bpm - b.bpm);
     const cur = g.track && g.track.meta.libId;
-    for (const m of items) {
+    const per = this._libPerPage(), pages = Math.max(1, Math.ceil(items.length / per));
+    if (toCurrent) { const i = items.findIndex(m => m.id === cur); this.libPage = i >= 0 ? Math.floor(i / per) : 0; }
+    this.libPage = clamp(this.libPage || 0, 0, pages - 1);
+    this.libPages = pages;
+    $("lib-pager").hidden = pages < 2;
+    $("lib-page").textContent = `${this.libPage + 1} / ${pages}`;
+    $("lib-prev").disabled = this.libPage === 0;
+    $("lib-next").disabled = this.libPage >= pages - 1;
+    if (q && !items.length) {
+      const p = document.createElement("p"); p.className = "hint"; p.textContent = "Ничего не найдено";
+      list.appendChild(p);
+    }
+    const start = this.libPage * per;
+    items.slice(start, start + per).forEach((m, k) => {
       const row = document.createElement("div");
       row.className = "lib-row";
       row.setAttribute("aria-current", String(m.id === cur));
-      const info = document.createElement("div");
-      info.style.minWidth = "0";
+      const pick = async () => {
+        this.sfx("uiClick");
+        this.show("music");
+        if (m.id !== cur) await g.loadFromLibrary(m.id);
+      };
+      // вся левая часть строки — тоже кнопка выбора (крупнее цель для пальца)
+      const info = document.createElement("button");
+      info.className = "info"; info.type = "button";
+      const num = document.createElement("span"); num.className = "num"; num.textContent = start + k + 1;
+      const txt = document.createElement("div");
       const nm = document.createElement("div"); nm.className = "nm"; nm.textContent = m.name;
       const best = Store.get("best." + m.key + ".waves", 0);
       const sub = document.createElement("span"); sub.className = "sub";
       sub.textContent = `${Math.round(m.bpm)} BPM · ${fmtTime(m.duration)} · ${(m.size / 1048576).toFixed(1)} МБ` + (best ? ` · рекорд ${best.toLocaleString("ru-RU")}` : "");
-      info.append(nm, sub);
+      txt.append(nm, sub);
+      info.append(num, txt);
+      info.addEventListener("click", pick);
       const play = document.createElement("button");
       play.className = "btn small" + (m.id === cur ? "" : " primary"); play.type = "button";
       play.textContent = m.id === cur ? "Выбран" : "Выбрать";
-      play.addEventListener("click", async () => {
-        this.sfx("uiClick");
-        this.show("music");
-        await g.loadFromLibrary(m.id);
-      });
+      play.addEventListener("click", pick);
       const del = document.createElement("button");
       del.className = "btn small del"; del.type = "button";
       del.textContent = "✕"; del.setAttribute("aria-label", "Удалить «" + m.name + "»");
@@ -434,7 +494,15 @@ class UIManager {
       });
       row.append(info, play, del);
       list.appendChild(row);
-    }
+    });
+  }
+  /** Листание библиотеки на d страниц. */
+  libFlip(d) {
+    const to = clamp((this.libPage || 0) + d, 0, (this.libPages || 1) - 1);
+    if (to === this.libPage) return;
+    this.libPage = to;
+    this.sfx("uiMove");
+    this.refreshLibrary();
   }
   refreshMode() {
     const g = this.game, S = g.settings.v;

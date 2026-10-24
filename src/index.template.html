@@ -157,6 +157,12 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   .menu-item{min-height:40px}
   .menu-wrap{gap:8px}
   .menu-wrap .hint{display:none}
+  #lib-note{display:none}
+  #scr-library .panel{gap:10px}
+  #scr-library .card{padding:8px 12px;gap:6px}
+  #scr-library .lib-row{padding:4px 10px}
+  #scr-library .btn.small{min-height:34px}
+  #scr-library .btn{min-height:40px}
 }
 
 /* library */
@@ -165,6 +171,16 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .lib-row[aria-current="true"]{border-color:var(--cyan);box-shadow:inset 3px 0 0 var(--cyan)}
 .lib-row .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lib-row .sub{display:block;font-family:var(--f-mono);font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.lib-search{flex:1;min-width:150px;min-height:36px;padding:6px 10px;border-radius:4px;border:1px solid var(--line2);background:rgba(11,12,16,.6);-webkit-user-select:text;user-select:text}
+.lib-search:focus{outline:none;border-color:var(--cyan)}
+.lib-row .info{all:unset;box-sizing:border-box;cursor:pointer;min-width:0;display:flex;gap:10px;align-items:center}
+.lib-row .num{font-family:var(--f-mono);font-size:12px;color:var(--muted);min-width:2ch;text-align:right}
+.lib-row .info>div{min-width:0}
+.lib-pager{display:flex;align-items:center;justify-content:center;gap:14px}
+.lib-pager .btn{min-width:56px;font-size:16px}
+.lib-pager span{min-width:7ch;text-align:center;color:var(--muted);font-size:13px}
+.lib-list{touch-action:pan-y}
 .lib-row .del.confirm{border-color:var(--red);color:var(--red)}
 .menu-item.continue small{font-family:var(--f-mono);font-size:12px;font-weight:400;letter-spacing:0;text-transform:none;opacity:.75}
 
@@ -271,7 +287,16 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <span class="mono muted" id="lib-info">—</span>
       </div>
       <div class="card">
+        <div class="lib-tools" id="lib-tools">
+          <input type="search" id="lib-search" class="lib-search" placeholder="Поиск по названию" aria-label="Поиск трека" autocomplete="off">
+          <div class="seg" id="lib-sort"><button data-sort="recent">Недавние</button><button data-sort="name">А–Я</button><button data-sort="bpm">BPM</button></div>
+        </div>
         <div class="lib-list" id="lib-list"></div>
+        <div class="lib-pager" id="lib-pager">
+          <button class="btn small" id="lib-prev" aria-label="Предыдущая страница">◀</button>
+          <span class="mono" id="lib-page">1 / 1</span>
+          <button class="btn small" id="lib-next" aria-label="Следующая страница">▶</button>
+        </div>
         <p class="hint" id="lib-empty" hidden>Здесь появятся загруженные треки. Каждый MP3, который вы откроете, сохраняется автоматически вместе с анализом ритма.</p>
       </div>
       <p class="hint" id="lib-note">Треки хранятся только на этом устройстве. Когда место заканчивается, автоматически удаляется трек, который вы дольше всего не запускали.</p>

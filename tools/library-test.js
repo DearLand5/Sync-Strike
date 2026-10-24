@@ -128,6 +128,36 @@ function wav(seconds, bpm, seed) {
   st = await page.evaluate(() => ({ a: window.__game.getAutosave(), vis: !document.getElementById("menu-continue").hidden }));
   check(!st.a && !st.vis, "удаление трека убирает его автосохранение");
 
+  // страницы библиотеки: 14 записей (только meta, для интерфейса), листание кнопками, клавишами и поиском
+  await page.evaluate(() => {
+    const L = window.__game.library;
+    for (let i = 0; i < 14; i++) L.items.push({ id: "fake" + i, key: "f" + i, name: "Трек " + String(i + 1).padStart(2, "0"), size: 3e6, addedAt: 1, lastPlayed: 1000 + i, bpm: 90 + i * 5, duration: 180, ver: 1 });
+    window.__game.ui.show("library");
+  });
+  await page.setViewportSize({ width: 800, height: 380 });
+  await page.waitForTimeout(250);
+  const pg = () => page.evaluate(() => ({ txt: document.getElementById("lib-page").textContent, rows: document.querySelectorAll("#lib-list .lib-row").length, first: (document.querySelector("#lib-list .lib-row .nm") || {}).textContent, pager: !document.getElementById("lib-pager").hidden }));
+  st = await pg();
+  check(st.pager && /^1 \/ [2-9]/.test(st.txt) && st.rows >= 3, `страницы на 800×380 (${JSON.stringify(st)})`);
+  await page.screenshot({ path: `${out}/lib-pages-low.png` });
+  await page.click("#lib-next");
+  const p2 = await pg();
+  check(/^2 \//.test(p2.txt) && p2.first !== st.first, `кнопка ▶ листает (${p2.txt}, ${p2.first})`);
+  await page.keyboard.press("ArrowLeft");
+  check(/^1 \//.test((await pg()).txt), "стрелка ← возвращает на 1-ю страницу");
+  check(await page.evaluate(() => document.getElementById("lib-prev").disabled), "◀ неактивна на первой странице");
+  await page.fill("#lib-search", "Трек 1");
+  st = await pg();
+  check(st.rows === 5 ? !st.pager : st.txt === "1 / 2", `поиск «Трек 1» находит 5 (${st.rows} строк, стр. ${st.txt})`);
+  await page.fill("#lib-search", "");
+  await page.click('#lib-sort [data-sort="bpm"]');
+  st = await pg();
+  check(st.first === "Трек 01", `сортировка по BPM (${st.first})`);
+  await page.setViewportSize({ width: 1100, height: 560 });
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${out}/lib-pages.png` });
+  await page.evaluate(() => { const L = window.__game.library; L.items = L.items.filter(m => !m.id.startsWith("fake")); });
+
   check(errors.length === 0, "ошибок в консоли нет" + (errors.length ? ":\n" + errors.join("\n") : ""));
   await ctx.close();
   fs.rmSync(userDir, { recursive: true, force: true });
