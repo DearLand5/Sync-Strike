@@ -143,7 +143,12 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .skins{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
 .skin{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:6px;background:#0f1016;display:flex;flex-direction:column;align-items:center;padding-bottom:10px}
 .skin canvas{width:100%;aspect-ratio:1;display:block}
-.skin b{font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+.skin b{font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;text-align:center;padding:0 4px}
+.skin small{color:var(--muted);font-size:11px;line-height:1.25;text-align:center;padding:2px 6px 0}
+.skin[hidden]{display:none!important}
+#skin-cats{overflow-x:auto;flex-wrap:nowrap}
+#skin-cats button{white-space:nowrap;padding:8px 12px}
+#skin-cats button i{font-style:normal;opacity:.55;margin-left:5px;font-size:.85em}
 .skin[aria-pressed="true"]{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan)}
 
 /* tutorial */
@@ -163,6 +168,13 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 @media (max-height:520px) and (min-width:560px){#tempo-card{padding:8px 12px;gap:6px}#tempo-card .btn.small{min-height:32px;padding:4px 10px}.tempo-keep{min-height:26px}}
 /* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
 @media (max-height:520px) and (min-width:560px){
+  #scr-skins .panel{gap:8px}
+  #skin-hint{display:none}
+  .skins{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+  .skin{padding-bottom:5px}
+  .skin canvas{width:auto;height:78px;margin:0 auto}
+  .skin small{font-size:10px;padding-top:0}
+  #skin-cats button{padding:6px 10px}
   .menu-list{display:grid;grid-template-columns:repeat(2,max-content);column-gap:34px;row-gap:0;max-width:none}
   .menu-item{min-height:40px}
   .menu-wrap{gap:8px}
@@ -410,7 +422,8 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   <!-- ============ ОБЛИК ============ -->
   <section class="screen" id="scr-skins" hidden>
     <div class="panel">
-      <div class="topbar"><h2 class="title h2">Облик</h2><span class="hint">Скин меняет маску, плащ, шарф и цвет неона</span></div>
+      <div class="topbar"><h2 class="title h2">Облик</h2><span class="hint" id="skin-hint">Скин меняет маску, плащ, шарф и цвет неона</span></div>
+      <div class="tabs" role="tablist" id="skin-cats"></div>
       <div class="skins" id="skin-list"></div>
       <div class="row"><button class="btn" data-go="menu">Назад</button></div>
     </div>
