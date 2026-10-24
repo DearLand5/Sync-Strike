@@ -59,6 +59,7 @@ class Game {
     this.player = new Player(this.settings.v.skin);
     this.enemies = [];
     this.combat = new CombatSystem(this);
+    this.sync = new AutoSync(this);
     this.director = new AttackDirector(this);
     this.waves = new WaveDirector(this);
     this.hud = new HUD(this);
@@ -386,6 +387,7 @@ class Game {
     this.camera.release(); this.camera.fw = 0;
     this.enemies = [];
     this.combat.reset();
+    this.sync.reset();
     this.director.reset();
     this.waves.reset(mode);
     this.fx.clear();
@@ -525,13 +527,20 @@ class Game {
       ["Время боя", fmtTime(c.time)],
       ["Рекорд", (record ? c.score : best).toLocaleString("ru-RU")],
     ];
+    const sy = this.sync.summary();
+    if (sy) {
+      const m = Math.round(sy.med);
+      rows.splice(4, 0, ["Средняя ошибка", Math.abs(m) < 5 ? "в доле" : Math.abs(m) + " мс " + (m < 0 ? "раньше" : "позже")]);
+    }
+    const hint = sy && !this.settings.v.autoSync && Math.abs(sy.med) > 25
+      ? `Вы бьёте в среднем на ${Math.abs(Math.round(sy.med))} мс ${sy.med < 0 ? "раньше" : "позже"} доли. Включите «Автоподстройку задержки» или откройте «Калибровку синхронизации» в настройках.` : "";
     const sub = (this.track ? this.track.meta.name : "") + " · " + MODE_NAMES[this.mode] + (record ? " · новый рекорд!" : "");
     this.state = "results";
     this.battleActive = false;
     this.input.active = false; this.input.clear();
     $("btn-pause").hidden = true;
     if (!win) this.audio.pause();
-    this.ui.showResults(win, { grade, sub, rows });
+    this.ui.showResults(win, { grade, sub, rows, hint });
   }
 
   /* ---------- эффекты времени ----------

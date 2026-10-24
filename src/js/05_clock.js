@@ -228,3 +228,84 @@ class RhythmClock {
 
   isStrongIndex(i) { return !!(this.map && this.map.strong[i]); }
 }
+
+/* =====================================================================
+   AutoSync — автоподстройка задержки по ударам игрока.
+   delta из judge() = (музыкальное время нажатия) − (доля); songTime() = звук − latencyMs, поэтому
+   устойчивое «позже на +X» лечится увеличением latencyMs на X (и наоборот). Берётся исходный delta
+   нажатия (помощь ритму сдвигает только удар, а не отметку нажатия).
+   ===================================================================== */
+const SYNC_TUNE = {
+  win: 24,         // сколько последних нажатий в выборке
+  minN: 12,        // минимум нажатий для вывода
+  dead: 12,        // мёртвая зона, мс: меньше — не трогаем
+  maxSpread: 70,   // межквартильный разброс, мс: больше — игрок «плывёт», не подстраиваем
+  step: 8,         // максимальный шаг за раз, мс
+  gap: 2.5,          // не чаще раза в N секунд
+  maxTotal: 120,   // предел суммарной коррекции за бой, мс
+  toastGap: 20,    // тост не чаще раза в N секунд
+};
+
+class AutoSync {
+  constructor(game) {
+    this.game = game;
+    this.reset();
+  }
+  reset() {
+    this.buf = [];            // последние delta (мс) для статистики подстройки
+    this.marks = [];          // для шкалы в HUD: {d (мс), t (время боя), lim (мс)}
+    this.all = [];            // все засчитанные delta боя (для итогов), мс
+    this.startMs = this.game.settings.v.latencyMs;
+    this.lastAdj = -99; this.lastToast = -99;
+  }
+  /** Робастная оценка: усечённое среднее середины выборки (25–75%) и межквартильный разброс. */
+  stats(a = this.buf) {
+    const s = a.slice().sort((x, y) => x - y), n = s.length;
+    if (!n) return { n: 0, mean: 0, spread: 0 };
+    const lo = Math.floor(n * 0.25), hi = Math.max(lo + 1, Math.ceil(n * 0.75));
+    let sum = 0; for (let i = lo; i < hi; i++) sum += s[i];
+    return { n, mean: sum / (hi - lo), spread: s[Math.min(n - 1, Math.floor(n * 0.75))] - s[Math.floor(n * 0.25)] };
+  }
+  /** Нажатие атаки: j — результат judge(). */
+  add(j) {
+    const g = this.game;
+    if (!j || j.index < 0 || !isFinite(j.delta)) return;
+    const w = g.clock.windows(j.period || g.clock.period);
+    const d = j.delta * 1000;
+    this.marks.push({ d, t: g.combat.time, lim: w.good * 1000 });
+    if (this.marks.length > 8) this.marks.shift();
+    if (Math.abs(j.delta) >= w.good) return;      // промахи и «случайные» нажатия не учитываем
+    this.buf.push(d); if (this.buf.length > SYNC_TUNE.win) this.buf.shift();
+    this.all.push(d); if (this.all.length > 600) this.all.shift();
+    this.tune();
+  }
+  tune() {
+    const g = this.game, S = g.settings, T = SYNC_TUNE;
+    if (!S.v.autoSync || g.state !== "battle" || this.buf.length < T.minN) return;
+    const now = performance.now() / 1000;
+    if (now - this.lastAdj < T.gap) return;
+    const st = this.stats();
+    if (st.spread > T.maxSpread || Math.abs(st.mean) <= Math.max(T.dead, 3 * st.spread / (1.35 * Math.sqrt(st.n)))) return;   // и не меньше трёх стандартных ошибок
+    const cur = S.v.latencyMs;
+    const room = st.mean > 0 ? this.startMs + T.maxTotal - cur : cur - (this.startMs - T.maxTotal);
+    const step = Math.round(clamp(st.mean * 0.6, -T.step, T.step));
+    const ms = Math.min(Math.abs(step), Math.max(0, room)) * Math.sign(step);
+    if (!ms) return;
+    this.lastAdj = now;
+    // тихая запись: без clock.reset (songTime меняется всего на несколько мс)
+    S.v.latencyMs = cur + ms; S.save();
+    for (let i = 0; i < this.buf.length; i++) this.buf[i] -= ms;   // старые нажатия переведены в новую шкалу
+    if (g.ui) g.ui.syncAll();
+    if (now - this.lastToast >= T.toastGap) {
+      this.lastToast = now;
+      const tot = S.v.latencyMs - this.startMs;
+      g.ui.toast(`Синхронизация подстроена: ${tot > 0 ? "+" : ""}${tot} мс`, 2200);
+    }
+  }
+  /** Итог боя: медиана ошибки в мс (+ позже, − раньше) или null, если нажатий мало. */
+  summary() {
+    if (this.all.length < 8) return null;
+    const s = this.all.slice().sort((x, y) => x - y);
+    return { med: s[s.length >> 1], n: s.length, total: this.game.settings.v.latencyMs - this.startMs };
+  }
+}

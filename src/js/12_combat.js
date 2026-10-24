@@ -79,6 +79,7 @@ class CombatSystem {
     const name = this.chooseAttack(target, j);
     const def = ATTACKS[name];
     this.registerRating(j);
+    g.sync.add(j);
 
     // мощность: точность × сильная доля × контратака после идеального уклона
     let power = RATING[j.rating].mult;

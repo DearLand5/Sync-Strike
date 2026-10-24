@@ -434,6 +434,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <div class="tabpanel" data-panel="rhythm" hidden>
         <div class="card">
           <div class="toggle"><span>Помощь ритму (раннее нажатие ждёт долю)</span><input type="checkbox" id="set-assist"></div>
+          <div class="toggle"><span>Автоподстройка задержки (по вашим ударам в бою)</span><input type="checkbox" id="set-autosync"></div>
           <p class="hint">Задержка, чувствительность и окна настраиваются на экране калибровки.</p>
           <div class="row"><button class="btn" data-go="sync">Калибровка синхронизации</button></div>
         </div>
@@ -469,6 +470,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         </div>
       </div>
       <div class="card"><div class="stats" id="res-stats"></div></div>
+      <p class="hint" id="res-hint" hidden></p>
       <div class="row">
         <button class="btn primary" id="res-again">Ещё раз</button>
         <button class="btn" id="res-music">Сменить трек</button>
@@ -635,6 +637,7 @@ const DEFAULT_SETTINGS = {
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5
   windowScale: 1.0,         // 0.7..1.5
+  autoSync: true,           // автоподстройка latencyMs по ударам в бою
   assist: true,             // буферизация ввода к доле
   btnScale: 1.0,            // общий размер кнопок 0.6..1.5
   btnAlpha: 0.55,           // прозрачность кнопок 0.1..1
@@ -2133,6 +2136,87 @@ class RhythmClock {
   }
 
   isStrongIndex(i) { return !!(this.map && this.map.strong[i]); }
+}
+
+/* =====================================================================
+   AutoSync — автоподстройка задержки по ударам игрока.
+   delta из judge() = (музыкальное время нажатия) − (доля); songTime() = звук − latencyMs, поэтому
+   устойчивое «позже на +X» лечится увеличением latencyMs на X (и наоборот). Берётся исходный delta
+   нажатия (помощь ритму сдвигает только удар, а не отметку нажатия).
+   ===================================================================== */
+const SYNC_TUNE = {
+  win: 24,         // сколько последних нажатий в выборке
+  minN: 12,        // минимум нажатий для вывода
+  dead: 12,        // мёртвая зона, мс: меньше — не трогаем
+  maxSpread: 70,   // межквартильный разброс, мс: больше — игрок «плывёт», не подстраиваем
+  step: 8,         // максимальный шаг за раз, мс
+  gap: 2.5,          // не чаще раза в N секунд
+  maxTotal: 120,   // предел суммарной коррекции за бой, мс
+  toastGap: 20,    // тост не чаще раза в N секунд
+};
+
+class AutoSync {
+  constructor(game) {
+    this.game = game;
+    this.reset();
+  }
+  reset() {
+    this.buf = [];            // последние delta (мс) для статистики подстройки
+    this.marks = [];          // для шкалы в HUD: {d (мс), t (время боя), lim (мс)}
+    this.all = [];            // все засчитанные delta боя (для итогов), мс
+    this.startMs = this.game.settings.v.latencyMs;
+    this.lastAdj = -99; this.lastToast = -99;
+  }
+  /** Робастная оценка: усечённое среднее середины выборки (25–75%) и межквартильный разброс. */
+  stats(a = this.buf) {
+    const s = a.slice().sort((x, y) => x - y), n = s.length;
+    if (!n) return { n: 0, mean: 0, spread: 0 };
+    const lo = Math.floor(n * 0.25), hi = Math.max(lo + 1, Math.ceil(n * 0.75));
+    let sum = 0; for (let i = lo; i < hi; i++) sum += s[i];
+    return { n, mean: sum / (hi - lo), spread: s[Math.min(n - 1, Math.floor(n * 0.75))] - s[Math.floor(n * 0.25)] };
+  }
+  /** Нажатие атаки: j — результат judge(). */
+  add(j) {
+    const g = this.game;
+    if (!j || j.index < 0 || !isFinite(j.delta)) return;
+    const w = g.clock.windows(j.period || g.clock.period);
+    const d = j.delta * 1000;
+    this.marks.push({ d, t: g.combat.time, lim: w.good * 1000 });
+    if (this.marks.length > 8) this.marks.shift();
+    if (Math.abs(j.delta) >= w.good) return;      // промахи и «случайные» нажатия не учитываем
+    this.buf.push(d); if (this.buf.length > SYNC_TUNE.win) this.buf.shift();
+    this.all.push(d); if (this.all.length > 600) this.all.shift();
+    this.tune();
+  }
+  tune() {
+    const g = this.game, S = g.settings, T = SYNC_TUNE;
+    if (!S.v.autoSync || g.state !== "battle" || this.buf.length < T.minN) return;
+    const now = performance.now() / 1000;
+    if (now - this.lastAdj < T.gap) return;
+    const st = this.stats();
+    if (st.spread > T.maxSpread || Math.abs(st.mean) <= Math.max(T.dead, 3 * st.spread / (1.35 * Math.sqrt(st.n)))) return;   // и не меньше трёх стандартных ошибок
+    const cur = S.v.latencyMs;
+    const room = st.mean > 0 ? this.startMs + T.maxTotal - cur : cur - (this.startMs - T.maxTotal);
+    const step = Math.round(clamp(st.mean * 0.6, -T.step, T.step));
+    const ms = Math.min(Math.abs(step), Math.max(0, room)) * Math.sign(step);
+    if (!ms) return;
+    this.lastAdj = now;
+    // тихая запись: без clock.reset (songTime меняется всего на несколько мс)
+    S.v.latencyMs = cur + ms; S.save();
+    for (let i = 0; i < this.buf.length; i++) this.buf[i] -= ms;   // старые нажатия переведены в новую шкалу
+    if (g.ui) g.ui.syncAll();
+    if (now - this.lastToast >= T.toastGap) {
+      this.lastToast = now;
+      const tot = S.v.latencyMs - this.startMs;
+      g.ui.toast(`Синхронизация подстроена: ${tot > 0 ? "+" : ""}${tot} мс`, 2200);
+    }
+  }
+  /** Итог боя: медиана ошибки в мс (+ позже, − раньше) или null, если нажатий мало. */
+  summary() {
+    if (this.all.length < 8) return null;
+    const s = this.all.slice().sort((x, y) => x - y);
+    return { med: s[s.length >> 1], n: s.length, total: this.game.settings.v.latencyMs - this.startMs };
+  }
 }
 
 /* ==== 06_input.js ==== */
@@ -5418,6 +5502,7 @@ class CombatSystem {
     const name = this.chooseAttack(target, j);
     const def = ATTACKS[name];
     this.registerRating(j);
+    g.sync.add(j);
 
     // мощность: точность × сильная доля × контратака после идеального уклона
     let power = RATING[j.rating].mult;
@@ -6544,7 +6629,7 @@ class HUD {
     }
 
     // --- индикатор доли (низ, центр) ---
-    if (g.settings.v.beatGuide) this._beatGuide(ctx, cx, h - 30 - safe.b, accent);
+    if (g.settings.v.beatGuide) this._beatGuide(ctx, cx, h - 38 - safe.b, accent);
 
     // --- баннер волны ---
     const W = g.waves;
@@ -6588,6 +6673,23 @@ class HUD {
     ctx.strokeStyle = rgba("#e8e2d6", 0.3 + 0.5 * ph); ctx.lineWidth = 1.5; ctx.stroke();
     ctx.beginPath(); ctx.arc(x, y, 4 + c.pulse * 3, 0, TAU);
     ctx.fillStyle = c.strongNow && c.pulse > 0.3 ? "#ff2d4a" : "#e8e2d6"; ctx.fill();
+    // шкала точности «рано ↔ поздно»: центр — доля, отметки последних нажатий затухают
+    const sy = y + 20, half = 88;
+    ctx.fillStyle = "rgba(8,9,13,.45)"; ctx.fillRect(x - 92, y + 13, 184, 14);
+    ctx.fillStyle = "rgba(232,226,214,.22)"; ctx.fillRect(x - half, sy - 0.5, half * 2, 1);
+    ctx.fillStyle = rgba(accent, 0.7); ctx.fillRect(x - 1, sy - 5, 2, 10);
+    const lim = this.game.sync.marks.length ? this.game.sync.marks[this.game.sync.marks.length - 1].lim : 120;
+    for (const m of this.game.sync.marks) {
+      const age2 = cb.time - m.t;
+      if (age2 > 6) continue;
+      const k = clamp(m.d / Math.max(60, lim * 1.6), -1, 1);
+      ctx.globalAlpha = clamp(1 - age2 / 6, 0, 1) * 0.9;
+      ctx.fillStyle = Math.abs(m.d) <= lim * 0.5 ? accent : "#e8e2d6";
+      ctx.fillRect(x + k * (half - 2) - 1.5, sy - 4, 3, 8);
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(232,226,214,.4)"; ctx.font = "500 8px 'Oswald', sans-serif";
+    ctx.textAlign = "left"; ctx.fillText("РАНО", x - 90, sy + 3); ctx.textAlign = "right"; ctx.fillText("ПОЗДНО", x + 90, sy + 3);
     // последняя оценка
     const age = cb.time - cb.lastRatingT;
     if (cb.lastRating && age < 0.9) {
@@ -6776,6 +6878,7 @@ class UIManager {
     this.bindCheck("set-land", "forceLandscape");
     this.bindCheck("set-fps", "showFps");
     this.bindCheck("set-assist", "assist");
+    this.bindCheck("set-autosync", "autoSync");
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.addEventListener("click", () => { S.set("slowmoMode", b.dataset.s); this.refreshSettings(); this.sfx("uiClick"); }));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.addEventListener("click", () => { S.set("sfxStyle", b.dataset.x); this.refreshSettings(); this.sfx("hit"); }));
@@ -7118,6 +7221,8 @@ class UIManager {
       const s = document.createElement("small"); s.textContent = k;
       d.append(b, s); box.appendChild(d);
     }
+    const hn = $("res-hint");
+    hn.textContent = stats.hint || ""; hn.hidden = !stats.hint;
     this.show("results");
   }
 }
@@ -7184,6 +7289,7 @@ class Game {
     this.player = new Player(this.settings.v.skin);
     this.enemies = [];
     this.combat = new CombatSystem(this);
+    this.sync = new AutoSync(this);
     this.director = new AttackDirector(this);
     this.waves = new WaveDirector(this);
     this.hud = new HUD(this);
@@ -7511,6 +7617,7 @@ class Game {
     this.camera.release(); this.camera.fw = 0;
     this.enemies = [];
     this.combat.reset();
+    this.sync.reset();
     this.director.reset();
     this.waves.reset(mode);
     this.fx.clear();
@@ -7650,13 +7757,20 @@ class Game {
       ["Время боя", fmtTime(c.time)],
       ["Рекорд", (record ? c.score : best).toLocaleString("ru-RU")],
     ];
+    const sy = this.sync.summary();
+    if (sy) {
+      const m = Math.round(sy.med);
+      rows.splice(4, 0, ["Средняя ошибка", Math.abs(m) < 5 ? "в доле" : Math.abs(m) + " мс " + (m < 0 ? "раньше" : "позже")]);
+    }
+    const hint = sy && !this.settings.v.autoSync && Math.abs(sy.med) > 25
+      ? `Вы бьёте в среднем на ${Math.abs(Math.round(sy.med))} мс ${sy.med < 0 ? "раньше" : "позже"} доли. Включите «Автоподстройку задержки» или откройте «Калибровку синхронизации» в настройках.` : "";
     const sub = (this.track ? this.track.meta.name : "") + " · " + MODE_NAMES[this.mode] + (record ? " · новый рекорд!" : "");
     this.state = "results";
     this.battleActive = false;
     this.input.active = false; this.input.clear();
     $("btn-pause").hidden = true;
     if (!win) this.audio.pause();
-    this.ui.showResults(win, { grade, sub, rows });
+    this.ui.showResults(win, { grade, sub, rows, hint });
   }
 
   /* ---------- эффекты времени ----------

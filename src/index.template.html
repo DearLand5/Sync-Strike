@@ -434,6 +434,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <div class="tabpanel" data-panel="rhythm" hidden>
         <div class="card">
           <div class="toggle"><span>Помощь ритму (раннее нажатие ждёт долю)</span><input type="checkbox" id="set-assist"></div>
+          <div class="toggle"><span>Автоподстройка задержки (по вашим ударам в бою)</span><input type="checkbox" id="set-autosync"></div>
           <p class="hint">Задержка, чувствительность и окна настраиваются на экране калибровки.</p>
           <div class="row"><button class="btn" data-go="sync">Калибровка синхронизации</button></div>
         </div>
@@ -469,6 +470,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         </div>
       </div>
       <div class="card"><div class="stats" id="res-stats"></div></div>
+      <p class="hint" id="res-hint" hidden></p>
       <div class="row">
         <button class="btn primary" id="res-again">Ещё раз</button>
         <button class="btn" id="res-music">Сменить трек</button>
