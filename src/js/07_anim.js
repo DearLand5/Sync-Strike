@@ -6,7 +6,7 @@
    ===================================================================== */
 /* Скин игрока: head — украшение головы, hem — подол плаща, mark — знак на груди,
    back — снаряжение на спине, wide — ширина плаща, rim — контровой свет на тёмной маске,
-   cat/from — категория и вдохновение для экрана «Облик», mono — один глаз. Новые скины и их детали — 07b_skins.js. */
+   cat/from — категория и вдохновение для экрана «Облик», mono — один глаз, noEyes — без глаз (голова — свет). Новые скины и их детали — 07b_skins.js. */
 const SKINS = {
   shade:   { cat: "classic", from: "исходный образ", name: "Тень",    mask: "#e8e2d6", eye: "#06070a", accent: "#3ef0ff", cloak: "#07080c", head: "horns",   scarf: "#3ef0ff", hem: "jag",      mark: "rune",   back: null },
   ronin:   { cat: "classic", from: "самурайское кино", name: "Ронин",   mask: "#1b1c22", eye: "#ff2d4a", accent: "#ff2d4a", cloak: "#0b0708", head: "hat",     scarf: "#ff2d4a", hem: "straight", mark: "sash",   back: "katana", wide: 1.1,  rim: true },
@@ -677,6 +677,7 @@ const CharacterRenderer = {
     }
     if (hp && hp.front) { hp.front(ctx, C); ctx.lineWidth = 1; ctx.lineJoin = "round"; ctx.lineCap = "round"; }
     if (tint) return;
+    if (kind === "player" && skin.noEyes) return;   // голова — свет, без глаз (скин «Светоч»)
     // глаза: форма не меняется; при усилении (замах) — ярче, чуть крупнее, белое ядро и мягкий ореол (ореол только в high)
     const b = clamp(boost, 0, 1), qb = Math.round(b * 8) / 8;
     const eye = (x, y, rx, ry, rot, col, k) => { ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, rot, 0, TAU); ctx.fill(); };

@@ -26,6 +26,7 @@ Object.assign(SKINS, {
   cat:       { cat: "games", from: "платформер, кот-герой", name: "Кошка", mask: "#17151e", eye: "#ffd23f", accent: "#2ee6c8", cloak: "#07090b", head: "cat", scarf: "#2ee6c8", hem: "fork", mark: "paw", back: "tail", wide: 0.92, rim: true },
   jester:    { cat: "games", from: "рогалик, шут", name: "Арлекин", mask: "#f4eefc", eye: "#1a0d22", accent: "#d23bff", cloak: "#0b070e", head: "jester", scarf: null, hem: "points", mark: "diamond", back: null },
   // --- Фэнтези ---
+  lamp:      { cat: "fantasy", from: "сияющий в темноте", name: "Светоч", mask: "#ffffff", eye: "#ffffff", accent: "#9fb2d4", cloak: "#07080b", head: "lumen", scarf: null, hem: "straight", mark: "orb", back: null, noEyes: true, wide: 0.95 },
   wizard:    { cat: "fantasy", from: "сказочный маг", name: "Маг", mask: "#e6e0d4", eye: "#0b1020", accent: "#5b8cff", cloak: "#070912", head: "wizard", scarf: null, hem: "robe", mark: "stars", back: "staff", wide: 1.15 },
   viking:    { cat: "fantasy", from: "северная сага", name: "Берсерк", mask: "#e8d3bd", eye: "#101820", accent: "#7fd8ff", cloak: "#0a0a0c", head: "norse", scarf: null, hem: "fur", mark: "algiz", back: "shield", wide: 1.2 },
   spartan:   { cat: "fantasy", from: "античный эпос", name: "Гоплит", mask: "#232733", eye: "#ff4538", accent: "#ff4538", cloak: "#0d0707", head: "spartan", scarf: null, hem: "kilt", mark: "lambda", back: "spear", wide: 1.3, rim: true },
@@ -41,6 +42,10 @@ Object.assign(SKINS, {
   vampire:   { cat: "horror", from: "готический вампир", name: "Граф", mask: "#efe8f2", eye: "#ff1f4d", accent: "#ff1f4d", cloak: "#0b0609", head: "vamp", scarf: null, hem: "bat", mark: "brooch", back: null, wide: 1.35 },
 });
 
+/* Ореол и комок света «Светоча»: [радиус, прозрачность], от внешнего круга к внутреннему (в low — два кольца). */
+const LUMEN_HALO = []; for (let i = 0; i < 12; i++) LUMEN_HALO.push([28 - i * 1.6, 0.012 + 0.0042 * i]);
+const LUMEN_HALO_LOW = [[22, 0.05], [15, 0.07], [10, 0.1]];
+const LUMEN_ORB = [[9, 0.04], [7.5, 0.05], [6, 0.08], [4.6, 0.14], [3.4, 0.3]];
 const SKIN_C = { tint: null, accent: "#ffffff", mc: "#ffffff", hq: false, now: 0, boost: 0, A: null };
 SKIN_C.A = a => rgba(SKIN_C.accent, a);
 const SKIN_G = { accent: "#ffffff", wide: 1, shoulderY: 0, hipY: 0, hemY: 0, fl: 0, hq: false, now: 0, A: null };
@@ -59,6 +64,25 @@ function _poly(ctx, pts) { ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (let
 
 /* ---------- головы: back — позади маски, front — поверх неё ---------- */
 const HEAD_PARTS = {
+  lumen: {
+    // голова — раскалённый свет без лица: мягкий ореол концентрическими кругами (без градиентов), медленное «дыхание»
+    back(ctx, c) {
+      if (c.tint) return;
+      const br = 0.5 + 0.5 * Math.sin(c.now / 1100), k = 0.9 + 0.1 * br + 0.35 * Math.min(1, c.boost);
+      const R = c.hq ? LUMEN_HALO : LUMEN_HALO_LOW;
+      for (let i = 0; i < R.length; i++) {
+        ctx.beginPath(); ctx.arc(0.4, -0.2, R[i][0] * (0.94 + 0.06 * br), 0, TAU);
+        ctx.fillStyle = rgba("#ffffff", Math.round(R[i][1] * k * 50) / 50); ctx.fill();
+      }
+    },
+    front(ctx, c) {
+      // ядро: овал белого света с мягкой кромкой
+      ctx.beginPath(); ctx.ellipse(0.4, -0.2, 6.9, 8.4, 0.04, 0, TAU);
+      ctx.fillStyle = c.tint || "rgba(255,255,255,.4)"; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0.4, -0.2, 5.9, 7.5, 0.04, 0, TAU);
+      ctx.fillStyle = c.tint || "#ffffff"; ctx.fill();
+    },
+  },
   cowboy: {
     front(ctx, c) {
       // платок на шее
@@ -573,6 +597,16 @@ function hipLoop(g) { return g.hipY - 3; }
 
 /* ---------- знаки на груди (кроме базовых rune/sash/moon/bolt/petals/eyes) ---------- */
 const MARK_PARTS = {
+  orb(ctx, g) {
+    // комок света у груди: свет от головы ложится на плечи, воротник и грудь
+    const br = 0.5 + 0.5 * Math.sin(g.now / 1100 + 1.2), x = 3.6, y = g.shoulderY + 6.2;
+    ctx.fillStyle = "rgba(255,255,255,.1)";
+    ctx.beginPath(); ctx.ellipse(0.8, g.shoulderY + 1.4, 6.4 * g.wide, 3.4, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.14)";
+    ctx.beginPath(); ctx.ellipse(1.6, g.shoulderY + 4.6, 5, 4.2, 0, 0, TAU); ctx.fill();
+    for (const q of LUMEN_ORB) { ctx.fillStyle = rgba("#ffffff", Math.round(q[1] * (0.9 + 0.1 * br) * 50) / 50); ctx.beginPath(); ctx.arc(x, y, q[0] * (0.96 + 0.06 * br), 0, TAU); ctx.fill(); }
+    ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(x, y, 1.9, 0, TAU); ctx.fill();
+  },
   poncho(ctx, g) {
     ctx.lineWidth = 1; ctx.strokeStyle = g.A(0.85);
     ctx.beginPath(); ctx.moveTo(-3.4 * g.wide, g.shoulderY + 4.4);
