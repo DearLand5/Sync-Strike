@@ -11,7 +11,7 @@ const DIR_SHORT = { intro: "ВСТ", build: "НАР", drop: "ДРОП", climax: 
 const DIR_COLOR = { intro: "#4a6aa8", build: "#d9a23a", drop: "#e0405a", climax: "#ff2e88", break: "#2fa58c", calm: "#4c5262", groove: "#737b88", outro: "#7a5ca8" };
 const DIR_SENS = [2.4, 1.6, 1, 0.62, 0.38];   // множитель цены границы для чувствительности −2..+2 (−2 — реже смены)
 const DIR_SENS_LABEL = ["реже всего", "реже", "как в анализе", "чаще", "чаще всего"];
-const DIR_MIN_LEN = 2;                          // минимальная длина ручной части, с
+const DIR_MIN_LEN = 0.5;                        // минимальная длина ручной части, с (границы двигаются без шага)
 
 const Director = {
   defaults() { return { mode: "auto", sens: 0, secs: null }; },
