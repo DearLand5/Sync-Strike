@@ -151,6 +151,16 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .tut .card p{margin:0;font-size:14px;line-height:1.5;color:#d2cdc4}
 .tut .card .h2{font-size:18px}
 
+/* темп трека */
+.tempo-row{display:grid;grid-template-columns:auto 1fr auto auto 52px;gap:8px;align-items:center}
+.tempo-row output{font-family:var(--f-mono);font-size:13px;text-align:right;color:var(--cyan);font-variant-numeric:tabular-nums}
+.tempo-read{font-size:15px;color:var(--cyan)}
+.tempo-keep{min-height:30px}
+.tempo-fix{display:flex;flex-direction:column;gap:6px}
+.tempo-fix .row{gap:6px}
+#tempo-card.busy{opacity:.55;pointer-events:none}
+@media (max-width:560px){.tempo-row{grid-template-columns:auto 1fr auto auto}.tempo-row output{grid-column:1/-1;text-align:left}}
+@media (max-height:520px) and (min-width:560px){#tempo-card{padding:8px 12px;gap:6px}#tempo-card .btn.small{min-height:32px;padding:4px 10px}.tempo-keep{min-height:26px}}
 /* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
 @media (max-height:520px) and (min-width:560px){
   .menu-list{display:grid;grid-template-columns:repeat(2,max-content);column-gap:34px;row-gap:0;max-width:none}
@@ -266,6 +276,29 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
           <span class="time" id="pl-time">0:00 / 0:00</span>
         </div>
         <div class="slider"><label for="pl-vol">Громкость музыки</label><input type="range" id="pl-vol" min="0" max="100"><output id="pl-vol-o"></output></div>
+      </div>
+      <div class="card" id="tempo-card">
+        <div class="row" style="justify-content:space-between"><span class="h3">Темп трека</span><span class="mono tempo-read" id="tp-read">—</span></div>
+        <div class="tempo-row">
+          <button class="btn small" id="tp-minus" aria-label="Медленнее на 5%">−5</button>
+          <input type="range" id="tp-rate" min="70" max="150" step="5" value="100" aria-label="Скорость музыки">
+          <button class="btn small" id="tp-plus" aria-label="Быстрее на 5%">+5</button>
+          <button class="btn small" id="tp-one" aria-label="Исходный темп">1×</button>
+          <output id="tp-rate-o">100%</output>
+        </div>
+        <label class="toggle tempo-keep"><span>Сохранять тон <small class="muted" id="tp-keep-note"></small></span><input type="checkbox" id="tp-keep" checked></label>
+        <div class="tempo-fix">
+          <span class="hint">Если темп определён неверно:</span>
+          <div class="row">
+            <button class="btn small" id="fx-x2" title="Удвоить число долей">×2</button>
+            <button class="btn small" id="fx-d2" title="Убрать каждую вторую долю">÷2</button>
+            <button class="btn small" id="fx-half" title="Сдвинуть сетку на пол-доли">Сдвиг ½</button>
+            <button class="btn small" id="fx-m10" aria-label="Сдвиг фазы на 10 мс раньше">−10 мс</button>
+            <button class="btn small" id="fx-p10" aria-label="Сдвиг фазы на 10 мс позже">+10 мс</button>
+            <button class="btn small" id="fx-reset">Сбросить</button>
+            <span class="mono muted" id="fx-info"></span>
+          </div>
+        </div>
       </div>
       <div class="card">
         <div class="row" style="justify-content:space-between"><span class="h3">Арена под этот трек</span><span class="hint" id="arena-note">Совпадение оценено по спектру, темпу и динамике</span></div>

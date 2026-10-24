@@ -191,7 +191,7 @@ class Game {
       if (!buffer || buffer.duration < 5) throw new Error("short");
       const map = cached && cached.map ? cached.map : await this.analyzer.analyze(buffer, (k, l) => prog(0.05 + k * 0.95, l));
       const meta = { name, key, isDemo: false, libId: null };
-      this.setTrack(buffer, map, meta);
+      await this.prepareTrack(buffer, map, meta, known && known.tempo, prog);
       let note = "";
       if (this.library.ok) {
         prog(1, "Сохранение в библиотеку");
@@ -243,10 +243,10 @@ class Game {
         map = await this.analyzer.analyze(buffer, (k, l) => this._progress(0.05 + k * 0.95, l));
         this.library.updateMap(id, audioCopy, map).catch(e => console.warn(e));
       }
-      this.setTrack(buffer, map, { name: rec.meta.name, key: rec.meta.key, isDemo: false, libId: id });
+      await this.prepareTrack(buffer, map, { name: rec.meta.name, key: rec.meta.key, isDemo: false, libId: id }, rec.meta.tempo, (k, l) => this._progress(k, l));
       this.library.touch(id);
       Store.set("lastTrack", id);
-      if (!quiet) this.ui.toast(`Трек «${rec.meta.name}» · ${map.bpm.toFixed(1)} BPM`);
+      if (!quiet) this.ui.toast(`Трек «${rec.meta.name}» · ${this.track.map.bpm.toFixed(1)} BPM`);
       return true;
     } catch (e) {
       console.warn(e);
@@ -282,7 +282,13 @@ class Game {
     if (this.loading) return;
     this.audio.unlock();
     this.audio.ensure();
-    if (this._demo) { this.setTrack(this._demo.buffer, this._demo.map, this._demo.meta); if (this.ui.screen === "music") this.ui.refreshMusic(); return; }
+    if (this._demo) {
+      this.loading = true;
+      try { await this.prepareTrack(this._demo.buffer, this._demo.map, this._demo.meta, Store.get("tempo.demo", null), (k, l) => this._progress(k, l)); }
+      finally { $("analysis-card").hidden = true; this.loading = false; }
+      if (this.ui.screen === "music") this.ui.refreshMusic();
+      return;
+    }
     this.loading = true;
     const card = $("analysis-card");
     card.hidden = false;
@@ -292,7 +298,7 @@ class Game {
       const buffer = DemoTrack.generate(this.audio.ctx);
       const map = await this.analyzer.analyze(buffer, (k, l) => { $("analysis-bar").style.width = Math.round(k * 100) + "%"; $("analysis-pct").textContent = Math.round(k * 100) + "%"; $("analysis-label").textContent = l; });
       this._demo = { buffer, map, meta: { name: DemoTrack.name, key: "demo", isDemo: true } };
-      this.setTrack(buffer, map, this._demo.meta);
+      await this.prepareTrack(buffer, map, this._demo.meta, Store.get("tempo.demo", null), (k, l) => this._progress(k, l));
     } finally {
       card.hidden = true;
       this.loading = false;
@@ -300,19 +306,86 @@ class Game {
     }
   }
 
-  setTrack(buffer, map, meta) {
+  /**
+   * Ставит трек. buffer/map — то, что играет и видят часы (с учётом темпа);
+   * base = { buffer, map, tempo } — исходный звук и анализ (в библиотеке хранится только он).
+   */
+  setTrack(buffer, map, meta, base) {
     this.audio.setTrack(buffer, meta);
     this.clock.setMap(map);
     const saved = Store.get("theme." + meta.key, "auto");
-    this.track = { buffer, map, meta, themeId: saved, changed: true };
+    this.track = {
+      buffer, map, meta, themeId: saved, changed: true,
+      base: base ? { buffer: base.buffer, map: base.map } : { buffer, map },
+      tempo: Tempo.normalize(base && base.tempo),
+    };
     this.applyTrackTheme();
     this.ui.refreshMenu();
+  }
+  /** Загрузка с учётом сохранённого темпа: при rate ≠ 1 звук растягивается заново (в хранилище лежит оригинал). */
+  async prepareTrack(buffer, map, meta, tempo, prog) {
+    tempo = Tempo.normalize(tempo);
+    let b = buffer;
+    if (tempo.rate !== 1) { prog(0, "Смена темпа"); b = await Tempo.makeBuffer(this.audio.ensure(), buffer, tempo, prog); }
+    this.setTrack(b, Tempo.makeMap(map, tempo, b.duration), meta, { buffer, map, tempo });
+  }
+  /** Сохраняет темп текущего трека (библиотека или Store для демо). */
+  saveTempo() {
+    const t = this.track;
+    if (!t) return;
+    const packed = Tempo.pack(t.tempo);
+    if (t.meta.libId) this.library.setTempo(t.meta.libId, packed);
+    else if (t.meta.isDemo) Store.set("tempo.demo", packed);
+  }
+  /**
+   * Смена темпа/правки долей текущего трека. Звук пересчитывается только если изменились rate или «сохранять тон»;
+   * правка долей — мгновенная. Во время обработки интерфейс живой (порции с yieldToUI).
+   * Возвращает true, если темп применён.
+   */
+  async applyTempo(next, force = false) {
+    const t = this.track;
+    if (!t) return false;
+    next = Tempo.normalize(next);
+    if (this.loading) { this._tempoPending = next; return false; }
+    if (this.battleActive && !force) return false;
+    if (Tempo.same(next, t.tempo)) return true;
+    this.loading = true;
+    const card = $("analysis-card"), a = this.audio;
+    try {
+      const old = t.tempo, was = a.playing;
+      const pos = was ? a.heardPosition() : a.pausedAt;
+      let buffer = t.buffer;
+      if (!Tempo.sameSound(next, old)) {
+        if (was) a.pause();
+        card.hidden = false; this._progress(0, "Смена темпа");
+        buffer = await Tempo.makeBuffer(a.ensure(), t.base.buffer, next, (k, l) => this._progress(k, l));
+      }
+      const map = Tempo.makeMap(t.base.map, next, buffer.duration);
+      const newPos = clamp(pos * old.rate / next.rate, 0, Math.max(0, buffer.duration - 0.05));
+      if (buffer !== t.buffer) { a.setTrack(buffer, t.meta); a.pausedAt = newPos; }
+      this.clock.setMap(map);
+      t.buffer = buffer; t.map = map; t.tempo = next;
+      this.saveTempo();
+      if (was) a.play(newPos);
+      this.ui.refreshMenu();
+      return true;
+    } catch (e) {
+      console.warn(e);
+      this.ui.toast("Не удалось изменить темп", 3000);
+      return false;
+    } finally {
+      card.hidden = true;
+      this.loading = false;
+      if (this.ui.screen === "music") this.ui.refreshMusic();
+      const pend = this._tempoPending; this._tempoPending = null;
+      if (pend && this.track === t && !Tempo.same(pend, t.tempo)) this.applyTempo(pend);
+    }
   }
   resolveTheme() {
     const t = this.track;
     if (!t) return "city";
     if (t.themeId && t.themeId !== "auto") return t.themeId;
-    return rankThemes(t.map.features)[0].theme.id;
+    return rankThemes(t.base.map.features)[0].theme.id;   // по исходному анализу: смена темпа не меняет арену
   }
   applyTrackTheme() { this.arena.setTheme(this.resolveTheme()); }
   setTrackTheme(id) {
@@ -340,6 +413,7 @@ class Game {
     Store.set("autosave", Object.assign({
       v: 1, mode: this.mode, difficulty: this.settings.v.difficulty, wave,
       name: m.name, key: m.key, libId: m.libId || null, isDemo: !!m.isDemo, savedAt: Date.now(),
+      tempo: Tempo.pack(this.track.tempo),      // songPos — во времени растянутого трека
     }, st));
   }
   /** Контрольная точка в начале волны (вызывает WaveDirector.startWave). */
@@ -364,6 +438,12 @@ class Game {
     if (!ok && a.libId && this.library.get(a.libId)) { this.ui.show("music"); ok = await this.loadFromLibrary(a.libId); }
     if (!ok) { this.ui.toast("Трек сохранённого боя удалён из библиотеки"); this.clearAutosave(); return; }
     if (DIFFS[a.difficulty]) this.settings.set("difficulty", a.difficulty);
+    // позиция сохранена в том темпе, в котором шёл бой
+    if (this.track && !Tempo.same(this.track.tempo, a.tempo)) {
+      this.ui.show("music");
+      await this.applyTempo(a.tempo, true);
+      if (!Tempo.same(this.track.tempo, a.tempo)) { this.ui.toast("Не удалось восстановить темп трека"); return; }
+    }
     this.startBattle(a.mode, a);
   }
 
@@ -510,7 +590,8 @@ class Game {
     const win = this.endWin;
     let grade = acc >= 0.85 && c.damageTaken < 35 ? "S" : acc >= 0.7 ? "A" : acc >= 0.5 ? "B" : "C";
     if (!win && (grade === "S" || grade === "A")) grade = "B";
-    const key = "best." + (this.track ? this.track.meta.key : "demo") + "." + this.mode;
+    const tag = this.track ? Tempo.tag(this.track.tempo) : "";   // отдельный рекорд для другого темпа / правки долей
+    const key = "best." + (this.track ? this.track.meta.key : "demo") + tag + "." + this.mode;
     const best = Store.get(key, 0);
     const record = c.score > best && this.mode !== "practice";
     if (record) Store.set(key, c.score);
@@ -525,7 +606,7 @@ class Game {
       ["Время боя", fmtTime(c.time)],
       ["Рекорд", (record ? c.score : best).toLocaleString("ru-RU")],
     ];
-    const sub = (this.track ? this.track.meta.name : "") + " · " + MODE_NAMES[this.mode] + (record ? " · новый рекорд!" : "");
+    const sub = (this.track ? this.track.meta.name : "") + " · " + MODE_NAMES[this.mode] + (tag ? " · " + Tempo.label(this.track.tempo) : "") + (record ? " · новый рекорд!" : "");
     this.state = "results";
     this.battleActive = false;
     this.input.active = false; this.input.clear();

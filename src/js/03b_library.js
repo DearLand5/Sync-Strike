@@ -63,6 +63,7 @@ class TrackLibrary {
       key: info.key, name: info.name, size: bytes.byteLength,
       addedAt: old ? old.addedAt : now, lastPlayed: now,
       bpm: map.bpm, duration: map.duration, ver: ANALYSIS_VERSION,
+      tempo: old && old.tempo ? old.tempo : null,   // темп и правка долей — поверх исходного анализа
     };
     const keep = new Set([meta.id, ...protect]);
     const evicted = [];
@@ -119,6 +120,14 @@ class TrackLibrary {
       tx.objectStore("data").put({ id, audio, map });
       tx.objectStore("meta").put(meta);
     });
+  }
+
+  /** Темп трека и правка долей (null — по умолчанию). Исходный анализ в data не трогаем. */
+  async setTempo(id, tempo) {
+    const meta = this.get(id);
+    if (!meta) return;
+    meta.tempo = tempo || null;
+    try { await this._tx(["meta"], "readwrite", tx => { tx.objectStore("meta").put(meta); }); } catch (e) { console.warn(e); }
   }
 
   async touch(id) {

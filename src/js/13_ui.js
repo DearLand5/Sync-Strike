@@ -303,6 +303,7 @@ class UIManager {
     seek.addEventListener("input", () => { this._seeking = true; $("pl-time").textContent = fmtTime(seek.value / 1000 * g.audio.duration) + " / " + fmtTime(g.audio.duration); });
     seek.addEventListener("change", () => { this._seeking = false; if (g.audio.buffer) g.audio.seek(seek.value / 1000 * g.audio.duration); });
     this.bindRange("pl-vol", "musicVol", v => v / 100, v => Math.round(v * 100), v => v + "%");
+    this.bindTempo();
     $("music-fight").addEventListener("click", () => {
       this.sfx("uiClick");
       if (g.battleActive) g.returnToBattle(); else this.show("mode");
@@ -528,10 +529,71 @@ class UIManager {
     $("st-mode").textContent = m ? MODE_LABEL[m.mode] : "—";
     $("st-dur").textContent = m ? fmtTime(m.duration) : "—";
     $("music-fight").textContent = g.battleActive ? "Вернуться в бой" : "В бой";
+    this.refreshTempo();
     this.refreshPlayer();
     this.buildArenas();
     this.syncAll();
   }
+  /* ---------- темп трека ---------- */
+  bindTempo() {
+    const g = this.game;
+    // draft — то, что показано на экране; к треку применяется через паузу после последнего нажатия
+    const edit = (fn, quiet) => {
+      if (!g.track || g.battleActive) return;
+      const d = Tempo.normalize(this._tempoDraft || g.track.tempo);
+      fn(d);
+      this._tempoDraft = Tempo.normalize(d);
+      if (!quiet) this.sfx("uiClick");
+      this.refreshTempo(true);
+      clearTimeout(this._tpTimer);
+      this._tpTimer = setTimeout(() => this.commitTempo(), 450);
+    };
+    const setRate = (pct, quiet) => edit(d => { d.rate = clamp(Math.round(pct) / 100, TEMPO_MIN, TEMPO_MAX); }, quiet);
+    $("tp-rate").addEventListener("input", e => setRate(+e.target.value, true));
+    $("tp-minus").addEventListener("click", () => setRate(Math.round(((this._tempoDraft || g.track.tempo).rate * 100 - 5) / 5) * 5));
+    $("tp-plus").addEventListener("click", () => setRate(Math.round(((this._tempoDraft || g.track.tempo).rate * 100 + 5) / 5) * 5));
+    $("tp-one").addEventListener("click", () => setRate(100));
+    $("tp-keep").addEventListener("change", e => edit(d => { d.keep = e.target.checked; }));
+    $("fx-x2").addEventListener("click", () => edit(d => { d.fix.k = Math.min(3, d.fix.k + 1); }));
+    $("fx-d2").addEventListener("click", () => edit(d => { d.fix.k = Math.max(-3, d.fix.k - 1); }));
+    $("fx-half").addEventListener("click", () => edit(d => { d.fix.half = !d.fix.half; }));
+    $("fx-m10").addEventListener("click", () => edit(d => { d.fix.shift -= 10; }));
+    $("fx-p10").addEventListener("click", () => edit(d => { d.fix.shift += 10; }));
+    $("fx-reset").addEventListener("click", () => edit(d => { d.fix = { k: 0, half: false, shift: 0 }; }));
+  }
+  commitTempo() {
+    clearTimeout(this._tpTimer);
+    const d = this._tempoDraft;
+    this._tempoDraft = null;
+    if (d && this.game.track) this.game.applyTempo(d);
+    else this.refreshTempo();
+  }
+  /** keepDraft — показывать выбранное, но ещё не применённое значение. */
+  refreshTempo(keepDraft) {
+    const g = this.game, t = g.track;
+    const card = $("tempo-card");
+    card.classList.toggle("busy", !t || g.battleActive);
+    if (!keepDraft && !this._tempoDraft) this._tempoDraft = null;
+    const d = Tempo.normalize(this._tempoDraft || (t && t.tempo));
+    const pct = Math.round(d.rate * 100);
+    $("tp-rate").value = pct; $("tp-rate-o").textContent = pct + "%";
+    $("tp-keep").checked = d.keep;
+    $("tp-keep-note").textContent = d.rate === 1 ? "" : d.keep ? "(обработка займёт пару секунд)" : "(тон меняется вместе с темпом)";
+    const f = d.fix;
+    const parts = [];
+    if (f.k) parts.push(f.k > 0 ? "×" + Math.pow(2, f.k) : "÷" + Math.pow(2, -f.k));
+    if (f.half) parts.push("сдвиг ½ доли");
+    if (f.shift) parts.push((f.shift > 0 ? "+" : "") + f.shift + " мс");
+    $("fx-info").textContent = parts.length ? parts.join(" · ") : "без правок";
+    $("fx-reset").disabled = !parts.length;
+    const fmt = v => String(Math.round(v * 10) / 10);
+    if (t) {
+      const base = t.base.map.bpm, fixed = base * Math.pow(2, f.k), fin = fixed * d.rate;
+      $("tp-read").textContent = Math.abs(fin - base) < 0.05 ? fmt(base) + " BPM" : fmt(base) + " → " + fmt(fin) + " BPM";
+    } else $("tp-read").textContent = "—";
+    $("tp-minus").disabled = d.rate <= TEMPO_MIN + 0.001; $("tp-plus").disabled = d.rate >= TEMPO_MAX - 0.001;
+  }
+
   refreshPlayer() {
     const a = this.game.audio;
     $("pl-play").textContent = a.playing ? "❚❚" : "▶";
@@ -546,7 +608,7 @@ class UIManager {
   buildArenas() {
     const g = this.game, list = $("arena-list");
     const t = g.track;
-    const ranked = rankThemes(t && t.map ? t.map.features : null);
+    const ranked = rankThemes(t && t.base ? t.base.map.features : null);   // по исходному анализу, а не по изменённому темпу
     const best = ranked[0].theme.id;
     const chosen = t ? t.themeId : null;
     list.innerHTML = "";
