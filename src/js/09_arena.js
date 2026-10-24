@@ -1108,4 +1108,3 @@ class ArenaRenderer {
     this.key = theme === saved ? "" : savedKey;   // состояние темы перестроено под превью
   }
 }
-const THEMES_IDS = THEMES.map(t => t.id); window.THEMES_IDS = THEMES_IDS;
