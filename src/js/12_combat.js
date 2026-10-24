@@ -746,6 +746,32 @@ class CombatSystem {
     }
     CharacterRenderer.draw(ctx, e);
     if (e.elite) this._drawEliteMark(ctx, e);
+    if (e.state === "windup" || e.tickFlash > 0.02) this._drawWindTicks(ctx, e);
+  }
+
+  /** Отсчёт замаха: 1–2 тонкие засечки над врагом (зажигаются на долях, последняя — момент удара) и кольцо-вспышка на тике.
+   *  Выше метки элиты. Без холстов и градиентов; в low — только засечки. */
+  _drawWindTicks(ctx, e) {
+    if (!e.alive || e.executed || !e.pips.length || (e.state !== "windup" && e.state !== "attack")) return;
+    const g = this.game, now = g.songNow, s = e.scale, n = e.pips.length;
+    const cx = e.x, cy = e.y - e.h * s - 20 * s;
+    ctx.save();
+    ctx.lineCap = "butt";
+    for (let i = 0; i < n; i++) {
+      const last = i === n - 1, lit = now + 0.01 >= e.pips[i];
+      const x = cx + (i - (n - 1) / 2) * 5.5, hgt = last ? 8 : 5;
+      ctx.strokeStyle = last ? (lit ? "#ffffff" : "#ff2d4a") : e.look.accent;
+      ctx.globalAlpha = lit ? 1 : (last ? 0.75 : 0.3);
+      ctx.lineWidth = last ? 1.8 : 1.3;
+      ctx.beginPath(); ctx.moveTo(x, cy + hgt / 2); ctx.lineTo(x, cy - hgt / 2); ctx.stroke();
+    }
+    if (!g.fx.low && e.tickFlash > 0.05) {
+      const f = e.tickFlash;
+      ctx.strokeStyle = e.state === "attack" ? "#ffffff" : e.look.accent;
+      ctx.globalAlpha = f * 0.7; ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.arc(cx, cy, 4 + 10 * (1 - f), 0, 6.2832); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** Метка элитного врага: тонкий ромб над головой (пульс в такт) и слабая неоновая полоска у ног. Без холстов и градиентов. */
