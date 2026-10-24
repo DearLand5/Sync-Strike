@@ -660,26 +660,56 @@ class UIManager {
     }
   }
 
+  /** Экран «Облик»: карточки строятся и рисуются один раз; дальше — только фильтр по категории и выбор. */
   buildSkins() {
-    const g = this.game, list = $("skin-list");
-    list.innerHTML = "";
-    for (const id in SKINS) {
-      const sk = SKINS[id];
-      const b = document.createElement("button");
-      b.className = "skin"; b.type = "button";
-      b.setAttribute("aria-pressed", String(g.settings.v.skin === id));
-      const cv = document.createElement("canvas"); cv.width = 200; cv.height = 200;
-      const label = document.createElement("b"); label.textContent = sk.name;
-      b.append(cv, label);
-      this._drawSkin(cv, id);
-      b.addEventListener("click", () => {
-        g.settings.set("skin", id);
-        g.player.setSkin(id);
-        list.querySelectorAll(".skin").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-        this.sfx("uiClick");
-      });
-      list.appendChild(b);
+    const g = this.game, list = $("skin-list"), tabs = $("skin-cats");
+    if (!this._skinCards) {
+      this._skinCards = {};
+      for (const id in SKINS) {
+        const sk = SKINS[id];
+        const b = document.createElement("button");
+        b.className = "skin"; b.type = "button"; b.dataset.id = id; b.dataset.cat = sk.cat || "classic";
+        const cv = document.createElement("canvas"); cv.width = 200; cv.height = 200;
+        const label = document.createElement("b"); label.textContent = sk.name;
+        const sub = document.createElement("small"); sub.textContent = sk.from || "";
+        b.append(cv, label, sub);
+        this._drawSkin(cv, id);
+        b.addEventListener("click", () => {
+          g.settings.set("skin", id);
+          g.player.setSkin(id);
+          this._skinMark();
+          this.sfx("uiClick");
+        });
+        b.addEventListener("pointerenter", () => this.sfx("uiMove"));
+        list.appendChild(b);
+        this._skinCards[id] = b;
+      }
+      const cats = [{ id: "all", name: "Все" }].concat(SKIN_CATS);
+      for (const c of cats) {
+        const n = c.id === "all" ? Object.keys(SKINS).length : Object.values(SKINS).filter(s => s.cat === c.id).length;
+        if (!n) continue;
+        const t = document.createElement("button");
+        t.type = "button"; t.setAttribute("role", "tab"); t.dataset.cat = c.id;
+        t.innerHTML = ""; t.append(c.name); const cnt = document.createElement("i"); cnt.textContent = n; t.append(cnt);
+        t.addEventListener("click", () => { this._skinCat(c.id); this.sfx("uiMove"); });
+        tabs.appendChild(t);
+      }
     }
+    // при входе открывается категория выбранного скина
+    const cur = SKINS[g.settings.v.skin];
+    this._skinCat(cur && cur.cat ? cur.cat : "all");
+    this._skinMark();
+    const sel = this._skinCards[g.settings.v.skin];
+    if (sel && !sel.hidden && sel.scrollIntoView) sel.scrollIntoView({ block: "nearest" });
+  }
+  _skinCat(cat) {
+    this.skinCat = cat;
+    for (const id in this._skinCards) { const b = this._skinCards[id]; b.hidden = cat !== "all" && b.dataset.cat !== cat; }
+    $("skin-cats").querySelectorAll("button").forEach(t => t.setAttribute("aria-selected", String(t.dataset.cat === cat)));
+  }
+  _skinMark() {
+    const cur = this.game.settings.v.skin;
+    for (const id in this._skinCards) this._skinCards[id].setAttribute("aria-pressed", String(id === cur));
   }
   _drawSkin(cv, id) {
     const c = cv.getContext("2d"), sk = SKINS[id];

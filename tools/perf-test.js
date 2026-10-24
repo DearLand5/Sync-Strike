@@ -2,13 +2,14 @@
 const { chromium } = require(process.env.PW || "playwright");
 const path = require("path");
 const secs = +(process.argv[2] || 60);
+const skin = process.env.SKIN || "";   // SKIN=oni — прогон с другим скином
 (async () => {
   const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required", "--enable-precise-memory-info", "--js-flags=--expose-gc"] });
   const page = await browser.newPage({ viewport: { width: 1100, height: 560 } });
   const errors = []; page.on("pageerror", e => errors.push(e.message));
   await page.goto("file://" + path.join(__dirname, "../index.html"));
   await page.waitForTimeout(300);
-  await page.evaluate(() => {
+  await page.evaluate((skin) => {
     const g = window.__game, A = g.arena;
     window.__perf = { rebuilds: 0, frames: [], gradients: 0 };
     const orig = A.ensureTiles.bind(A);
@@ -20,6 +21,7 @@ const secs = +(process.argv[2] || 60);
     const tick = now => { window.__perf.frames.push(now - last); last = now; requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
     g.settings.set("difficulty", "easy");
+    if (skin) { g.settings.set("skin", skin); g.player.setSkin(skin); }
     g.startBattle("waves").then(() => {
       const inp = g.input; let lastBeat = -1;
       setInterval(() => {
@@ -34,7 +36,7 @@ const secs = +(process.argv[2] || 60);
         if (toBeat < 0.03 && g.clock.idx !== lastBeat) { lastBeat = g.clock.idx; inp.push("attack"); }
       }, 16);
     });
-  });
+  }, skin);
   const t0 = Date.now();
   while (Date.now() - t0 < secs * 1000) {
     await page.waitForTimeout(10000);

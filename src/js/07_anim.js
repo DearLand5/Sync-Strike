@@ -5,14 +5,15 @@
    ноги в (0,0), взгляд вправо, y вниз, рост ≈ 40 единиц.
    ===================================================================== */
 /* Скин игрока: head — украшение головы, hem — подол плаща, mark — знак на груди,
-   back — снаряжение на спине, wide — ширина плаща, rim — контровой свет на тёмной маске. */
+   back — снаряжение на спине, wide — ширина плаща, rim — контровой свет на тёмной маске,
+   cat/from — категория и вдохновение для экрана «Облик», mono — один глаз. Новые скины и их детали — 07b_skins.js. */
 const SKINS = {
-  shade:   { name: "Тень",    mask: "#e8e2d6", eye: "#06070a", accent: "#3ef0ff", cloak: "#07080c", head: "horns",   scarf: "#3ef0ff", hem: "jag",      mark: "rune",   back: null },
-  ronin:   { name: "Ронин",   mask: "#1b1c22", eye: "#ff2d4a", accent: "#ff2d4a", cloak: "#0b0708", head: "hat",     scarf: "#ff2d4a", hem: "straight", mark: "sash",   back: "katana", wide: 1.1,  rim: true },
-  specter: { name: "Призрак", mask: "#f3f0ff", eye: "#2b1a66", accent: "#b18cff", cloak: "#0a0812", head: "hood",    scarf: null,      hem: "wisp",     mark: "moon",   back: null },
-  volt:    { name: "Вольт",   mask: "#101116", eye: "#ffe34a", accent: "#ffe34a", cloak: "#0b0a06", head: "antenna", scarf: "#ffe34a", hem: "angular",  mark: "bolt",   back: "pack",   rim: true },
-  sakura:  { name: "Сакура",  mask: "#ffe6f0", eye: "#1a0a12", accent: "#ff5fb0", cloak: "#0d070a", head: "bow",     scarf: "#ff5fb0", hem: "scallop",  mark: "petals", back: "obi" },
-  moth:    { name: "Мотылёк", mask: "#d7f7e8", eye: "#08140f", accent: "#3dffa8", cloak: "#060b09", head: "antlers", scarf: null,      hem: "fork",     mark: "eyes",   back: "wings" },
+  shade:   { cat: "classic", from: "исходный образ", name: "Тень",    mask: "#e8e2d6", eye: "#06070a", accent: "#3ef0ff", cloak: "#07080c", head: "horns",   scarf: "#3ef0ff", hem: "jag",      mark: "rune",   back: null },
+  ronin:   { cat: "classic", from: "самурайское кино", name: "Ронин",   mask: "#1b1c22", eye: "#ff2d4a", accent: "#ff2d4a", cloak: "#0b0708", head: "hat",     scarf: "#ff2d4a", hem: "straight", mark: "sash",   back: "katana", wide: 1.1,  rim: true },
+  specter: { cat: "classic", from: "призрак, дух", name: "Призрак", mask: "#f3f0ff", eye: "#2b1a66", accent: "#b18cff", cloak: "#0a0812", head: "hood",    scarf: null,      hem: "wisp",     mark: "moon",   back: null },
+  volt:    { cat: "classic", from: "электрик, аркады", name: "Вольт",   mask: "#101116", eye: "#ffe34a", accent: "#ffe34a", cloak: "#0b0a06", head: "antenna", scarf: "#ffe34a", hem: "angular",  mark: "bolt",   back: "pack",   rim: true },
+  sakura:  { cat: "classic", from: "аниме, сакура", name: "Сакура",  mask: "#ffe6f0", eye: "#1a0a12", accent: "#ff5fb0", cloak: "#0d070a", head: "bow",     scarf: "#ff5fb0", hem: "scallop",  mark: "petals", back: "obi" },
+  moth:    { cat: "classic", from: "ночной мотылёк", name: "Мотылёк", mask: "#d7f7e8", eye: "#08140f", accent: "#3dffa8", cloak: "#060b09", head: "antlers", scarf: null,      hem: "fork",     mark: "eyes",   back: "wings" },
 };
 
 /** Облик врагов: телосложение и варианты снаряжения (hem — подол, back — снаряжение на спине). */
@@ -322,12 +323,22 @@ const CharacterRenderer = {
       case "plates":   // пластины набедренника
         for (let i = 0; i < 3; i++) { ctx.lineTo(at((i + 0.9) / 3), y + 2); ctx.lineTo(at((i + 1) / 3), y + 0.2); }
         break;
-      default: ctx.lineTo(xl, y + 1);
+      default: { const f = HEM_PARTS[style]; if (f) f(ctx, xr, xl, y); else ctx.lineTo(xl, y + 1); }
     }
   },
 
   /** Снаряжение на теле. layer 0 — позади плаща, 1 — поверх него. */
   _backGear(ctx, type, layer, accent, wide, shoulderY, hipY, hemY, fl, hq) {
+    const bp = BACK_PARTS[type];
+    if (bp) {
+      const f = layer ? bp.front : bp.back;
+      if (f) {
+        const G = SKIN_G;
+        G.accent = accent; G.wide = wide; G.shoulderY = shoulderY; G.hipY = hipY; G.hemY = hemY; G.fl = fl; G.hq = hq; G.now = performance.now();
+        f(ctx, G);
+      }
+      return;
+    }
     if (layer === 0) {
       if (type === "sheath") {
         // перекрёстные ножны за спиной: рукоять торчит над плечом, кончик выглядывает у бедра
@@ -423,6 +434,14 @@ const CharacterRenderer = {
           ctx.beginPath(); ctx.arc(-0.2, hipY - 7, 1.4, 0, TAU); ctx.stroke();
           ctx.beginPath(); ctx.arc(2.2, hipY - 4, 0.8, 0, TAU); ctx.stroke();
           break;
+        default: {
+          const f = MARK_PARTS[skin.mark];
+          if (f) {
+            const G = SKIN_G;
+            G.accent = accent; G.wide = wide; G.shoulderY = shoulderY; G.hipY = hipY; G.hemY = hemY; G.now = performance.now();
+            f(ctx, G);
+          }
+        }
       }
       return;
     }
@@ -552,6 +571,12 @@ const CharacterRenderer = {
         break;
       }
     }
+    // детали новых скинов: позади маски
+    const hp = HEAD_PARTS[headType], C = SKIN_C;
+    if (hp) {
+      C.tint = tint; C.accent = accent; C.mc = maskC; C.hq = hq; C.now = now; C.boost = boost;
+      if (hp.back) { hp.back(ctx, C); ctx.lineWidth = 1; ctx.lineJoin = "round"; ctx.lineCap = "round"; }
+    }
     // маска
     const mc = kind === "player" ? maskC : (tint || "#16161c");
     const maskPath = () => {
@@ -650,22 +675,24 @@ const CharacterRenderer = {
         for (const x of [-1.2, 1.8, 4.6]) { ctx.beginPath(); ctx.moveTo(x - 0.9, 0.7); ctx.lineTo(x, 3.2); ctx.lineTo(x + 0.9, 0.5); ctx.closePath(); ctx.fill(); }
       }
     }
+    if (hp && hp.front) { hp.front(ctx, C); ctx.lineWidth = 1; ctx.lineJoin = "round"; ctx.lineCap = "round"; }
     if (tint) return;
     // глаза: форма не меняется; при усилении (замах) — ярче, чуть крупнее, белое ядро и мягкий ореол (ореол только в high)
     const b = clamp(boost, 0, 1), qb = Math.round(b * 8) / 8;
     const eye = (x, y, rx, ry, rot, col, k) => { ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(x, y, rx * k, ry * k, rot, 0, TAU); ctx.fill(); };
     if (kind === "player") {
       const k = 1 + 0.22 * b;
+      const two = !skin.mono;   // скины с повязкой/линзой/дырой в мешке — один глаз
       if (hq && (b > 0.05 || skin.rim)) {
         const ha = (skin.rim ? 0.1 : 0) + 0.2 * b;
-        eye(0.4, -0.2, 1.5, 2.6, 0.08, rgba(accent, ha * 0.6), k * 2.1); eye(4.0, -0.2, 1.3, 2.4, 0.08, rgba(accent, ha * 0.6), k * 2.1);
-        eye(0.4, -0.2, 1.5, 2.6, 0.08, rgba(accent, ha), k * 1.5); eye(4.0, -0.2, 1.3, 2.4, 0.08, rgba(accent, ha), k * 1.5);
+        eye(0.4, -0.2, 1.5, 2.6, 0.08, rgba(accent, ha * 0.6), k * 2.1); if (two) eye(4.0, -0.2, 1.3, 2.4, 0.08, rgba(accent, ha * 0.6), k * 2.1);
+        eye(0.4, -0.2, 1.5, 2.6, 0.08, rgba(accent, ha), k * 1.5); if (two) eye(4.0, -0.2, 1.3, 2.4, 0.08, rgba(accent, ha), k * 1.5);
       }
       const ec = b > 0.05 ? mixc(skin.eye, accent, qb * 0.9) : skin.eye;
-      eye(0.4, -0.2, 1.5, 2.6, 0.08, ec, k); eye(4.0, -0.2, 1.3, 2.4, 0.08, ec, k);
-      if (b > 0.05) { eye(0.4, -0.3, 1.5, 2.6, 0.08, rgba("#ffffff", 0.9 * b), k * 0.5); eye(4.0, -0.3, 1.3, 2.4, 0.08, rgba("#ffffff", 0.9 * b), k * 0.5); }
+      eye(0.4, -0.2, 1.5, 2.6, 0.08, ec, k); if (two) eye(4.0, -0.2, 1.3, 2.4, 0.08, ec, k);
+      if (b > 0.05) { eye(0.4, -0.3, 1.5, 2.6, 0.08, rgba("#ffffff", 0.9 * b), k * 0.5); if (two) eye(4.0, -0.3, 1.3, 2.4, 0.08, rgba("#ffffff", 0.9 * b), k * 0.5); }
       ctx.fillStyle = "rgba(255,255,255,.8)";
-      ctx.beginPath(); ctx.arc(0.0, -1.3, 0.45, 0, TAU); ctx.arc(3.6, -1.3, 0.4, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(0.0, -1.3, 0.45, 0, TAU); if (two) ctx.arc(3.6, -1.3, 0.4, 0, TAU); ctx.fill();
     } else {
       // злые скошенные глаза-щели
       const k = 1 + 0.3 * b, r = 1.05;
