@@ -4,9 +4,10 @@
    Добавляется в THEMES (09_arena); список id собирает 09z_themes.js.
 
    Устройство (чтобы ничего не стоило дорого и не дёргалось):
-   - дым — три слоя параллакса: пятна рисуются в тайл один раз (paint), слои сами плывут (drift, px/с);
+   - дым — три слоя параллакса: текстура из шума с закручиванием (fBm + domain warp, бесшовная) рисуется в тайл один раз (paint),
+     слои сами плывут (drift, px/с); клубы вокруг окна и тела теней — спрайты из того же шума (build, пересоздаются со сборкой тайлов);
    - тени — якоря A.far/A.near, которые пишет paint дымовых слоёв; рисует dyn того же слоя с тем же сдвигом,
-     поэтому тень едет вместе со своим слоем дыма. Тело — мягкие тёмные эллипсы, глаза — две точки;
+     поэтому тень едет вместе со своим слоем дыма. Тело — клубы тёмного дыма с плотным ядром, от плеч поднимаются клочья, глаза — две точки;
    - светлое «окно», клубы вокруг него (mid), пол и пылинки (front) рисуются каждый кадр БЕЗ аллокаций:
      градиенты единичного радиуса создаются один раз на контекст и растягиваются преобразованием;
    - время движения тени/клубов — интеграл (x += dt·v), музыкальные входы сглажены damp: никаких t·sp с «живой» sp.
@@ -35,16 +36,65 @@
   };
   const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
-  /** Пятно в тайл с переносом через шов (дым бесшовный). rot — наклон «щупальца». */
-  const tileBlob = (c, w, x, y, rx, ry, rot, stops) => {
-    for (const dx of [0, -w, w]) {
-      if (x + dx + rx < -2 || x + dx - rx > w + TILE_PAD + 2) continue;
-      c.save(); c.translate(x + dx, y); c.rotate(rot); c.scale(rx, ry);
-      const g = c.createRadialGradient(0, 0, 0, 0, 0, 1);
-      for (const [o, col] of stops) g.addColorStop(o, col);
-      c.fillStyle = g; c.fillRect(-1, -1, 2, 2); c.restore();
-    }
+  /* ---- дым из шума: value-noise + fBm с закручиванием (domain warp). Бесшовен по горизонтали (период решётки кратен ширине).
+     Считается один раз при сборке тайлов/спрайтов (и после сброса GPU — тайлы и build пересобираются), в кадре не участвует. */
+  const NZ = (() => { const r = mulberry32(90137), a = new Float32Array(65536); for (let i = 0; i < a.length; i++) a[i] = r(); return a; })();
+  const vnoise = (x, y, px) => {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    const x0 = ((xi % px) + px) % px, x1 = (x0 + 1) % px, y0 = yi & 255, y1 = (yi + 1) & 255;
+    const u = xf * xf * (3 - 2 * xf), w = yf * yf * (3 - 2 * yf);
+    const a = NZ[(y0 << 8) | (x0 & 255)], b = NZ[(y0 << 8) | (x1 & 255)], c = NZ[(y1 << 8) | (x0 & 255)], d = NZ[(y1 << 8) | (x1 & 255)];
+    return a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w;
   };
+  const fbm = (x, y, px, oct) => { let s = 0, amp = 0.5, f = 1, nrm = 0; for (let o = 0; o < oct; o++) { s += amp * vnoise(x * f, y * f, px * f); nrm += amp; amp *= 0.5; f *= 2; } return s / nrm; };
+  /**
+   * Текстура дыма w×h (в пикселях холста) в ImageData: светлый дым с тонкими прядями и рваные тёмные массы.
+   * o: { px — клеток шума по ширине (период, целое), py — по высоте, seed, light, dark — плотность, prof(yN) → [свет, тьма] по высоте,
+   *      radial — спрайт: края тают по эллипсу }.
+   */
+  const smokeImage = (ctx, w, h, o) => {
+    const img = ctx.createImageData(w, h), d = img.data, sx = o.seed * 7.31, sy = o.seed * 3.17;
+    for (let j = 0; j < h; j++) {
+      const yN = j / h, prof = o.prof ? o.prof(yN) : null;
+      for (let i = 0; i < w; i++) {
+        const xN = i / w, X = xN * o.px, Y = yN * o.py + sy;
+        // закручивание: смещение координат другим шумом — даёт завитки и «языки» дыма
+        const qx = fbm(X + sx, Y, o.px, 3), qy = fbm(X + 5.2, Y + 1.3 + sx, o.px, 3);
+        const n = fbm(X + 1.9 * qx, Y + 1.9 * qy, o.px, 4);
+        const rd = 1 - Math.abs(2 * vnoise((X + 3.1 * qx) * 4, (Y + 2.3 * qy) * 4, o.px * 4) - 1);   // тонкие пряди (гребни)
+        const dk = fbm(X * 1.3 + 2.4 * qy + 11.7, Y * 1.3 + 2.1 * qx, Math.round(o.px * 1.3) || 1, 4);
+        let fall = 1;
+        if (o.radial) { const ex = (xN - 0.5) * 2, ey = (yN - 0.5) * 2, r = Math.sqrt(ex * ex + ey * ey); fall = 1 - sstep(0.35, 1, r); }
+        const pl = prof ? prof[0] : 1, pd = prof ? prof[1] : 1;
+        const la = sstep(0.42, 0.8, n) * (0.65 + 0.5 * rd * rd * rd) * o.light * pl * fall;
+        const da = sstep(0.44, 0.78, dk) * o.dark * pd * fall;
+        const A = da + la * (1 - da);
+        const k = (i + j * w) * 4;
+        if (A < 0.004) { d[k + 3] = 0; continue; }
+        const lc = la * (1 - da) / A;                     // доля светлого дыма в цвете
+        const grey = 8 + 200 * lc + 14 * rd * lc;
+        d[k] = grey; d[k + 1] = grey + 3 * lc; d[k + 2] = grey + 8 * lc; d[k + 3] = Math.min(255, A * 255);
+      }
+    }
+    return img;
+  };
+  /** Залить тайл дымом: считается в разрешении 1/3 и растягивается (дым мягкий — разницы не видно, сборка в ~2 раза быстрее). y0/y1 — доли высоты тайла. */
+  const paintSmoke = (c, w, h, o, y0 = 0, y1 = 1) => {
+    const q = 3, W = Math.ceil(w / q), H0 = Math.floor(h * y0 / q), H = Math.max(1, Math.ceil(h * (y1 - y0) / q));
+    const tmp = document.createElement("canvas"); tmp.width = W; tmp.height = H;
+    const tc = tmp.getContext("2d"), prof = o.prof;
+    tc.putImageData(smokeImage(tc, W, H, Object.assign({}, o, { py: o.py * (y1 - y0), prof: prof ? (yN => prof(y0 + yN * (y1 - y0))) : null })), 0, 0);
+    c.save(); c.imageSmoothingEnabled = true; c.drawImage(tmp, 0, 0, W, H, 0, H0 * q, W * q, H * q); c.restore();
+    tmp.width = 0; tmp.height = 0;
+  };
+  /** Спрайт клуба дыма (для клубов вокруг окна и тел теней): края тают по эллипсу. Холст пересоздаётся в build. */
+  const smokeSprite = (seed, light, dark, w = 128, h = 96) => {
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const cc = cv.getContext("2d");
+    cc.putImageData(smokeImage(cc, w, h, { px: 3, py: 2.2, seed, light, dark, radial: true }), 0, 0);
+    return cv;
+  };
+
   /** Обрезка по ширине тайла: дым полупрозрачный, а запас TILE_PAD арена дорисовывает копией начала — без обрезки на шве выходила двойная заливка (линия). */
   const clipTile = (c, w, h) => { c.save(); c.beginPath(); c.rect(0, -60, w, h + 120); c.clip(); };
   /** Конец рисования тайла. Запас TILE_PAD на шве накладывается на начало следующего тайла, и полупрозрачный дым
@@ -55,26 +105,6 @@
     c.globalCompositeOperation = "destination-in"; c.fillStyle = "rgba(0,0,0,.5)"; c.fillRect(0, -60, TILE_PAD, h + 120);
     c.restore();
   };
-  const SOFT_L = a => [[0, `rgba(205,210,218,${a})`], [0.55, `rgba(190,196,205,${a * 0.5})`], [1, "rgba(180,186,195,0)"]];
-  const SOFT_D = a => [[0, `rgba(0,0,0,${a})`], [0.6, `rgba(0,0,0,${a * 0.75})`], [1, "rgba(0,0,0,0)"]];
-
-  /** Рваное тёмное облако: россыпь пятен вокруг центра, вытянутая по горизонтали. */
-  const darkCloud = (c, w, h, rng, cx, cy, size, a) => {
-    const n = 6 + Math.floor(rng() * 5);
-    for (let i = 0; i < n; i++) {
-      const ang = rng() * TAU, d = Math.sqrt(rng()) * size;
-      tileBlob(c, w, cx + Math.cos(ang) * d * 1.5, cy + Math.sin(ang) * d * 0.8, size * lerp(0.4, 0.9, rng()), size * lerp(0.28, 0.6, rng()), (rng() - 0.5) * 0.9, SOFT_D(a * lerp(0.6, 1, rng())));
-    }
-  };
-  /** Светлый клубок дыма. */
-  const lightCloud = (c, w, h, rng, cx, cy, size, a) => {
-    const n = 5 + Math.floor(rng() * 4);
-    for (let i = 0; i < n; i++) {
-      const ang = rng() * TAU, d = Math.sqrt(rng()) * size;
-      tileBlob(c, w, cx + Math.cos(ang) * d * 1.6, cy + Math.sin(ang) * d * 0.7, size * lerp(0.5, 1, rng()), size * lerp(0.25, 0.5, rng()), (rng() - 0.5) * 0.5, SOFT_L(a * lerp(0.6, 1, rng())));
-    }
-  };
-
   /** Якоря теней слоя: часть стоит в дымке у горизонта (ноги в мгле), часть висит выше. rank — порядок появления. */
   const placeShadows = (list, w, h, rng, n, hMin, hMax, rank0) => {
     for (let i = 0; i < n; i++) {
@@ -88,17 +118,43 @@
     }
   };
 
-  /** Рисует одну тень: тёмное тело (тающие эллипсы) и пара глаз. Всё через единичные градиенты, без аллокаций. */
-  const drawShadow = (c, G, S, x, y, kH, body, eyeA, open, face, sway) => {
+  /** Спрайт дыма с центром (x,y) и полуосями rx/ry. */
+  const spr = (c, cv, x, y, rx, ry, a) => {
+    if (a <= 0.004 || !cv) return;
+    c.globalAlpha = Math.min(1, a); c.drawImage(cv, x - rx, y - ry, rx * 2, ry * 2);
+  };
+  /**
+   * Одна тень: тело — клубы тёмного дыма (спрайты из шума) с плотным ядром силуэта, от плеч и головы поднимаются
+   * и тают клочья, низ сносит шлейфом; глаза — пара огоньков. t — время теней (интеграл), без аллокаций.
+   */
+  const drawShadow = (c, G, S, x, y, kH, body, eyeA, open, face, sway, t, SP) => {
     const H = S.H * kH;
     const hx = x + sway * 0.5 + face * 0.02 * H, hy = y - 0.3 * H;
     if (body > 0.01) {
-      blot(c, G.D, x + sway * 0.3, y - 0.13 * H, 0.23 * H, 0.09 * H, body * 0.85);            // плечи
-      blot(c, G.D, x, y + 0.08 * H, 0.16 * H, 0.3 * H, body);                                 // туловище
-      blot(c, G.D, hx, hy, 0.095 * H, 0.115 * H, body);                                       // голова
-      blot(c, G.D, x - sway, y + 0.4 * H, 0.1 * H, 0.22 * H, body * 0.6);                    // шлейф тьмы вниз
-      blot(c, G.D, x - 0.21 * H, y + 0.03 * H + sway * 0.2, 0.055 * H, 0.22 * H, body * 0.6); // руки — свисающие клочья
-      blot(c, G.D, x + 0.21 * H, y + 0.03 * H - sway * 0.2, 0.055 * H, 0.22 * H, body * 0.55);
+      c.save();
+      if (SP) {
+        const D = SP.D;
+        spr(c, D[0], x + sway * 0.3, y - 0.06 * H, 0.46 * H, 0.32 * H, body * 1.15);       // плечи и грудь — клуб
+        spr(c, D[1], x - sway * 0.4, y + 0.3 * H, 0.32 * H, 0.44 * H, body * 1.0);         // низ тает в дым
+        spr(c, D[2], hx, hy - 0.02 * H, 0.19 * H, 0.19 * H, body * 1.1);                  // дымка вокруг головы
+        // клочья поднимаются от плеч и головы, растут и тают
+        for (let j = 0; j < 4; j++) {
+          const ph = ((t * 0.2 + j / 4 + S.ph) % 1 + 1) % 1, side = j & 1 ? 1 : -1;
+          const wx = x + side * (0.08 + 0.12 * ph) * H + Math.sin(t * 0.8 + j * 2.1 + S.ph) * 0.05 * H, wy = y - 0.18 * H - ph * 0.6 * H;
+          spr(c, D[j % 3], wx, wy, (0.06 + 0.13 * ph) * H, (0.05 + 0.09 * ph) * H, body * 0.75 * (1 - ph) * sstep(0, 0.12, ph));
+        }
+        // шлейф снизу: клочья сносит в сторону
+        for (let j = 0; j < 2; j++) {
+          const ph = ((t * 0.14 + j / 2 + S.ph * 0.7) % 1 + 1) % 1;
+          spr(c, D[(j + 1) % 3], x - sway + ph * 0.3 * S.flip * H, y + (0.42 + 0.3 * ph) * H, (0.1 + 0.12 * ph) * H, (0.06 + 0.05 * ph) * H, body * 0.45 * (1 - ph));
+        }
+        c.globalAlpha = 1;
+      }
+      // плотное ядро — чтобы силуэт читался сквозь дым
+      blot(c, G.D, x, y + 0.04 * H, 0.14 * H, 0.28 * H, body);
+      blot(c, G.D, hx, hy, 0.085 * H, 0.105 * H, body * 0.95);
+      blot(c, G.D, x + sway * 0.3, y - 0.13 * H, 0.2 * H, 0.08 * H, body * 0.85);
+      c.restore();
     }
     if (eyeA > 0.02 && open > 0.05) {
       const sep = 0.047 * H * (0.45 + 0.55 * Math.cos(face * 1.25)), ex = hx + face * 0.035 * H, s = H / 110;
@@ -134,10 +190,10 @@
       v.repeat(off, S.x, x => {
         const y = layerY(v, S.y);
         const dc = Math.abs(x - Q.cx) / (Q.R * 1.15 + reach * 0.1);
-        const att = 0.55 + 0.45 * sstep(0.1, 0.85, dc);                   // у светлого центра тени бледнее: не спорят с героем
-        const body = 0.9 * V * att * (kDepth > 1 ? 1 : 0.8);
+        const att = 0.75 + 0.25 * sstep(0.1, 0.85, dc);                   // у светлого центра тени бледнее: не спорят с героем
+        const body = V * att * (kDepth > 1 ? 1.1 : 0.9);
         const eyeA = clamp(V * 1.8, 0, 1) * (0.75 + 0.25 * att) * Q.eye * open;
-        drawShadow(c, G, S, x, y, kH, body, eyeA, open, face, sway);
+        drawShadow(c, G, S, x, y, kH, body, eyeA, open, face, sway, Q.sh, R.amount < 1 ? null : th.spr);
       });
     }
   };
@@ -155,27 +211,33 @@
         // 1) дальний дым: широкие светлые клубы (свет «окна» подпитывает их), рваные тёмные массы и маленькие бледные тени у горизонта
         { f: 0.08, drift: -5, haze: 0.4, paint(c, w, h, rng, A) {
           A.far = []; clipTile(c, w, h);
-          for (let i = 0; i < 9; i++) lightCloud(c, w, h, rng, rng() * w, h * lerp(0.25, 0.85, rng()), h * lerp(0.18, 0.3, rng()), 0.12);
-          for (let i = 0; i < 9; i++) darkCloud(c, w, h, rng, rng() * w, h * lerp(0.2, 0.85, rng()), h * lerp(0.14, 0.24, rng()), 0.4);
+          // светлый дым гуще в середине по высоте (там окно света), тёмные массы — сверху и у краёв
+          paintSmoke(c, w, h, { px: 5, py: 2.4, seed: 1, light: 0.5, dark: 1, prof: y => [0.35 + 0.65 * Math.sin(Math.PI * clamp(y * 1.1, 0, 1)), 0.55 + 0.45 * (1 - y)] });
           placeShadows(A.far, w, h, rng, 5, h * 0.17, h * 0.26, 0); endTile(c, w, h);
         }, dyn(c, v, m, pal, R, off, A) { drawShadowLayer(c, v, m, R, off, A.far, 0.9); } },
         // 2) средний дым: полосы тумана над землёй и тени покрупнее
         { f: 0.22, drift: 13, paint(c, w, h, rng, A) {
           A.near = []; clipTile(c, w, h);
-          for (let i = 0; i < 7; i++) lightCloud(c, w, h, rng, rng() * w, h * lerp(0.45, 0.95, rng()), h * lerp(0.1, 0.17, rng()), 0.1);
-          for (let i = 0; i < 6; i++) darkCloud(c, w, h, rng, rng() * w, h * lerp(0.3, 0.92, rng()), h * lerp(0.12, 0.2, rng()), 0.38);
+          // средний дым: полосы тумана над землёй — плотнее книзу, наверху почти прозрачно
+          paintSmoke(c, w, h, { px: 4, py: 1.6, seed: 2, light: 0.34, dark: 0.6, prof: y => [sstep(0.25, 0.75, y) * (1 - 0.4 * sstep(0.9, 1, y)), sstep(0.3, 0.85, y)] }, 0.2, 1);
           placeShadows(A.near, w, h, rng, 4, h * 0.27, h * 0.38, 0.5); endTile(c, w, h);
         }, dyn(c, v, m, pal, R, off, A) { drawShadowLayer(c, v, m, R, off, A.near, 1.25); } },
         // 3) ближняя дымка у земли: тёмная, густая; за персонажами не мешает читаться
         { top: 0.5, f: 0.45, drift: -19, paint(c, w, h, rng) {
           clipTile(c, w, h);
-          for (let i = 0; i < 8; i++) darkCloud(c, w, h, rng, rng() * w, h * lerp(0.78, 1.0, rng()), h * lerp(0.1, 0.17, rng()), 0.34);
-          for (let i = 0; i < 5; i++) lightCloud(c, w, h, rng, rng() * w, h * lerp(0.84, 1.0, rng()), h * lerp(0.07, 0.12, rng()), 0.07);
+          // ближняя мгла у земли: тёмная, густая, с редкими светлыми прядями
+          paintSmoke(c, w, h, { px: 3, py: 0.9, seed: 3, light: 0.16, dark: 0.75, prof: y => [sstep(0.75, 0.95, y), sstep(0.62, 0.95, y)] }, 0.55, 1);
           endTile(c, w, h);
         } },
       ],
       build(rng, tileW, tileH) {
         THEMES_MURK = this;
+        // спрайты дыма (клубы и тела теней): холсты пересоздаются при каждой сборке тайлов — и после сброса GPU
+        if (this.spr) for (const k in this.spr) for (const cv of this.spr[k]) { cv.width = 0; cv.height = 0; }
+        this.spr = {
+          L: [smokeSprite(11, 0.75, 0.1), smokeSprite(12, 0.7, 0.12)],
+          D: [smokeSprite(21, 0.05, 0.95, 96, 96), smokeSprite(22, 0.04, 0.9, 96, 96), smokeSprite(23, 0.06, 0.92, 64, 64)],
+        };
         // клубы вокруг светлого окна (экранные): орбиты с разной скоростью, часть тёмных
         this.puffs = [];
         for (let i = 0; i < 9; i++) this.puffs.push({ a: rng() * TAU, rho: lerp(0.25, 1.05, rng()), w: (rng() < 0.5 ? -1 : 1) * lerp(0.025, 0.08, rng()), rx: lerp(0.26, 0.44, rng()), ry: lerp(0.15, 0.26, rng()), dark: i % 3 === 0, al: lerp(0.5, 1, rng()) });
@@ -225,7 +287,12 @@
           const rr = p.rho * Q.R * gather;
           const x = Q.cx + Math.cos(p.a) * rr * 1.25, y = Q.cy + Math.sin(p.a) * rr * 0.5;
           const sz = Q.R * (1 - 0.15 * Q.bld);
-          if (p.dark) blot(c, G.D, x, y, sz * p.rx * 0.9, sz * p.ry * 0.9, 0.2 * p.al * (1 - 0.5 * Q.brk));
+          if (this.spr) {
+            c.save();
+            if (p.dark) spr(c, this.spr.D[i % 2], x, y, sz * p.rx * 1.35, sz * p.ry * 1.35, 0.32 * p.al * (1 - 0.5 * Q.brk));
+            else spr(c, this.spr.L[i % 2], x, y, sz * p.rx * 1.5, sz * p.ry * 1.5, (0.32 + 0.4 * Q.bld) * p.al);
+            c.restore();
+          } else if (p.dark) blot(c, G.D, x, y, sz * p.rx * 0.9, sz * p.ry * 0.9, 0.2 * p.al * (1 - 0.5 * Q.brk));
           else blot(c, G.L, x, y, sz * p.rx, sz * p.ry, (0.2 + 0.28 * Q.bld) * p.al);
         }
         // тёмные края: чем уже окно света (брейк), тем плотнее тьма вокруг. Центр с нулевой прозрачностью не заливаем (экономия заливки).
