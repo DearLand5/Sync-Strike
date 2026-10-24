@@ -134,9 +134,20 @@ function sectionBars(a) {
   return { edges, B, barLen, Lmin, raw, F, I, tLoud };
 }
 
-function buildSections(a) {
+/** Признаки тактов в компактном виде для карты (IndexedDB): только то, что нужно segmentBars. */
+function packBars(b) {
+  const r3 = arr => Array.from(arr, v => Math.round(v * 1000) / 1000);
+  const raw = {}, F = {};
+  for (const [key] of SECTION_DIMS) { raw[key] = r3(b.raw[key]); F[key] = r3(b.F[key]); }
+  return { edges: r3(b.edges), B: b.B, barLen: b.barLen, Lmin: b.Lmin, tLoud: b.tLoud, raw, F, I: r3(b.I) };
+}
+
+function buildSections(a) { return segmentBars(a, sectionBars(a), 1); }
+
+/** Разбиение по уже посчитанным тактам. mul — множитель цены границы (ручная «чувствительность» Режиссёра:
+    > 1 — реже смены частей, < 1 — чаще). a нужны duration, envFps, energy, bl, bh, confidence. */
+function segmentBars(a, bars, mul) {
   const { duration } = a;
-  const bars = sectionBars(a);
   const { edges, B, Lmin, F } = bars;
   const single = () => finishSections(a, bars, [{ start: 0, end: duration, i0: 0, i1: B }]);
   /* ритма нет (эмбиент, свободный темп; уверенность < 0.4): сетка тактов условна, лазеры и «брейки» не к месту — одна спокойная часть */
@@ -161,7 +172,7 @@ function buildSections(a) {
   for (let ph = 0; ph < 8; ph++) {
     const dp = new Float64Array(B + 1).fill(Infinity), from = new Int32Array(B + 1).fill(-1);
     dp[0] = 0;
-    const pen = i => { if (i === 0) return 0; const r = ((i - ph) % 8 + 8) % 8; return SECTION_LAMBDA * (weak ? 3 : 1) * (1 + (r === 0 ? 0 : r === 4 ? 0.19 : r % 2 === 0 ? 0.69 : 1.06)); };
+    const pen = i => { if (i === 0) return 0; const r = ((i - ph) % 8 + 8) % 8; return SECTION_LAMBDA * mul * (weak ? 3 : 1) * (1 + (r === 0 ? 0 : r === 4 ? 0.19 : r % 2 === 0 ? 0.69 : 1.06)); };
     for (let j = Lmin; j <= B; j++) {
       if (j < B && B - j < Lmin) continue;
       for (let i = 0; i <= j - Lmin; i++) {
@@ -187,7 +198,7 @@ function buildSections(a) {
   const avgI = (x) => { let s = 0; for (let k = x.i0; k < x.i1; k++) s += bars.I[k]; return s / (x.i1 - x.i0); };
   const contrast = (x, y) => { let c = Math.abs(avgI(x) - avgI(y)) / 0.12; for (const [key, , , tau] of SECTION_DIMS) c = Math.max(c, Math.abs(mean(key, x.i0, x.i1) - mean(key, y.i0, y.i1)) / tau); return c; };
   for (;;) {
-    let wi = -1, wc = weak ? 2 : 1;
+    let wi = -1, wc = (weak ? 2 : 1) * Math.sqrt(mul);
     for (let i = 0; i + 1 < segs.length; i++) { const c = contrast(segs[i], segs[i + 1]); if (c < wc) { wc = c; wi = i; } }
     if (wi < 0) break;
     segs.splice(wi, 2, { start: segs[wi].start, end: segs[wi + 1].end, i0: segs[wi].i0, i1: segs[wi + 1].i1 });
@@ -770,7 +781,8 @@ class RhythmAnalyzer {
     }
 
         /* ---- части трека: сегментация по тактам + характер (kind), см. buildSections ---- */
-    const sections = buildSections({ beats, strong, duration, envFps, energy, bl, bm, bh, fL, fM, fH, pL: eL, pM: eM, pH: eH, confidence, frameOf });
+    const secBars = sectionBars({ beats, strong, duration, envFps, energy, bl, bm, bh, fL, fM, fH, pL: eL, pM: eM, pH: eH, confidence, frameOf });
+    const sections = segmentBars({ duration, envFps, energy, bl, bh, confidence }, secBars, 1);
 
     /* ---- кандидаты событий по полосам (порог применяется во время игры) ---- */
     const onsets = { low: [], mid: [], high: [] };
@@ -820,6 +832,7 @@ class RhythmAnalyzer {
       duration, bpm: bestBpm, period: P, confidence, mode, stability: 1 - cv,
       beats: Float64Array.from(beats), strength: Float32Array.from(strength), strong,
       envFps, energy, low: bl, mid: bm, high: bh, sections, onsets, features,
+      bars: packBars(secBars),   // признаки тактов — Режиссёр пересобирает части с другой чувствительностью без нового анализа
       ms: Math.round(performance.now() - t0), phaseFixes, tempoCurve, tempoStable,
     };
   }

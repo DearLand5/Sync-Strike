@@ -164,6 +164,19 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .tempo-fix{display:flex;flex-direction:column;gap:6px}
 .tempo-fix .row{gap:6px}
 #tempo-card.busy{opacity:.55;pointer-events:none}
+/* Режиссёр */
+#dir-card.busy{opacity:.55;pointer-events:none}
+.dir-map{width:100%;height:64px;display:block;border-radius:4px;background:#0d0e14;touch-action:manipulation;cursor:pointer}
+.dir-info{font-size:12px;min-height:16px}
+.dir-sens{grid-template-columns:auto 1fr auto auto minmax(92px,auto)}
+.dir-lab{font-size:14px}
+.dir-kinds{gap:6px}
+.dir-kinds button{min-height:32px;padding:4px 10px;font-size:13px;border-left:4px solid var(--k,#777)}
+.dir-kinds button[aria-pressed="true"]{background:var(--fg);color:#0b0c10}
+.dir-tools{gap:6px}
+#dir-card [hidden]{display:none!important}
+@media (max-width:560px){.dir-sens{grid-template-columns:1fr auto auto}.dir-sens input{grid-column:1/-1;grid-row:2}.dir-sens output{grid-column:1/-1;text-align:left}}
+@media (max-height:520px) and (min-width:560px){#dir-card{padding:8px 12px;gap:6px}.dir-map{height:48px}#dir-card .btn.small{min-height:32px;padding:4px 10px}.dir-kinds button{min-height:28px}}
 @media (max-width:560px){.tempo-row{grid-template-columns:auto 1fr auto auto}.tempo-row output{grid-column:1/-1;text-align:left}}
 @media (max-height:520px) and (min-width:560px){#tempo-card{padding:8px 12px;gap:6px}#tempo-card .btn.small{min-height:32px;padding:4px 10px}.tempo-keep{min-height:26px}}
 /* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
@@ -311,6 +324,33 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
             <span class="mono muted" id="fx-info"></span>
           </div>
         </div>
+      </div>
+      <div class="card" id="dir-card">
+        <div class="row" style="justify-content:space-between"><span class="h3">Режиссёр · эффекты по частям трека</span>
+          <div class="seg" id="dir-mode"><button data-m="auto">Авто</button><button data-m="manual">Вручную</button><button data-m="off">Выкл</button></div></div>
+        <canvas id="dir-map" class="dir-map" aria-label="Части трека: нажмите, чтобы выбрать часть и перемотать"></canvas>
+        <div class="mono muted dir-info" id="dir-info">—</div>
+        <div class="tempo-row dir-sens" id="dir-auto">
+          <span class="dir-lab">Смены частей</span>
+          <input type="range" id="dir-sens" min="-2" max="2" step="1" value="0" aria-label="Как часто меняются части">
+          <button class="btn small" id="dir-sens-m" aria-label="Реже смены частей">Реже</button>
+          <button class="btn small" id="dir-sens-p" aria-label="Чаще смены частей">Чаще</button>
+          <output id="dir-sens-o">как в анализе</output>
+        </div>
+        <div class="dir-manual" id="dir-manual">
+          <div class="row dir-kinds" id="dir-kinds"></div>
+          <div class="row dir-tools">
+            <button class="btn small" id="dir-prev" aria-label="Предыдущая часть">◀</button>
+            <button class="btn small" id="dir-next" aria-label="Следующая часть">▶</button>
+            <button class="btn small" id="dir-left" title="Начало части на такт раньше">Начало −такт</button>
+            <button class="btn small" id="dir-right" title="Начало части на такт позже">Начало +такт</button>
+            <button class="btn small" id="dir-split" title="Разрезать часть по позиции трека (или пополам)">Разрезать</button>
+            <button class="btn small" id="dir-merge" title="Слить со следующей частью">Объединить</button>
+            <button class="btn small" id="dir-play" title="Слушать с начала части">▶ Отсюда</button>
+            <button class="btn small" id="dir-reset" title="Взять части из анализа">Из анализа</button>
+          </div>
+        </div>
+        <p class="hint" id="dir-hint"></p>
       </div>
       <div class="card">
         <div class="row" style="justify-content:space-between"><span class="h3">Арена под этот трек</span><span class="hint" id="arena-note">Совпадение оценено по спектру, темпу и динамике</span></div>
@@ -1248,7 +1288,7 @@ const DemoTrack = {
    ===================================================================== */
 const LIB_MAX_TRACKS = 30;
 const LIB_MAX_BYTES = 400 * 1024 * 1024;
-const ANALYSIS_VERSION = 4;    // увеличить при изменении формата/логики анализатора — карты пересчитаются
+const ANALYSIS_VERSION = 5;    // увеличить при изменении формата/логики анализатора — карты пересчитаются
 
 class TrackLibrary {
   constructor() {
@@ -1526,9 +1566,20 @@ function sectionBars(a) {
   return { edges, B, barLen, Lmin, raw, F, I, tLoud };
 }
 
-function buildSections(a) {
+/** Признаки тактов в компактном виде для карты (IndexedDB): только то, что нужно segmentBars. */
+function packBars(b) {
+  const r3 = arr => Array.from(arr, v => Math.round(v * 1000) / 1000);
+  const raw = {}, F = {};
+  for (const [key] of SECTION_DIMS) { raw[key] = r3(b.raw[key]); F[key] = r3(b.F[key]); }
+  return { edges: r3(b.edges), B: b.B, barLen: b.barLen, Lmin: b.Lmin, tLoud: b.tLoud, raw, F, I: r3(b.I) };
+}
+
+function buildSections(a) { return segmentBars(a, sectionBars(a), 1); }
+
+/** Разбиение по уже посчитанным тактам. mul — множитель цены границы (ручная «чувствительность» Режиссёра:
+    > 1 — реже смены частей, < 1 — чаще). a нужны duration, envFps, energy, bl, bh, confidence. */
+function segmentBars(a, bars, mul) {
   const { duration } = a;
-  const bars = sectionBars(a);
   const { edges, B, Lmin, F } = bars;
   const single = () => finishSections(a, bars, [{ start: 0, end: duration, i0: 0, i1: B }]);
   /* ритма нет (эмбиент, свободный темп; уверенность < 0.4): сетка тактов условна, лазеры и «брейки» не к месту — одна спокойная часть */
@@ -1553,7 +1604,7 @@ function buildSections(a) {
   for (let ph = 0; ph < 8; ph++) {
     const dp = new Float64Array(B + 1).fill(Infinity), from = new Int32Array(B + 1).fill(-1);
     dp[0] = 0;
-    const pen = i => { if (i === 0) return 0; const r = ((i - ph) % 8 + 8) % 8; return SECTION_LAMBDA * (weak ? 3 : 1) * (1 + (r === 0 ? 0 : r === 4 ? 0.19 : r % 2 === 0 ? 0.69 : 1.06)); };
+    const pen = i => { if (i === 0) return 0; const r = ((i - ph) % 8 + 8) % 8; return SECTION_LAMBDA * mul * (weak ? 3 : 1) * (1 + (r === 0 ? 0 : r === 4 ? 0.19 : r % 2 === 0 ? 0.69 : 1.06)); };
     for (let j = Lmin; j <= B; j++) {
       if (j < B && B - j < Lmin) continue;
       for (let i = 0; i <= j - Lmin; i++) {
@@ -1579,7 +1630,7 @@ function buildSections(a) {
   const avgI = (x) => { let s = 0; for (let k = x.i0; k < x.i1; k++) s += bars.I[k]; return s / (x.i1 - x.i0); };
   const contrast = (x, y) => { let c = Math.abs(avgI(x) - avgI(y)) / 0.12; for (const [key, , , tau] of SECTION_DIMS) c = Math.max(c, Math.abs(mean(key, x.i0, x.i1) - mean(key, y.i0, y.i1)) / tau); return c; };
   for (;;) {
-    let wi = -1, wc = weak ? 2 : 1;
+    let wi = -1, wc = (weak ? 2 : 1) * Math.sqrt(mul);
     for (let i = 0; i + 1 < segs.length; i++) { const c = contrast(segs[i], segs[i + 1]); if (c < wc) { wc = c; wi = i; } }
     if (wi < 0) break;
     segs.splice(wi, 2, { start: segs[wi].start, end: segs[wi + 1].end, i0: segs[wi].i0, i1: segs[wi + 1].i1 });
@@ -2162,7 +2213,8 @@ class RhythmAnalyzer {
     }
 
         /* ---- части трека: сегментация по тактам + характер (kind), см. buildSections ---- */
-    const sections = buildSections({ beats, strong, duration, envFps, energy, bl, bm, bh, fL, fM, fH, pL: eL, pM: eM, pH: eH, confidence, frameOf });
+    const secBars = sectionBars({ beats, strong, duration, envFps, energy, bl, bm, bh, fL, fM, fH, pL: eL, pM: eM, pH: eH, confidence, frameOf });
+    const sections = segmentBars({ duration, envFps, energy, bl, bh, confidence }, secBars, 1);
 
     /* ---- кандидаты событий по полосам (порог применяется во время игры) ---- */
     const onsets = { low: [], mid: [], high: [] };
@@ -2212,6 +2264,7 @@ class RhythmAnalyzer {
       duration, bpm: bestBpm, period: P, confidence, mode, stability: 1 - cv,
       beats: Float64Array.from(beats), strength: Float32Array.from(strength), strong,
       envFps, energy, low: bl, mid: bm, high: bh, sections, onsets, features,
+      bars: packBars(secBars),   // признаки тактов — Режиссёр пересобирает части с другой чувствительностью без нового анализа
       ms: Math.round(performance.now() - t0), phaseFixes, tempoCurve, tempoStable,
     };
   }
@@ -2515,6 +2568,116 @@ const Tempo = {
   },
 };
 window.TEMPO_REF = Tempo;   // для тестов
+
+/* ==== 04c_director.js ==== */
+/* =====================================================================
+   Режиссёр: ручная настройка частей трека (экран «Музыка», карточка «Режиссёр»).
+   Режимы: auto — части из анализа (с чувствительностью: реже/чаще смены), manual — части,
+   размеченные игроком, off — без эффектов по частям. Настройка хранится на трек
+   (Store "dir.<ключ трека>") в ИСХОДНОМ времени трека и применяется к исходной карте
+   до смены темпа: Director.apply(base) → Tempo.makeMap(...).
+   ===================================================================== */
+const DIR_KINDS = ["intro", "build", "drop", "climax", "break", "calm", "groove", "outro"];
+const DIR_LABEL = { intro: "Вступление", build: "Нарастание", drop: "Дроп", climax: "Кульминация", break: "Брейк", calm: "Тихо", groove: "Ровно", outro: "Финал" };
+const DIR_SHORT = { intro: "ВСТ", build: "НАР", drop: "ДРОП", climax: "КУЛЬМ", break: "БРЕЙК", calm: "ТИХО", groove: "РОВНО", outro: "ФИН" };
+const DIR_COLOR = { intro: "#4a6aa8", build: "#d9a23a", drop: "#e0405a", climax: "#ff2e88", break: "#2fa58c", calm: "#4c5262", groove: "#737b88", outro: "#7a5ca8" };
+const DIR_SENS = [2.4, 1.6, 1, 0.62, 0.38];   // множитель цены границы для чувствительности −2..+2 (−2 — реже смены)
+const DIR_SENS_LABEL = ["реже всего", "реже", "как в анализе", "чаще", "чаще всего"];
+const DIR_MIN_LEN = 2;                          // минимальная длина ручной части, с
+
+const Director = {
+  defaults() { return { mode: "auto", sens: 0, secs: null }; },
+
+  normalize(d) {
+    const o = this.defaults();
+    if (!d || typeof d !== "object") return o;
+    if (d.mode === "manual" || d.mode === "off") o.mode = d.mode;
+    o.sens = clamp(Math.round(+d.sens || 0), -2, 2);
+    if (Array.isArray(d.secs) && d.secs.length) {
+      const secs = d.secs.filter(x => x && isFinite(x.s) && DIR_KINDS.includes(x.k)).map(x => ({ s: Math.max(0, +x.s), k: x.k })).sort((a, b) => a.s - b.s);
+      if (secs.length) { secs[0].s = 0; o.secs = secs; }
+    }
+    if (o.mode === "manual" && !o.secs) o.mode = "auto";
+    return o;
+  },
+  isDefault(d) { d = this.normalize(d); return d.mode === "auto" && d.sens === 0; },
+
+  load(meta) { return this.normalize(meta ? Store.get("dir." + meta.key, null) : null); },
+  save(meta, d) {
+    if (!meta) return;
+    d = this.normalize(d);
+    // ручная разметка хранится и в режимах auto/off — чтобы переключение туда-обратно её не теряло
+    Store.set("dir." + meta.key, d.mode === "auto" && d.sens === 0 && !d.secs ? null : d);
+  },
+  forget(meta) { if (meta) Store.set("dir." + meta.key, null); },
+
+  /** Входные данные анализа частей из карты (без доступа к STFT). */
+  _a(base) { return { duration: base.duration, envFps: base.envFps, energy: base.energy, bl: base.low, bh: base.high, confidence: base.confidence }; },
+
+  /** Части «как в анализе» с выбранной чувствительностью. Старые карты без признаков тактов — только как есть. */
+  autoSections(base, sens) {
+    if (!sens || !base.bars || !base.bars.B) return base.sections;
+    try { return segmentBars(this._a(base), base.bars, DIR_SENS[sens + 2]); }
+    catch (e) { console.warn(e); return base.sections; }
+  },
+
+  /** Полные объекты частей из ручной разметки [{s, k}]: энергия/уровень/бас/верха — по огибающим карты. */
+  fill(base, list) {
+    const { envFps, energy, duration } = base, bl = base.low, bh = base.high;
+    const mean = (arr, t0, t1) => { if (!arr) return 0; let s = 0, c = 0; for (let i = Math.floor(t0 * envFps); i < Math.min(arr.length, Math.ceil(t1 * envFps)); i++) { s += arr[i]; c++; } return c ? s / c : 0; };
+    const gLow = mean(bl, 0, duration), gHigh = mean(bh, 0, duration);
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      const start = i ? list[i].s : 0, end = i + 1 < list.length ? list[i + 1].s : duration;
+      if (end - start < 0.05) continue;
+      const e = mean(energy, start, end);
+      const sc = { start, end, kind: list[i].k, energy: e, level: e < 0.38 ? "calm" : e > 0.66 ? "intense" : "mid", drive: e,
+        bassy: mean(bl, start, end) > gLow * 1.12, bright: mean(bh, start, end) > gHigh * 1.12, slope: 0, manual: true };
+      // уровень для агрессии врагов — по характеру части, а не только по громкости
+      if (sc.kind === "drop" || sc.kind === "climax") sc.level = "intense";
+      else if (sc.kind === "break" || sc.kind === "calm" || sc.kind === "intro" || sc.kind === "outro") sc.level = e > 0.66 ? "mid" : sc.level;
+      out.push(sc);
+    }
+    out.forEach((sc, i) => { sc.delta = i ? sc.energy - out[i - 1].energy : 0; });
+    return out;
+  },
+
+  /** Части, которые увидят часы и арена (в исходном времени трека). */
+  sections(base, d) {
+    d = this.normalize(d);
+    if (d.mode === "off") return this.fill(base, [{ s: 0, k: "groove" }]);
+    if (d.mode === "manual") return this.fill(base, d.secs);
+    return this.autoSections(base, d.sens);
+  },
+
+  /** Карта с частями Режиссёра (base не меняется). По умолчанию — сам base. */
+  apply(base, d) {
+    d = this.normalize(d);
+    if (!base || (d.mode === "auto" && d.sens === 0)) return base;
+    return Object.assign({}, base, { sections: this.sections(base, d), directorOff: d.mode === "off" });
+  },
+
+  /** Ручная разметка из готовых частей. */
+  toList(sections) { return sections.map((s, i) => ({ s: i ? Math.round(s.start * 1000) / 1000 : 0, k: s.kind || "groove" })); },
+
+  /** Ближайшая граница такта (сильная доля) к t в исходном времени; без тактов — ближайшая доля. */
+  snap(base, t) {
+    const ed = base.bars && base.bars.edges && base.bars.edges.length > 2 ? base.bars.edges : null;
+    let best = t, bd = Infinity;
+    if (ed) { for (const e of ed) { const d = Math.abs(e - t); if (d < bd) { bd = d; best = e; } } return best; }
+    const b = base.beats, st = base.strong;
+    for (let i = 0; i < b.length; i++) { if (st && !st[i]) continue; const d = Math.abs(b[i] - t); if (d < bd) { bd = d; best = b[i]; } }
+    return best;
+  },
+  /** Граница такта на n тактов вперёд/назад от t. */
+  stepBar(base, t, n) {
+    const ed = base.bars && base.bars.edges && base.bars.edges.length > 2 ? base.bars.edges : null;
+    if (!ed) { const bar = 4 * 60 / Math.max(40, base.bpm || 120); return clamp(t + n * bar, 0, base.duration); }
+    let i = 0, bd = Infinity;
+    for (let k = 0; k < ed.length; k++) { const d = Math.abs(ed[k] - t); if (d < bd) { bd = d; i = k; } }
+    return ed[clamp(i + n, 0, ed.length - 1)];
+  },
+};
 
 /* ==== 05_clock.js ==== */
 /* =====================================================================
@@ -5908,7 +6071,7 @@ class ArenaRenderer {
     // нарастание: ход самой части «build» (от 0.35 до 1), последние 3 с до дропа (даже без отдельной части)
     // и слабый вклад роста энергии впереди там, где части трека не размечены как нарастание
     const pre = m.dropIn < 3 ? clamp(1 - m.dropIn / 3, 0, 1) : 0;
-    const trendW = kind === "groove" || kind === "calm" ? clamp((m.trend || 0) * 2.2, 0, 1) * 0.5 : 0;
+    const trendW = !m.dirOff && (kind === "groove" || kind === "calm") ? clamp((m.trend || 0) * 2.2, 0, 1) * 0.5 : 0;
     const tgt = Math.max(kw.build * (0.35 + 0.65 * (m.buildProg || 0)), pre, trendW);
     this.buildW = damp(this.buildW, tgt, tgt > this.buildW ? 5 : 12, dt);
     if (m.sectionEvent && hotKind) { this.dropFlash = 1; this.swapTarget = this.swapTarget ? 0 : 1; }
@@ -9877,6 +10040,7 @@ class UIManager {
     seek.addEventListener("change", () => { this._seeking = false; if (g.audio.buffer) g.audio.seek(seek.value / 1000 * g.audio.duration); });
     this.bindRange("pl-vol", "musicVol", v => v / 100, v => Math.round(v * 100), v => v + "%");
     this.bindTempo();
+    this.bindDirector();
     $("music-fight").addEventListener("click", () => {
       this.sfx("uiClick");
       if (g.battleActive) g.returnToBattle(); else this.show("mode");
@@ -10104,6 +10268,7 @@ class UIManager {
     $("st-dur").textContent = m ? fmtTime(m.duration) : "—";
     $("music-fight").textContent = g.battleActive ? "Вернуться в бой" : "В бой";
     this.refreshTempo();
+    this.refreshDirector();
     this.refreshPlayer();
     this.buildArenas();
     this.syncAll();
@@ -10168,6 +10333,186 @@ class UIManager {
     $("tp-minus").disabled = d.rate <= TEMPO_MIN + 0.001; $("tp-plus").disabled = d.rate >= TEMPO_MAX - 0.001;
   }
 
+  /* ---------- Режиссёр: ручная настройка частей трека ---------- */
+  bindDirector() {
+    const g = this.game;
+    const kinds = $("dir-kinds");
+    for (const k of DIR_KINDS) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn small"; b.dataset.k = k; b.textContent = DIR_LABEL[k];
+      b.style.setProperty("--k", DIR_COLOR[k]);
+      b.addEventListener("click", () => this.dirEdit(list => { list[this._dirSel].k = k; }));
+      kinds.appendChild(b);
+    }
+    $("dir-mode").querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+      const t = g.track; if (!t) return;
+      const d = Director.normalize(t.director);
+      if (b.dataset.m === "manual" && !d.secs) d.secs = Director.toList(Director.autoSections(t.base.map, d.sens));
+      d.mode = b.dataset.m;
+      this.dirCommit(d);
+      this.sfx("uiClick");
+    }));
+    const setSens = v => { const t = g.track; if (!t) return; const d = Director.normalize(t.director); d.sens = clamp(v, -2, 2); this.dirCommit(d); };
+    $("dir-sens").addEventListener("input", e => setSens(+e.target.value));
+    $("dir-sens-m").addEventListener("click", () => setSens(Director.normalize(g.track && g.track.director).sens - 1));
+    $("dir-sens-p").addEventListener("click", () => setSens(Director.normalize(g.track && g.track.director).sens + 1));
+    const sel = d => { const n = this._dirSecs().length; this._dirSel = clamp((this._dirSel || 0) + d, 0, Math.max(0, n - 1)); this.refreshDirector(); };
+    $("dir-prev").addEventListener("click", () => sel(-1));
+    $("dir-next").addEventListener("click", () => sel(1));
+    const base = () => g.track.base.map;
+    const moveStart = n => this.dirEdit(list => {
+      const i = this._dirSel; if (i <= 0) return;
+      const lo = list[i - 1].s + DIR_MIN_LEN, hi = (i + 1 < list.length ? list[i + 1].s : base().duration) - DIR_MIN_LEN;
+      const v = Director.stepBar(base(), list[i].s, n);
+      if (v >= lo && v <= hi) list[i].s = v;
+    });
+    $("dir-left").addEventListener("click", () => moveStart(-1));
+    $("dir-right").addEventListener("click", () => moveStart(1));
+    $("dir-split").addEventListener("click", () => this.dirEdit(list => {
+      const i = this._dirSel, s0 = list[i].s, s1 = i + 1 < list.length ? list[i + 1].s : base().duration;
+      const pos = this._dirPos();
+      let at = pos > s0 + DIR_MIN_LEN && pos < s1 - DIR_MIN_LEN ? pos : (s0 + s1) / 2;
+      at = Director.snap(base(), at);
+      if (at - s0 < DIR_MIN_LEN || s1 - at < DIR_MIN_LEN) { this.toast("Часть слишком короткая, чтобы разрезать"); return; }
+      list.splice(i + 1, 0, { s: at, k: list[i].k });
+      this._dirSel = i + 1;
+    }));
+    $("dir-merge").addEventListener("click", () => this.dirEdit(list => {
+      if (list.length < 2) return;
+      const i = this._dirSel;
+      if (i + 1 < list.length) list.splice(i + 1, 1);
+      else { list.splice(i, 1); this._dirSel = i - 1; }   // последняя часть сливается с предыдущей
+    }));
+    $("dir-play").addEventListener("click", () => {
+      const t = g.track; if (!t || !g.audio.buffer) return;
+      const sc = this._dirSecs()[this._dirSel || 0]; if (!sc) return;
+      const at = sc.start / t.tempo.rate;
+      g.audio.unlock(); g.audio.seek(at); if (!g.audio.playing) g.audio.play(at);
+      this.refreshPlayer();
+    });
+    $("dir-reset").addEventListener("click", () => {
+      const t = g.track; if (!t) return;
+      const d = Director.normalize(t.director);
+      d.secs = Director.toList(Director.autoSections(t.base.map, d.sens)); d.mode = "manual";
+      this._dirSel = 0;
+      this.dirCommit(d);
+    });
+    // нажатие по карте: выбрать часть и перемотать трек в это место
+    const cv = $("dir-map");
+    cv.addEventListener("click", e => {
+      const t = g.track; if (!t || !cv.clientWidth) return;
+      const x = clamp(e.offsetX / cv.clientWidth, 0, 1), orig = x * t.base.map.duration;
+      const secs = this._dirSecs();
+      const i = secs.findIndex(sc => orig >= sc.start && orig < sc.end);
+      if (i >= 0) this._dirSel = i;
+      if (g.audio.buffer) {
+        const at = clamp(orig / t.tempo.rate, 0, g.audio.duration - 0.05);
+        if (g.audio.playing) g.audio.seek(at); else g.audio.pausedAt = at;
+      }
+      this.refreshDirector(); this.refreshPlayer();
+    });
+  }
+  /** Части Режиссёра текущего трека в исходном времени (кэш до смены настройки). */
+  _dirSecs() {
+    const t = this.game.track;
+    if (!t) return [];
+    const key = JSON.stringify(t.director);
+    if (!this._dirCache || this._dirCache.map !== t.base.map || this._dirCache.key !== key) {
+      if (this._dirCache && this._dirCache.map !== t.base.map) this._dirSel = 0;   // другой трек — с первой части
+      this._dirCache = { map: t.base.map, key, secs: Director.sections(t.base.map, t.director) };
+    }
+    return this._dirCache.secs;
+  }
+  /** Позиция трека в исходном времени. */
+  _dirPos() {
+    const g = this.game, t = g.track, a = g.audio;
+    if (!t || !a.buffer) return 0;
+    return clamp(a.heardPosition(), 0, a.duration) * t.tempo.rate;
+  }
+  /** Правка ручной разметки: f(list) меняет копию списка частей. */
+  dirEdit(f) {
+    const t = this.game.track; if (!t) return;
+    const d = Director.normalize(t.director);
+    if (d.mode !== "manual") return;
+    const list = d.secs.map(x => ({ s: x.s, k: x.k }));
+    this._dirSel = clamp(this._dirSel || 0, 0, list.length - 1);
+    f(list);
+    d.secs = list;
+    this.dirCommit(d);
+    this.sfx("uiClick");
+  }
+  dirCommit(d) {
+    if (!this.game.applyDirector(d)) { this.toast("Режиссёра можно настроить вне боя"); return; }
+    this.refreshDirector();
+  }
+  refreshDirector() {
+    const g = this.game, t = g.track;
+    $("dir-card").classList.toggle("busy", !t || g.battleActive);
+    const d = Director.normalize(t && t.director);
+    $("dir-mode").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m === d.mode)));
+    const hasBars = !!(t && t.base.map.bars && t.base.map.bars.B);
+    $("dir-auto").hidden = d.mode !== "auto";
+    $("dir-manual").hidden = d.mode !== "manual";
+    $("dir-sens").value = d.sens; $("dir-sens").disabled = !hasBars;
+    $("dir-sens-o").textContent = DIR_SENS_LABEL[d.sens + 2];
+    $("dir-sens-m").disabled = !hasBars || d.sens <= -2; $("dir-sens-p").disabled = !hasBars || d.sens >= 2;
+    const secs = this._dirSecs();
+    this._dirSel = clamp(this._dirSel || 0, 0, Math.max(0, secs.length - 1));
+    const cur = secs[this._dirSel];
+    $("dir-kinds").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(!!cur && b.dataset.k === cur.kind)));
+    const n = secs.length, i = this._dirSel;
+    $("dir-prev").disabled = i <= 0; $("dir-next").disabled = i >= n - 1;
+    $("dir-left").disabled = $("dir-right").disabled = i <= 0;
+    $("dir-merge").disabled = n < 2;
+    const rate = t ? t.tempo.rate : 1;
+    if (!t) $("dir-info").textContent = "Трек не выбран";
+    else if (d.mode === "off") $("dir-info").textContent = "Эффекты по частям трека выключены";
+    else {
+      const cnt = {}; for (const sc of secs) cnt[sc.kind] = (cnt[sc.kind] || 0) + 1;
+      const sum = ["drop", "climax", "break", "build"].filter(k => cnt[k]).map(k => DIR_LABEL[k].toLowerCase() + " " + cnt[k]).join(" · ");
+      $("dir-info").textContent = cur ? `Часть ${i + 1} из ${n}: ${DIR_LABEL[cur.kind]}, ${fmtTime(cur.start / rate)}–${fmtTime(cur.end / rate)}` + (sum ? "  |  " + sum : "") : "—";
+    }
+    $("dir-hint").textContent = d.mode === "manual"
+      ? "Нажмите на карту, чтобы выбрать часть и перемотать трек. Выберите характер части; «Разрезать» делит её по текущей позиции трека (по границе такта)."
+      : d.mode === "auto" ? (hasBars ? "Части найдены анализом. Если эффекты меняются слишком часто или пропускают дропы — сдвиньте «Смены частей» или разметьте вручную." : "Трек проанализирован старой версией: чувствительность недоступна, ручная разметка работает.")
+      : "Арена не реагирует на дропы и брейки, только на ритм.";
+    this.drawDirector();
+  }
+  /** Карта частей: полосы по характеру, огибающая громкости, выбранная часть и позиция трека. */
+  drawDirector() {
+    const cv = $("dir-map"), t = this.game.track;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const c = cv.getContext("2d");
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+    if (!t) return;
+    const base = t.base.map, dur = base.duration || 1, d = Director.normalize(t.director);
+    const secs = this._dirSecs(), X = v => v / dur * w;
+    c.font = "600 10px " + getComputedStyle(document.body).fontFamily;
+    c.textBaseline = "top";
+    secs.forEach((sc, i) => {
+      const x0 = X(sc.start), x1 = X(sc.end);
+      c.fillStyle = d.mode === "off" ? "#2a2d38" : rgba(DIR_COLOR[sc.kind] || "#777777", 0.75);
+      c.fillRect(x0, 0, Math.max(1, x1 - x0 - 1), h);
+      if (x1 - x0 > 30 && d.mode !== "off") { c.fillStyle = "rgba(255,255,255,0.9)"; c.fillText(DIR_SHORT[sc.kind] || "", x0 + 4, 4); }
+      if (i === this._dirSel && d.mode !== "off") { c.strokeStyle = "#ffffff"; c.lineWidth = 2; c.strokeRect(x0 + 1, 1, Math.max(2, x1 - x0 - 3), h - 2); }
+    });
+    // огибающая громкости
+    const e = base.energy;
+    if (e && e.length) {
+      c.beginPath();
+      const step = Math.max(1, Math.floor(e.length / w));
+      for (let i = 0; i < e.length; i += step) { const x = i / e.length * w, y = h - 4 - e[i] * (h - 20); if (i) c.lineTo(x, y); else c.moveTo(x, y); }
+      c.strokeStyle = "rgba(255,255,255,0.55)"; c.lineWidth = 1; c.stroke();
+    }
+    // позиция трека
+    const px = X(this._dirPos());
+    c.fillStyle = "#3ef0ff"; c.fillRect(px - 1, 0, 2, h);
+  }
+
   refreshPlayer() {
     const a = this.game.audio;
     $("pl-play").textContent = a.playing ? "❚❚" : "▶";
@@ -10177,6 +10522,7 @@ class UIManager {
       $("pl-seek").value = a.duration ? Math.round(pos / a.duration * 1000) : 0;
       $("pl-time").textContent = fmtTime(pos) + " / " + fmtTime(a.duration);
     }
+    if (this.screen === "music") this.drawDirector();
   }
 
   buildArenas() {
@@ -10697,6 +11043,7 @@ class Game {
       buffer, map, meta, themeId: saved, changed: true,
       base: base ? { buffer: base.buffer, map: base.map } : { buffer, map },
       tempo: Tempo.normalize(base && base.tempo),
+      director: Director.normalize(base && base.director),   // ручная настройка Режиссёра (применена к map)
     };
     this.applyTrackTheme();
     this.ui.refreshMenu();
@@ -10706,7 +11053,8 @@ class Game {
     tempo = Tempo.normalize(tempo);
     let b = buffer;
     if (tempo.rate !== 1) { prog(0, "Смена темпа"); b = await Tempo.makeBuffer(this.audio.ensure(), buffer, tempo, prog); }
-    this.setTrack(b, Tempo.makeMap(map, tempo, b.duration), meta, { buffer, map, tempo });
+    const dir = Director.load(meta);
+    this.setTrack(b, Tempo.makeMap(Director.apply(map, dir), tempo, b.duration), meta, { buffer, map, tempo, director: dir });
   }
   /** Сохраняет темп текущего трека (библиотека или Store для демо). */
   saveTempo() {
@@ -10739,7 +11087,7 @@ class Game {
         card.hidden = false; this._progress(0, "Смена темпа");
         buffer = await Tempo.makeBuffer(a.ensure(), t.base.buffer, next, (k, l) => this._progress(k, l));
       }
-      const map = Tempo.makeMap(t.base.map, next, buffer.duration);
+      const map = Tempo.makeMap(Director.apply(t.base.map, t.director), next, buffer.duration);
       const newPos = clamp(pos * old.rate / next.rate, 0, Math.max(0, buffer.duration - 0.05));
       if (buffer !== t.buffer) { a.setTrack(buffer, t.meta); a.pausedAt = newPos; }
       this.clock.setMap(map);
@@ -10759,6 +11107,17 @@ class Game {
       const pend = this._tempoPending; this._tempoPending = null;
       if (pend && this.track === t && !Tempo.same(pend, t.tempo)) this.applyTempo(pend);
     }
+  }
+  /** Ручная настройка Режиссёра текущего трека: части пересчитываются мгновенно (звук и темп не трогаем). */
+  applyDirector(next) {
+    const t = this.track;
+    if (!t || this.battleActive) return false;
+    next = Director.normalize(next);
+    t.director = next;
+    Director.save(t.meta, next);
+    t.map = Tempo.makeMap(Director.apply(t.base.map, next), t.tempo, t.buffer.duration);
+    this.clock.setMap(t.map);
+    return true;
   }
   resolveTheme() {
     const t = this.track;
@@ -11235,6 +11594,7 @@ class Game {
     m.dropSoon = (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0;
     m.dropIn = c.dropIn; m.buildProg = c.buildProg; m.sectionProg = c.sectionProg; m.sectionT = c.sectionT;
     m.halfPulse = c.halfPulse;
+    m.dirOff = !!(c.map && c.map.directorOff);   // Режиссёр выключен вручную — без эффектов по частям
     return m;
   }
 

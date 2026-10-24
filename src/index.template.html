@@ -164,6 +164,19 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .tempo-fix{display:flex;flex-direction:column;gap:6px}
 .tempo-fix .row{gap:6px}
 #tempo-card.busy{opacity:.55;pointer-events:none}
+/* Режиссёр */
+#dir-card.busy{opacity:.55;pointer-events:none}
+.dir-map{width:100%;height:64px;display:block;border-radius:4px;background:#0d0e14;touch-action:manipulation;cursor:pointer}
+.dir-info{font-size:12px;min-height:16px}
+.dir-sens{grid-template-columns:auto 1fr auto auto minmax(92px,auto)}
+.dir-lab{font-size:14px}
+.dir-kinds{gap:6px}
+.dir-kinds button{min-height:32px;padding:4px 10px;font-size:13px;border-left:4px solid var(--k,#777)}
+.dir-kinds button[aria-pressed="true"]{background:var(--fg);color:#0b0c10}
+.dir-tools{gap:6px}
+#dir-card [hidden]{display:none!important}
+@media (max-width:560px){.dir-sens{grid-template-columns:1fr auto auto}.dir-sens input{grid-column:1/-1;grid-row:2}.dir-sens output{grid-column:1/-1;text-align:left}}
+@media (max-height:520px) and (min-width:560px){#dir-card{padding:8px 12px;gap:6px}.dir-map{height:48px}#dir-card .btn.small{min-height:32px;padding:4px 10px}.dir-kinds button{min-height:28px}}
 @media (max-width:560px){.tempo-row{grid-template-columns:auto 1fr auto auto}.tempo-row output{grid-column:1/-1;text-align:left}}
 @media (max-height:520px) and (min-width:560px){#tempo-card{padding:8px 12px;gap:6px}#tempo-card .btn.small{min-height:32px;padding:4px 10px}.tempo-keep{min-height:26px}}
 /* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
@@ -311,6 +324,33 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
             <span class="mono muted" id="fx-info"></span>
           </div>
         </div>
+      </div>
+      <div class="card" id="dir-card">
+        <div class="row" style="justify-content:space-between"><span class="h3">Режиссёр · эффекты по частям трека</span>
+          <div class="seg" id="dir-mode"><button data-m="auto">Авто</button><button data-m="manual">Вручную</button><button data-m="off">Выкл</button></div></div>
+        <canvas id="dir-map" class="dir-map" aria-label="Части трека: нажмите, чтобы выбрать часть и перемотать"></canvas>
+        <div class="mono muted dir-info" id="dir-info">—</div>
+        <div class="tempo-row dir-sens" id="dir-auto">
+          <span class="dir-lab">Смены частей</span>
+          <input type="range" id="dir-sens" min="-2" max="2" step="1" value="0" aria-label="Как часто меняются части">
+          <button class="btn small" id="dir-sens-m" aria-label="Реже смены частей">Реже</button>
+          <button class="btn small" id="dir-sens-p" aria-label="Чаще смены частей">Чаще</button>
+          <output id="dir-sens-o">как в анализе</output>
+        </div>
+        <div class="dir-manual" id="dir-manual">
+          <div class="row dir-kinds" id="dir-kinds"></div>
+          <div class="row dir-tools">
+            <button class="btn small" id="dir-prev" aria-label="Предыдущая часть">◀</button>
+            <button class="btn small" id="dir-next" aria-label="Следующая часть">▶</button>
+            <button class="btn small" id="dir-left" title="Начало части на такт раньше">Начало −такт</button>
+            <button class="btn small" id="dir-right" title="Начало части на такт позже">Начало +такт</button>
+            <button class="btn small" id="dir-split" title="Разрезать часть по позиции трека (или пополам)">Разрезать</button>
+            <button class="btn small" id="dir-merge" title="Слить со следующей частью">Объединить</button>
+            <button class="btn small" id="dir-play" title="Слушать с начала части">▶ Отсюда</button>
+            <button class="btn small" id="dir-reset" title="Взять части из анализа">Из анализа</button>
+          </div>
+        </div>
+        <p class="hint" id="dir-hint"></p>
       </div>
       <div class="card">
         <div class="row" style="justify-content:space-between"><span class="h3">Арена под этот трек</span><span class="hint" id="arena-note">Совпадение оценено по спектру, темпу и динамике</span></div>

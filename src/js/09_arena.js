@@ -993,7 +993,7 @@ class ArenaRenderer {
     // нарастание: ход самой части «build» (от 0.35 до 1), последние 3 с до дропа (даже без отдельной части)
     // и слабый вклад роста энергии впереди там, где части трека не размечены как нарастание
     const pre = m.dropIn < 3 ? clamp(1 - m.dropIn / 3, 0, 1) : 0;
-    const trendW = kind === "groove" || kind === "calm" ? clamp((m.trend || 0) * 2.2, 0, 1) * 0.5 : 0;
+    const trendW = !m.dirOff && (kind === "groove" || kind === "calm") ? clamp((m.trend || 0) * 2.2, 0, 1) * 0.5 : 0;
     const tgt = Math.max(kw.build * (0.35 + 0.65 * (m.buildProg || 0)), pre, trendW);
     this.buildW = damp(this.buildW, tgt, tgt > this.buildW ? 5 : 12, dt);
     if (m.sectionEvent && hotKind) { this.dropFlash = 1; this.swapTarget = this.swapTarget ? 0 : 1; }

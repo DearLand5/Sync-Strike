@@ -320,6 +320,7 @@ class Game {
       buffer, map, meta, themeId: saved, changed: true,
       base: base ? { buffer: base.buffer, map: base.map } : { buffer, map },
       tempo: Tempo.normalize(base && base.tempo),
+      director: Director.normalize(base && base.director),   // ручная настройка Режиссёра (применена к map)
     };
     this.applyTrackTheme();
     this.ui.refreshMenu();
@@ -329,7 +330,8 @@ class Game {
     tempo = Tempo.normalize(tempo);
     let b = buffer;
     if (tempo.rate !== 1) { prog(0, "Смена темпа"); b = await Tempo.makeBuffer(this.audio.ensure(), buffer, tempo, prog); }
-    this.setTrack(b, Tempo.makeMap(map, tempo, b.duration), meta, { buffer, map, tempo });
+    const dir = Director.load(meta);
+    this.setTrack(b, Tempo.makeMap(Director.apply(map, dir), tempo, b.duration), meta, { buffer, map, tempo, director: dir });
   }
   /** Сохраняет темп текущего трека (библиотека или Store для демо). */
   saveTempo() {
@@ -362,7 +364,7 @@ class Game {
         card.hidden = false; this._progress(0, "Смена темпа");
         buffer = await Tempo.makeBuffer(a.ensure(), t.base.buffer, next, (k, l) => this._progress(k, l));
       }
-      const map = Tempo.makeMap(t.base.map, next, buffer.duration);
+      const map = Tempo.makeMap(Director.apply(t.base.map, t.director), next, buffer.duration);
       const newPos = clamp(pos * old.rate / next.rate, 0, Math.max(0, buffer.duration - 0.05));
       if (buffer !== t.buffer) { a.setTrack(buffer, t.meta); a.pausedAt = newPos; }
       this.clock.setMap(map);
@@ -382,6 +384,17 @@ class Game {
       const pend = this._tempoPending; this._tempoPending = null;
       if (pend && this.track === t && !Tempo.same(pend, t.tempo)) this.applyTempo(pend);
     }
+  }
+  /** Ручная настройка Режиссёра текущего трека: части пересчитываются мгновенно (звук и темп не трогаем). */
+  applyDirector(next) {
+    const t = this.track;
+    if (!t || this.battleActive) return false;
+    next = Director.normalize(next);
+    t.director = next;
+    Director.save(t.meta, next);
+    t.map = Tempo.makeMap(Director.apply(t.base.map, next), t.tempo, t.buffer.duration);
+    this.clock.setMap(t.map);
+    return true;
   }
   resolveTheme() {
     const t = this.track;
@@ -858,6 +871,7 @@ class Game {
     m.dropSoon = (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0;
     m.dropIn = c.dropIn; m.buildProg = c.buildProg; m.sectionProg = c.sectionProg; m.sectionT = c.sectionT;
     m.halfPulse = c.halfPulse;
+    m.dirOff = !!(c.map && c.map.directorOff);   // Режиссёр выключен вручную — без эффектов по частям
     return m;
   }
 

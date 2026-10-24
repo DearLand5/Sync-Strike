@@ -321,6 +321,7 @@ class UIManager {
     seek.addEventListener("change", () => { this._seeking = false; if (g.audio.buffer) g.audio.seek(seek.value / 1000 * g.audio.duration); });
     this.bindRange("pl-vol", "musicVol", v => v / 100, v => Math.round(v * 100), v => v + "%");
     this.bindTempo();
+    this.bindDirector();
     $("music-fight").addEventListener("click", () => {
       this.sfx("uiClick");
       if (g.battleActive) g.returnToBattle(); else this.show("mode");
@@ -548,6 +549,7 @@ class UIManager {
     $("st-dur").textContent = m ? fmtTime(m.duration) : "—";
     $("music-fight").textContent = g.battleActive ? "Вернуться в бой" : "В бой";
     this.refreshTempo();
+    this.refreshDirector();
     this.refreshPlayer();
     this.buildArenas();
     this.syncAll();
@@ -612,6 +614,186 @@ class UIManager {
     $("tp-minus").disabled = d.rate <= TEMPO_MIN + 0.001; $("tp-plus").disabled = d.rate >= TEMPO_MAX - 0.001;
   }
 
+  /* ---------- Режиссёр: ручная настройка частей трека ---------- */
+  bindDirector() {
+    const g = this.game;
+    const kinds = $("dir-kinds");
+    for (const k of DIR_KINDS) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn small"; b.dataset.k = k; b.textContent = DIR_LABEL[k];
+      b.style.setProperty("--k", DIR_COLOR[k]);
+      b.addEventListener("click", () => this.dirEdit(list => { list[this._dirSel].k = k; }));
+      kinds.appendChild(b);
+    }
+    $("dir-mode").querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+      const t = g.track; if (!t) return;
+      const d = Director.normalize(t.director);
+      if (b.dataset.m === "manual" && !d.secs) d.secs = Director.toList(Director.autoSections(t.base.map, d.sens));
+      d.mode = b.dataset.m;
+      this.dirCommit(d);
+      this.sfx("uiClick");
+    }));
+    const setSens = v => { const t = g.track; if (!t) return; const d = Director.normalize(t.director); d.sens = clamp(v, -2, 2); this.dirCommit(d); };
+    $("dir-sens").addEventListener("input", e => setSens(+e.target.value));
+    $("dir-sens-m").addEventListener("click", () => setSens(Director.normalize(g.track && g.track.director).sens - 1));
+    $("dir-sens-p").addEventListener("click", () => setSens(Director.normalize(g.track && g.track.director).sens + 1));
+    const sel = d => { const n = this._dirSecs().length; this._dirSel = clamp((this._dirSel || 0) + d, 0, Math.max(0, n - 1)); this.refreshDirector(); };
+    $("dir-prev").addEventListener("click", () => sel(-1));
+    $("dir-next").addEventListener("click", () => sel(1));
+    const base = () => g.track.base.map;
+    const moveStart = n => this.dirEdit(list => {
+      const i = this._dirSel; if (i <= 0) return;
+      const lo = list[i - 1].s + DIR_MIN_LEN, hi = (i + 1 < list.length ? list[i + 1].s : base().duration) - DIR_MIN_LEN;
+      const v = Director.stepBar(base(), list[i].s, n);
+      if (v >= lo && v <= hi) list[i].s = v;
+    });
+    $("dir-left").addEventListener("click", () => moveStart(-1));
+    $("dir-right").addEventListener("click", () => moveStart(1));
+    $("dir-split").addEventListener("click", () => this.dirEdit(list => {
+      const i = this._dirSel, s0 = list[i].s, s1 = i + 1 < list.length ? list[i + 1].s : base().duration;
+      const pos = this._dirPos();
+      let at = pos > s0 + DIR_MIN_LEN && pos < s1 - DIR_MIN_LEN ? pos : (s0 + s1) / 2;
+      at = Director.snap(base(), at);
+      if (at - s0 < DIR_MIN_LEN || s1 - at < DIR_MIN_LEN) { this.toast("Часть слишком короткая, чтобы разрезать"); return; }
+      list.splice(i + 1, 0, { s: at, k: list[i].k });
+      this._dirSel = i + 1;
+    }));
+    $("dir-merge").addEventListener("click", () => this.dirEdit(list => {
+      if (list.length < 2) return;
+      const i = this._dirSel;
+      if (i + 1 < list.length) list.splice(i + 1, 1);
+      else { list.splice(i, 1); this._dirSel = i - 1; }   // последняя часть сливается с предыдущей
+    }));
+    $("dir-play").addEventListener("click", () => {
+      const t = g.track; if (!t || !g.audio.buffer) return;
+      const sc = this._dirSecs()[this._dirSel || 0]; if (!sc) return;
+      const at = sc.start / t.tempo.rate;
+      g.audio.unlock(); g.audio.seek(at); if (!g.audio.playing) g.audio.play(at);
+      this.refreshPlayer();
+    });
+    $("dir-reset").addEventListener("click", () => {
+      const t = g.track; if (!t) return;
+      const d = Director.normalize(t.director);
+      d.secs = Director.toList(Director.autoSections(t.base.map, d.sens)); d.mode = "manual";
+      this._dirSel = 0;
+      this.dirCommit(d);
+    });
+    // нажатие по карте: выбрать часть и перемотать трек в это место
+    const cv = $("dir-map");
+    cv.addEventListener("click", e => {
+      const t = g.track; if (!t || !cv.clientWidth) return;
+      const x = clamp(e.offsetX / cv.clientWidth, 0, 1), orig = x * t.base.map.duration;
+      const secs = this._dirSecs();
+      const i = secs.findIndex(sc => orig >= sc.start && orig < sc.end);
+      if (i >= 0) this._dirSel = i;
+      if (g.audio.buffer) {
+        const at = clamp(orig / t.tempo.rate, 0, g.audio.duration - 0.05);
+        if (g.audio.playing) g.audio.seek(at); else g.audio.pausedAt = at;
+      }
+      this.refreshDirector(); this.refreshPlayer();
+    });
+  }
+  /** Части Режиссёра текущего трека в исходном времени (кэш до смены настройки). */
+  _dirSecs() {
+    const t = this.game.track;
+    if (!t) return [];
+    const key = JSON.stringify(t.director);
+    if (!this._dirCache || this._dirCache.map !== t.base.map || this._dirCache.key !== key) {
+      if (this._dirCache && this._dirCache.map !== t.base.map) this._dirSel = 0;   // другой трек — с первой части
+      this._dirCache = { map: t.base.map, key, secs: Director.sections(t.base.map, t.director) };
+    }
+    return this._dirCache.secs;
+  }
+  /** Позиция трека в исходном времени. */
+  _dirPos() {
+    const g = this.game, t = g.track, a = g.audio;
+    if (!t || !a.buffer) return 0;
+    return clamp(a.heardPosition(), 0, a.duration) * t.tempo.rate;
+  }
+  /** Правка ручной разметки: f(list) меняет копию списка частей. */
+  dirEdit(f) {
+    const t = this.game.track; if (!t) return;
+    const d = Director.normalize(t.director);
+    if (d.mode !== "manual") return;
+    const list = d.secs.map(x => ({ s: x.s, k: x.k }));
+    this._dirSel = clamp(this._dirSel || 0, 0, list.length - 1);
+    f(list);
+    d.secs = list;
+    this.dirCommit(d);
+    this.sfx("uiClick");
+  }
+  dirCommit(d) {
+    if (!this.game.applyDirector(d)) { this.toast("Режиссёра можно настроить вне боя"); return; }
+    this.refreshDirector();
+  }
+  refreshDirector() {
+    const g = this.game, t = g.track;
+    $("dir-card").classList.toggle("busy", !t || g.battleActive);
+    const d = Director.normalize(t && t.director);
+    $("dir-mode").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m === d.mode)));
+    const hasBars = !!(t && t.base.map.bars && t.base.map.bars.B);
+    $("dir-auto").hidden = d.mode !== "auto";
+    $("dir-manual").hidden = d.mode !== "manual";
+    $("dir-sens").value = d.sens; $("dir-sens").disabled = !hasBars;
+    $("dir-sens-o").textContent = DIR_SENS_LABEL[d.sens + 2];
+    $("dir-sens-m").disabled = !hasBars || d.sens <= -2; $("dir-sens-p").disabled = !hasBars || d.sens >= 2;
+    const secs = this._dirSecs();
+    this._dirSel = clamp(this._dirSel || 0, 0, Math.max(0, secs.length - 1));
+    const cur = secs[this._dirSel];
+    $("dir-kinds").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(!!cur && b.dataset.k === cur.kind)));
+    const n = secs.length, i = this._dirSel;
+    $("dir-prev").disabled = i <= 0; $("dir-next").disabled = i >= n - 1;
+    $("dir-left").disabled = $("dir-right").disabled = i <= 0;
+    $("dir-merge").disabled = n < 2;
+    const rate = t ? t.tempo.rate : 1;
+    if (!t) $("dir-info").textContent = "Трек не выбран";
+    else if (d.mode === "off") $("dir-info").textContent = "Эффекты по частям трека выключены";
+    else {
+      const cnt = {}; for (const sc of secs) cnt[sc.kind] = (cnt[sc.kind] || 0) + 1;
+      const sum = ["drop", "climax", "break", "build"].filter(k => cnt[k]).map(k => DIR_LABEL[k].toLowerCase() + " " + cnt[k]).join(" · ");
+      $("dir-info").textContent = cur ? `Часть ${i + 1} из ${n}: ${DIR_LABEL[cur.kind]}, ${fmtTime(cur.start / rate)}–${fmtTime(cur.end / rate)}` + (sum ? "  |  " + sum : "") : "—";
+    }
+    $("dir-hint").textContent = d.mode === "manual"
+      ? "Нажмите на карту, чтобы выбрать часть и перемотать трек. Выберите характер части; «Разрезать» делит её по текущей позиции трека (по границе такта)."
+      : d.mode === "auto" ? (hasBars ? "Части найдены анализом. Если эффекты меняются слишком часто или пропускают дропы — сдвиньте «Смены частей» или разметьте вручную." : "Трек проанализирован старой версией: чувствительность недоступна, ручная разметка работает.")
+      : "Арена не реагирует на дропы и брейки, только на ритм.";
+    this.drawDirector();
+  }
+  /** Карта частей: полосы по характеру, огибающая громкости, выбранная часть и позиция трека. */
+  drawDirector() {
+    const cv = $("dir-map"), t = this.game.track;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const c = cv.getContext("2d");
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+    if (!t) return;
+    const base = t.base.map, dur = base.duration || 1, d = Director.normalize(t.director);
+    const secs = this._dirSecs(), X = v => v / dur * w;
+    c.font = "600 10px " + getComputedStyle(document.body).fontFamily;
+    c.textBaseline = "top";
+    secs.forEach((sc, i) => {
+      const x0 = X(sc.start), x1 = X(sc.end);
+      c.fillStyle = d.mode === "off" ? "#2a2d38" : rgba(DIR_COLOR[sc.kind] || "#777777", 0.75);
+      c.fillRect(x0, 0, Math.max(1, x1 - x0 - 1), h);
+      if (x1 - x0 > 30 && d.mode !== "off") { c.fillStyle = "rgba(255,255,255,0.9)"; c.fillText(DIR_SHORT[sc.kind] || "", x0 + 4, 4); }
+      if (i === this._dirSel && d.mode !== "off") { c.strokeStyle = "#ffffff"; c.lineWidth = 2; c.strokeRect(x0 + 1, 1, Math.max(2, x1 - x0 - 3), h - 2); }
+    });
+    // огибающая громкости
+    const e = base.energy;
+    if (e && e.length) {
+      c.beginPath();
+      const step = Math.max(1, Math.floor(e.length / w));
+      for (let i = 0; i < e.length; i += step) { const x = i / e.length * w, y = h - 4 - e[i] * (h - 20); if (i) c.lineTo(x, y); else c.moveTo(x, y); }
+      c.strokeStyle = "rgba(255,255,255,0.55)"; c.lineWidth = 1; c.stroke();
+    }
+    // позиция трека
+    const px = X(this._dirPos());
+    c.fillStyle = "#3ef0ff"; c.fillRect(px - 1, 0, 2, h);
+  }
+
   refreshPlayer() {
     const a = this.game.audio;
     $("pl-play").textContent = a.playing ? "❚❚" : "▶";
@@ -621,6 +803,7 @@ class UIManager {
       $("pl-seek").value = a.duration ? Math.round(pos / a.duration * 1000) : 0;
       $("pl-time").textContent = fmtTime(pos) + " / " + fmtTime(a.duration);
     }
+    if (this.screen === "music") this.drawDirector();
   }
 
   buildArenas() {
