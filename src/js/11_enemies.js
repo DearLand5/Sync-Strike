@@ -4,11 +4,15 @@
    «жетон» атаки, и назначают удар на ближайшую долю.
    ===================================================================== */
 const ENEMY_TYPES = {
-  blade:  { name: "Клинок", hp: 50,  speed: 95,  w: 12, h: 30, poise: 24, sight: 560, reach: 34, wind: 0.4,  dmg: 12, cd: [1.2, 2.1], lunge: 330, activeT: 0.14, recoverT: 0.45, score: 100 },
-  gunner: { name: "Стрелок", hp: 38, speed: 80,  w: 12, h: 34, poise: 14, sight: 760, prefer: [210, 360], wind: 0.62, dmg: 9, cd: [1.6, 2.6], bolt: 290, activeT: 0.1, recoverT: 0.6, score: 120 },
-  swift:  { name: "Вихрь",  hp: 28,  speed: 190, w: 10, h: 24, poise: 12, sight: 640, reach: 120, wind: 0.28, dmg: 8, cd: [0.9, 1.6], lunge: 540, activeT: 0.28, recoverT: 0.4, score: 130 },
-  brute:  { name: "Молот",  hp: 185, speed: 55,  w: 22, h: 50, poise: 70, sight: 560, reach: 48, wind: 0.85, dmg: 22, cd: [2.2, 3.2], activeT: 0.16, recoverT: 0.8, score: 300 },
+  blade:  { name: "Клинок", hp: 50,  speed: 95,  w: 12, h: 30, poise: 24, sight: 560, reach: 34, wind: 0.4, beats: 1,  dmg: 12, cd: [1.2, 2.1], lunge: 330, activeT: 0.14, recoverT: 0.45, score: 100 },
+  gunner: { name: "Стрелок", hp: 38, speed: 80,  w: 12, h: 34, poise: 14, sight: 760, prefer: [210, 360], wind: 0.62, beats: 2, dmg: 9, cd: [1.6, 2.6], bolt: 290, activeT: 0.1, recoverT: 0.6, score: 120 },
+  swift:  { name: "Вихрь",  hp: 28,  speed: 190, w: 10, h: 24, poise: 12, sight: 640, reach: 120, wind: 0.28, beats: 1, dmg: 8, cd: [0.9, 1.6], lunge: 540, activeT: 0.28, recoverT: 0.4, score: 130 },
+  brute:  { name: "Молот",  hp: 185, speed: 55,  w: 22, h: 50, poise: 70, sight: 560, reach: 48, wind: 0.85, beats: 2, dmg: 22, cd: [2.2, 3.2], activeT: 0.16, recoverT: 0.8, score: 300 },
 };
+
+/** Задержка начала урона ближнего боя после старта удара (с): окно идеального уклона получается
+ *  почти центрированным на доле (уклон нажали чуть позже удара — ещё засчитается). */
+const MELEE_HIT_DELAY = 0.04;
 
 /** Длительность «смерти» до исчезновения: тяжёлый Молот падает дольше. */
 const DEAD_DUR = { blade: 0.5, gunner: 0.55, swift: 0.45, brute: 0.85 };
@@ -34,6 +38,10 @@ class Enemy {
     this.attackCD = rand(0.6, 1.2);
     this.hasToken = false;
     this.windT = 0; this.windDur = 0.5;
+    this.strikeAt = 0;        // музыкальное время удара (всегда на доле)
+    this.ticks = []; this.tickI = 0;   // доли отсчёта в замахе (музыкальное время)
+    this.pips = [];           // засечки над врагом: последние 1–2 доли, последняя — сам удар
+    this.windBeats = 0; this.tickFlash = 0;
     this.aim = { x: 0, y: 0 };
     this.seenX = x; this.seenY = 0; this.reactT = 0;
     this.goalX = x; this.relocT = 0;
@@ -99,7 +107,7 @@ class Enemy {
 
   cancelAttack(game) {
     if (this.hasToken) { game.director.release(this); this.hasToken = false; }
-    this.windT = 0;
+    this.windT = 0; this.ticks = []; this.pips = [];
   }
 
   update(dt, game) {
@@ -109,6 +117,7 @@ class Enemy {
     this.hitKick = Math.max(0, this.hitKick - dt * 5);
     this.attackCD -= dt;
     this.dodgeCD = Math.max(0, this.dodgeCD - dt);
+    this.tickFlash = Math.max(0, this.tickFlash - dt * 7);
     this.tauntT = Math.max(0, this.tauntT - dt);
     this.dropT = Math.max(0, this.dropT - dt);
     this.poise = Math.min(this.poiseMax, this.poise + dt * this.poiseMax * 0.25);
@@ -226,14 +235,35 @@ class Enemy {
     if (game.strongBeatNow && Math.random() < 0.3) this.tauntT = 0.3;
   }
 
+  /** Сколько долей длится замах: по типу и сложности, темп > ~150 BPM — больше (время реакции не падает), < ~85 — меньше. */
+  _windBeats(P) {
+    const bpm = 60 / P;
+    let n = this.T.beats + (this.diff.windBeats || 0);
+    if (bpm > 150) n++;
+    if (bpm > 190) n++;
+    if (bpm < 85) n--;
+    return Math.max(1, Math.min(n, Math.floor(1.45 / P)));
+  }
+
   _requestAttack(game) {
     if (!game.director.request(this)) return;
     this.hasToken = true;
-    // удар назначается на долю: не раньше минимального замаха
-    const now = game.songNow;
-    const wind = this.T.wind * this.diff.wind;
-    const strikeAt = game.clock.nextBeatAfter(now, wind);
-    this.windDur = clamp(strikeAt - now, wind, wind + 0.65);
+    // удар точно на доле: замах = N долей, но не короче минимума времени реакции (по типу и сложности)
+    const clock = game.clock, now = game.songNow, P = clock.period;
+    const n = this._windBeats(P);
+    const floor = this.T.wind * this.diff.wind * 0.6;
+    this.strikeAt = clock.nextBeatAfter(now, Math.max(floor, (n - 1) * P + 0.1));
+    // доли отсчёта между началом замаха и ударом
+    this.ticks = []; this.tickI = 0;
+    let t = now + 0.08;
+    for (let i = 0; i < 6; i++) {
+      const b = clock.nextBeatAfter(t);
+      if (b >= this.strikeAt - 0.02) break;
+      this.ticks.push(b); t = b + 0.05;
+    }
+    this.windBeats = this.ticks.length + 1;
+    this.pips = this.ticks.slice(-1).concat(this.strikeAt);       // 1–2 засечки, последняя ярче
+    this.windDur = Math.max(0.12, this.strikeAt - now);
     this.windT = 0;
     this.setState("windup");
     this.vx *= 0.3;
@@ -244,13 +274,30 @@ class Enemy {
     const pl = game.player;
     this.windT += dt;
     this.vx = damp(this.vx, 0, 10, dt);
+    const now = game.songNow;
     const lockT = this.windDur - 0.15;     // прицел фиксируется за 0.15 с до удара
     if (this.windT < lockT) {
       this.facing = sign(pl.x - this.x);
       this.aim.x = pl.x; this.aim.y = pl.y - 16;
     }
-    this.eyeBoost = clamp(this.windT / this.windDur, 0, 1);
-    if (this.windT >= this.windDur) {
+    // отсчёт: вспышка на каждой доле замаха
+    while (this.tickI < this.ticks.length && now >= this.ticks[this.tickI]) { this.tickI++; this.tickFlash = 1; }
+    this.eyeBoost = Math.max(clamp(this.windT / this.windDur, 0, 1), this.tickFlash * 0.9);
+    // удар — по музыкальным часам (не по накоплению dt); кадр округляется к ближайшему, поэтому полкадра упреждения
+    const lead = Math.min(0.02, (game._ft || 16) / 2000);
+    if (now + lead < this.strikeAt) return;
+    if (this.windT < this.windDur * 0.85) {
+      // враг замедлен (slowmo/стоп-кадр) и не успел замахнуться: удар переносится на следующую долю
+      const old = this.strikeAt;
+      this.strikeAt = game.clock.nextBeatAfter(now, 0.02);
+      this.windDur += this.strikeAt - old;
+      this.ticks = []; this.tickI = 0; this.tickFlash = 1;
+      this.pips = [old, this.strikeAt]; this.windBeats++;
+      return;
+    }
+    this.tickFlash = 1;
+    if (game.strikeLog) game.strikeLog.push({ kind: this.kind, t: now, at: this.strikeAt, beats: this.windBeats, dur: this.windDur, ts: game.timeScale, P: game.clock.period });
+    {
       this.setState("attack");
       this.hitIds.clear();
       const T = this.T;
@@ -281,7 +328,7 @@ class Enemy {
     if (this.kind === "swift") game.addAfterimage(this);
     else this.vx = 0;
     // хитбокс атаки ближнего боя
-    if (this.kind !== "gunner") {
+    if (this.kind !== "gunner" && this.stateT >= MELEE_HIT_DELAY) {
       const reach = this.kind === "brute" ? 46 : this.kind === "swift" ? 26 : 30;
       const box = { x: this.facing > 0 ? this.x : this.x - reach, y: this.y - this.h * this.scale, w: reach, h: this.h * this.scale };
       game.combat.enemyHit(this, box, T.dmg * this.diff.dmg * this.power);
