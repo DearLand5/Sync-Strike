@@ -11,6 +11,7 @@ require("fs").mkdirSync(out, { recursive: true });
   await page.waitForTimeout(300);
   await page.evaluate(() => { window.__game.settings.set("quality", "low"); window.__game.startBattle("waves"); });
   await page.waitForFunction(() => window.__game.state === "battle", null, { timeout: 60000 });
+  if (process.env.THEME) await page.evaluate(t => window.__game.arena.setTheme(t), process.env.THEME);   // арена по id: THEME=orbit node tools/gpu-test.js
   await page.waitForTimeout(500);
   // сколько непрозрачных пикселей в тайлах фона (0 — фон стёрт)
   const filled = () => page.evaluate(() => window.__game.arena.tiles.map(t => {

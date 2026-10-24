@@ -8,6 +8,7 @@ const secs = +(process.argv[2] || 60);
   const errors = []; page.on("pageerror", e => errors.push(e.message));
   await page.goto("file://" + path.join(__dirname, "../index.html"));
   await page.waitForTimeout(300);
+  await page.evaluate(t => { window.__perfTheme = t; }, process.env.THEME || "");
   await page.evaluate(() => {
     const g = window.__game, A = g.arena;
     window.__perf = { rebuilds: 0, frames: [], gradients: 0 };
@@ -21,6 +22,7 @@ const secs = +(process.argv[2] || 60);
     requestAnimationFrame(tick);
     g.settings.set("difficulty", "easy");
     g.startBattle("waves").then(() => {
+      if (window.__perfTheme) g.arena.setTheme(window.__perfTheme);   // принудительная арена (THEME=id node tools/perf-test.js)
       const inp = g.input; let lastBeat = -1;
       setInterval(() => {
         if (g.state !== "battle") return;
