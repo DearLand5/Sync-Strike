@@ -213,7 +213,7 @@ class Game {
     } finally {
       card.hidden = true;
       this.loading = false;
-      if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "music") this.ui.refreshMusic(); else if (this.ui.screen === "director") this.ui.refreshDirector();
       if (this.ui.screen === "library") this.ui.refreshLibrary();
     }
   }
@@ -257,7 +257,7 @@ class Game {
     } finally {
       card.hidden = true;
       this.loading = false;
-      if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "music") this.ui.refreshMusic(); else if (this.ui.screen === "director") this.ui.refreshDirector();
       if (this.ui.screen === "library") this.ui.refreshLibrary();
     }
   }
@@ -288,7 +288,7 @@ class Game {
       this.loading = true;
       try { await this.prepareTrack(this._demo.buffer, this._demo.map, this._demo.meta, Store.get("tempo.demo", null), (k, l) => this._progress(k, l)); }
       finally { $("analysis-card").hidden = true; this.loading = false; }
-      if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "music") this.ui.refreshMusic(); else if (this.ui.screen === "director") this.ui.refreshDirector();
       return;
     }
     this.loading = true;
@@ -304,7 +304,7 @@ class Game {
     } finally {
       card.hidden = true;
       this.loading = false;
-      if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "music") this.ui.refreshMusic(); else if (this.ui.screen === "director") this.ui.refreshDirector();
     }
   }
 
@@ -380,7 +380,7 @@ class Game {
     } finally {
       card.hidden = true;
       this.loading = false;
-      if (this.ui.screen === "music") this.ui.refreshMusic();
+      if (this.ui.screen === "music") this.ui.refreshMusic(); else if (this.ui.screen === "director") this.ui.refreshDirector();
       const pend = this._tempoPending; this._tempoPending = null;
       if (pend && this.track === t && !Tempo.same(pend, t.tempo)) this.applyTempo(pend);
     }
@@ -593,7 +593,7 @@ class Game {
     this.camera.kick(0.04);
   }
   onTrackEnded() {
-    if (!this.battleActive) { if (this.ui.screen === "music") this.ui.refreshPlayer(); return; }
+    if (!this.battleActive) { if (this.ui.screen === "music" || this.ui.screen === "director") this.ui.refreshPlayer(); return; }
     if (this.mode === "track" && this.player.alive && this.endT <= 0) { this.onVictory(); return; }
     if (this.state === "battle" && this.endT <= 0) { this.audio.play(0); this.clock.reset(0); }
   }
@@ -759,7 +759,7 @@ class Game {
       if (this.state === "battle") { this.simulate(dtReal); this._autoQuality(dtReal); }
       else this.idle(dtReal);
       if (this.ui.screen === "sync") this.ui.tickSync();
-      if (this.ui.screen === "music") { this._mt = (this._mt || 0) + dtReal; if (this._mt > 0.25) { this._mt = 0; this.ui.refreshPlayer(); } }
+      if (this.ui.screen === "music" || this.ui.screen === "director") { this._mt = (this._mt || 0) + dtReal; if (this._mt > 0.25) { this._mt = 0; this.ui.refreshPlayer(); } }
       this.render(dtReal);
     } catch (e) {
       console.error(e);

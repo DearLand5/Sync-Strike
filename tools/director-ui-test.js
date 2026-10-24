@@ -1,4 +1,4 @@
-// Ручная настройка Режиссёра (карточка на экране «Музыка»): node tools/director-ui-test.js [outDir]
+// Ручная настройка Режиссёра (отдельный экран «Режиссёр»): node tools/director-ui-test.js [outDir]
 // Демо-трек: режимы Авто/Вручную/Выкл, чувствительность, правка частей, сохранение после перезагрузки, темп 125%, бой.
 const { chromium } = require(process.env.PW || "playwright");
 const path = require("path"), fs = require("fs"), os = require("os");
@@ -27,7 +27,7 @@ fs.mkdirSync(out, { recursive: true });
     await page.evaluate(() => window.__game.ui.show("music"));
     await page.click("#btn-demo");
     await page.waitForFunction(() => window.__game.track && !window.__game.loading, null, { timeout: 60000 });
-    await page.evaluate(() => window.__game.ui.refreshMusic());
+    await page.evaluate(() => window.__game.ui.show("director"));
   };
   const shot = async name => { await page.evaluate(() => document.getElementById("dir-card").scrollIntoView({ block: "center" })); await page.screenshot({ path: path.join(out, name) }); };
 
@@ -78,7 +78,7 @@ fs.mkdirSync(out, { recursive: true });
   await page.click("#dir-play"); await page.waitForTimeout(300);
   const pos = await page.evaluate(() => ({ p: window.__game.audio.playing, t: window.__game.audio.heardPosition(), s: window.__game.track.map.sections[window.__game.ui._dirSel].start }));
   check(pos.p && Math.abs(pos.t - pos.s) < 0.8, "▶ Отсюда — трек играет с начала части");
-  await page.click("#pl-play");
+  await page.click("#dir-pl");
 
   // сохранение после перезагрузки
   const before = s.secs.join(",");
@@ -114,11 +114,22 @@ fs.mkdirSync(out, { recursive: true });
 
   // низкий экран
   await page.setViewportSize({ width: 800, height: 380 });
-    await page.evaluate(() => { const g = window.__game; g.ui.show("music"); g.ui.refreshMusic(); });
+    await page.evaluate(() => { const g = window.__game; g.ui.show("director"); });
   await page.waitForTimeout(200);
   await shot("dir-manual-800x380.png");
   const over = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1 || [...document.querySelectorAll("#dir-card *")].some(e => e.getBoundingClientRect().right > window.innerWidth + 1));
   check(!over, "800×380: без горизонтального вылета");
+
+  // главное меню: пункт «Режиссёр», меню помещается на 800×380
+  await page.evaluate(() => window.__game.ui.show("menu"));
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(out, "dir-menu-800x380.png") });
+  const menuFit = await page.evaluate(() => [...document.querySelectorAll("#scr-menu .menu-item")].filter(e => !e.hidden).every(e => { const r = e.getBoundingClientRect(); return r.bottom <= window.innerHeight + 1 && r.right <= window.innerWidth + 1; }));
+  check(menuFit, "800×380: все пункты меню (с «Режиссёром») на экране");
+  await page.click('#scr-menu [data-go="director"]');
+  check(await page.evaluate(() => window.__game.ui.screen === "director"), "из меню открывается экран «Режиссёр»");
+  await page.click("#dir-back");
+  check(await page.evaluate(() => window.__game.ui.screen === "menu"), "«Назад» возвращает в меню");
 
   check(!errors.length, "без ошибок" + (errors.length ? ": " + errors.join(" | ") : ""));
   await ctx.close();

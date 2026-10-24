@@ -168,6 +168,9 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 #dir-card.busy{opacity:.55;pointer-events:none}
 .dir-map{width:100%;height:64px;display:block;border-radius:4px;background:#0d0e14;touch-action:manipulation;cursor:pointer}
 .dir-info{font-size:12px;min-height:16px}
+.dir-player{grid-template-columns:auto auto 1fr}
+.dir-player .hint{font-size:12px;line-height:1.35}
+#scr-director .dir-map{height:84px}
 .dir-sens{grid-template-columns:auto 1fr auto auto minmax(92px,auto)}
 .dir-lab{font-size:14px}
 .dir-kinds{gap:6px}
@@ -176,7 +179,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .dir-tools{gap:6px}
 #dir-card [hidden]{display:none!important}
 @media (max-width:560px){.dir-sens{grid-template-columns:1fr auto auto}.dir-sens input{grid-column:1/-1;grid-row:2}.dir-sens output{grid-column:1/-1;text-align:left}}
-@media (max-height:520px) and (min-width:560px){#dir-card{padding:8px 12px;gap:6px}.dir-map{height:48px}#dir-card .btn.small{min-height:32px;padding:4px 10px}.dir-kinds button{min-height:28px}}
+@media (max-height:520px) and (min-width:560px){#dir-card{padding:8px 12px;gap:6px}#scr-director .dir-map{height:52px}#scr-director .panel{gap:8px}#dir-note{display:none}#dir-card .btn.small{min-height:32px;padding:4px 10px}.dir-kinds button{min-height:28px}}
 @media (max-width:560px){.tempo-row{grid-template-columns:auto 1fr auto auto}.tempo-row output{grid-column:1/-1;text-align:left}}
 @media (max-height:520px) and (min-width:560px){#tempo-card{padding:8px 12px;gap:6px}#tempo-card .btn.small{min-height:32px;padding:4px 10px}.tempo-keep{min-height:26px}}
 /* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
@@ -262,6 +265,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <button class="menu-item main" data-go="mode">В бой</button>
         <button class="menu-item" data-go="music">Загрузить музыку</button>
         <button class="menu-item" data-go="library">Библиотека треков</button>
+        <button class="menu-item" data-go="director">Режиссёр</button>
         <button class="menu-item" data-go="skins">Облик</button>
         <button class="menu-item" data-go="settings">Настройки</button>
         <button class="menu-item" data-go="tutorial">Обучение</button>
@@ -325,8 +329,28 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
           </div>
         </div>
       </div>
+      <div class="card">
+        <div class="row" style="justify-content:space-between"><span class="h3">Арена под этот трек</span><span class="hint" id="arena-note">Совпадение оценено по спектру, темпу и динамике</span></div>
+        <div class="arena-list" id="arena-list"></div>
+      </div>
+      <div class="row">
+        <button class="btn" data-go="menu">Назад</button>
+        <button class="btn" data-go="sync">Калибровка синхронизации</button>
+        <button class="btn" data-go="director">Режиссёр</button>
+        <button class="btn primary" id="music-fight">В бой</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ РЕЖИССЁР ============ -->
+  <section class="screen" id="scr-director" hidden>
+    <div class="panel">
+      <div class="topbar">
+        <h2 class="title h2">Режиссёр</h2>
+        <span class="track-line"><i class="dot" id="dir-dot"></i><span id="dir-track">Трек не выбран</span></span>
+      </div>
       <div class="card" id="dir-card">
-        <div class="row" style="justify-content:space-between"><span class="h3">Режиссёр · эффекты по частям трека</span>
+        <div class="row" style="justify-content:space-between"><span class="h3">Части трека и эффекты арены</span>
           <div class="seg" id="dir-mode"><button data-m="auto">Авто</button><button data-m="manual">Вручную</button><button data-m="off">Выкл</button></div></div>
         <canvas id="dir-map" class="dir-map" aria-label="Части трека: нажмите, чтобы выбрать часть и перемотать"></canvas>
         <div class="mono muted dir-info" id="dir-info">—</div>
@@ -352,14 +376,15 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         </div>
         <p class="hint" id="dir-hint"></p>
       </div>
-      <div class="card">
-        <div class="row" style="justify-content:space-between"><span class="h3">Арена под этот трек</span><span class="hint" id="arena-note">Совпадение оценено по спектру, темпу и динамике</span></div>
-        <div class="arena-list" id="arena-list"></div>
+      <div class="player-row dir-player">
+        <button class="btn small" id="dir-pl" aria-label="Воспроизвести">▶</button>
+        <span class="time" id="dir-time">0:00 / 0:00</span>
+        <span class="hint" id="dir-note">Эффекты арены (лазеры, строб, прожектор, искры) включаются по частям трека. Настройка сохраняется для каждого трека.</span>
       </div>
       <div class="row">
-        <button class="btn" data-go="menu">Назад</button>
-        <button class="btn" data-go="sync">Калибровка синхронизации</button>
-        <button class="btn primary" id="music-fight">В бой</button>
+        <button class="btn" id="dir-back">Назад</button>
+        <button class="btn" data-go="music">Музыка</button>
+        <button class="btn primary" id="dir-fight">В бой</button>
       </div>
     </div>
   </section>
@@ -512,7 +537,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
           <div class="slider"><label for="set-shake">Тряска экрана</label><input type="range" id="set-shake" min="0" max="100" step="5"><output></output></div>
           <div class="toggle"><span>Яркие вспышки и стробы</span><input type="checkbox" id="set-flash"></div>
           <div class="toggle"><span>Индикатор доли внизу экрана</span><input type="checkbox" id="set-guide"></div>
-          <div class="toggle"><span>Полный экран в бою</span><input type="checkbox" id="set-fs"></div>
+          <div class="toggle"><span>Полный экран (в меню и в бою)</span><input type="checkbox" id="set-fs"></div>
           <div class="toggle"><span>Горизонтальный экран на телефоне (повернуть, если держите вертикально)</span><input type="checkbox" id="set-land"></div>
           <div class="toggle"><span>Показывать FPS</span><input type="checkbox" id="set-fps"></div>
         </div>

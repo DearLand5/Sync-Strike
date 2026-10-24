@@ -232,6 +232,7 @@ class UIManager {
     if (name === "settings") this.refreshSettings();
     if (name === "sync") this.refreshSync();
     if (name === "skins") this.buildSkins();
+    if (name === "director") { if (this.prevScreen !== "director") this.dirReturn = this.prevScreen || "menu"; this.refreshDirector(); }
     if (name === "menu") this.refreshMenu();
     const first = document.querySelector("#scr-" + name + " .menu-item, #scr-" + name + " .btn.primary");
     if (first && !("ontouchstart" in window)) setTimeout(() => first.focus({ preventScroll: true }), 30);
@@ -251,8 +252,16 @@ class UIManager {
     // общий разблокиратор звука на первом жесте
     const unlock = () => {
       g.audio.unlock();
-      if (!this._lockTried && g.isTouchDevice() && S.v.forceLandscape) { this._lockTried = true; g.requestFullscreen(true); }
     };
+    // полный экран по умолчанию и в меню: на телефоне каждое касание возвращает его, если игрок из него вышел
+    // (браузер разрешает включать полный экран только по жесту). Касание выбора файла не трогаем — иначе может закрыться диалог.
+    const fs = e => {
+      if (!S.v.fullscreen || !g.isTouchDevice() || document.fullscreenElement || document.webkitFullscreenElement) return;
+      const tg = e && e.target;
+      if (tg && tg.closest && tg.closest('input[type="file"], .file-btn')) return;
+      g.requestFullscreen(true);
+    };
+    window.addEventListener("pointerup", fs, { capture: true });
     window.addEventListener("pointerdown", unlock, { capture: true });
     window.addEventListener("keydown", unlock, { capture: true });
 
@@ -549,7 +558,6 @@ class UIManager {
     $("st-dur").textContent = m ? fmtTime(m.duration) : "—";
     $("music-fight").textContent = g.battleActive ? "Вернуться в бой" : "В бой";
     this.refreshTempo();
-    this.refreshDirector();
     this.refreshPlayer();
     this.buildArenas();
     this.syncAll();
@@ -678,6 +686,13 @@ class UIManager {
       this._dirSel = 0;
       this.dirCommit(d);
     });
+    $("dir-pl").addEventListener("click", () => { if (!g.audio.buffer) return; g.audio.unlock(); g.audio.toggle(); this.refreshPlayer(); });
+    $("dir-back").addEventListener("click", () => {
+      this.sfx("uiBack");
+      const to = this.dirReturn && this.dirReturn !== "director" ? this.dirReturn : "menu";
+      this.show(to === "pause" && !g.battleActive ? "menu" : to);
+    });
+    $("dir-fight").addEventListener("click", () => { this.sfx("uiClick"); if (g.battleActive) g.returnToBattle(); else this.show("mode"); });
     // нажатие по карте: выбрать часть и перемотать трек в это место
     const cv = $("dir-map");
     cv.addEventListener("click", e => {
@@ -729,6 +744,9 @@ class UIManager {
   refreshDirector() {
     const g = this.game, t = g.track;
     $("dir-card").classList.toggle("busy", !t || g.battleActive);
+    $("dir-track").textContent = t ? t.meta.name : "Трек не выбран: откройте MP3 или демо на экране «Музыка»";
+    $("dir-dot").classList.toggle("ok", !!t);
+    $("dir-fight").textContent = g.battleActive ? "Вернуться в бой" : "В бой";
     const d = Director.normalize(t && t.director);
     $("dir-mode").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m === d.mode)));
     const hasBars = !!(t && t.base.map.bars && t.base.map.bars.B);
@@ -803,7 +821,13 @@ class UIManager {
       $("pl-seek").value = a.duration ? Math.round(pos / a.duration * 1000) : 0;
       $("pl-time").textContent = fmtTime(pos) + " / " + fmtTime(a.duration);
     }
-    if (this.screen === "music") this.drawDirector();
+    if (this.screen === "director") {
+      $("dir-pl").textContent = a.playing ? "❚❚" : "▶";
+      $("dir-pl").setAttribute("aria-label", a.playing ? "Пауза" : "Воспроизвести");
+      const pos = a.buffer ? clamp(a.heardPosition(), 0, a.duration) : 0;
+      $("dir-time").textContent = fmtTime(pos) + " / " + fmtTime(a.duration);
+      this.drawDirector();
+    }
   }
 
   buildArenas() {
