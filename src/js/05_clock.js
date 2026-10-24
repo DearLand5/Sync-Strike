@@ -29,6 +29,7 @@ class RhythmClock {
     this.bands = { low: 0, mid: 0, high: 0 };
     this.sectionIdx = 0; this.section = null;
     this.level = "mid"; this.kind = "groove"; this.trend = 0; this.nextKind = null; this.timeToNext = 99;
+    this.sectionProg = 0; this.buildProg = 0; this.dropIn = 99;   // доля пройденной части, ход нарастания, секунд до дропа
     this.bassy = false; this.bright = false;
     this._ptr = { low: 0, mid: 0, high: 0 };
     this._lastT = 0;
@@ -110,27 +111,35 @@ class RhythmClock {
       this.bands.low = damp(this.bands.low, 0, 4, dt); this.bands.mid = damp(this.bands.mid, 0, 4, dt); this.bands.high = damp(this.bands.high, 0, 4, dt);
     }
 
-    // секции
+    // секции: границы лежат на сильных долях сетки, поэтому сравниваем с временем без поправки сетки (tc)
     const secs = m.sections;
     if (secs.length) {
       let si = this.sectionIdx;
-      while (si + 1 < secs.length && t >= secs[si + 1].start) si++;
+      while (si + 1 < secs.length && tc >= secs[si + 1].start) si++;
       if (si !== this.sectionIdx) {
         const prevLevel = this.section ? this.section.level : "mid";
+        const prevKind = this.section ? this.section.kind : "groove";
         this.sectionIdx = si;
         this.section = secs[si];
-        this.events.push({ type: "section", level: this.section.level, prevLevel, energy: this.section.energy, kind: this.section.kind });
+        // time — музыкальное время границы, late — на сколько кадр опоздал (для точной подгонки эффектов)
+        this.events.push({ type: "section", level: this.section.level, prevLevel, energy: this.section.energy, kind: this.section.kind, prevKind, time: this.section.start + this.correction, late: t - (this.section.start + this.correction) });
       }
-      this.level = this.section ? this.section.level : "mid";
-      this.kind = this.section ? this.section.kind || "groove" : "groove";
-      this.bassy = !!(this.section && this.section.bassy);
-      this.bright = !!(this.section && this.section.bright);
-      // взгляд вперёд: рост энергии в ближайшие 3 с и скорая смена части
+      const sc = this.section;
+      this.level = sc ? sc.level : "mid";
+      this.kind = sc ? sc.kind || "groove" : "groove";
+      this.bassy = !!(sc && sc.bassy);
+      this.bright = !!(sc && sc.bright);
+      this.sectionProg = sc ? clamp((tc - sc.start) / Math.max(0.5, sc.end - sc.start), 0, 1) : 0;
+      this.buildProg = this.kind === "build" ? this.sectionProg : 0;
+      // взгляд вперёд: рост энергии в ближайшие 3 с (сглажен — иначе дребезжит вместе с огибающей)
       const ahead = clamp((t + 3) * m.envFps, 0, m.energy.length - 1);
-      this.trend = clamp(m.energy[Math.floor(ahead)] - eOff, -1, 1);
+      const trendRaw = clamp(m.energy[Math.floor(ahead)] - eOff, -1, 1);
+      this.trend = playing ? damp(this.trend, trendRaw, 2.5, dt) : this.trend;
       const nxt = secs[this.sectionIdx + 1];
       this.nextKind = nxt ? nxt.kind : null;
-      this.timeToNext = nxt ? nxt.start - t : 99;
+      this.timeToNext = nxt ? nxt.start + this.correction - t : 99;
+      // секунд до ближайшего дропа/кульминации (нарастание перед ним и вспышка точно на первой доле)
+      this.dropIn = nxt && (nxt.kind === "drop" || nxt.kind === "climax") ? this.timeToNext : 99;
     }
 
     // события полос с порогом чувствительности

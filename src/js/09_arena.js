@@ -972,11 +972,28 @@ class ArenaRenderer {
   /* ---------- варианты эффектов по частям трека ---------- */
   updateVariants(m, dt) {
     const kw = this.kw, kind = m.kind || "groove";
-    for (const k in kw) kw[k] = damp(kw[k], k === kind ? 1 : 0, 1.4, dt);
-    // нарастание: сама часть «build», рост энергии впереди или скорый дроп
-    const soon = m.dropSoon ? clamp(1 - m.timeToNext / 4, 0, 1) : 0;
-    this.buildW = damp(this.buildW, Math.max(kw.build, soon, clamp((m.trend || 0) * 2.2, 0, 1) * 0.7), 3, dt);
-    if (m.sectionEvent && (m.sectionKind === "drop" || m.sectionKind === "climax")) { this.dropFlash = 1; this.swapTarget = this.swapTarget ? 0 : 1; }
+    const hotKind = kind === "drop" || kind === "climax";
+    // Веса вариантов: дроп/кульминация и брейк включаются почти мгновенно (часть начинается ровно на «раз» фразы,
+    // границу даёт анализатор), нарастание набирается медленно, а уходит быстро — чтобы на первой доле дропа
+    // свечение нарастания не тянулось хвостом. Спокойные варианты смешиваются мягко.
+    for (const k in kw) {
+      const on = k === kind;
+      const hot = k === "drop" || k === "climax";
+      const rate = on ? (hot ? 10 : k === "break" ? 6 : k === "build" ? 2.5 : 1.8) : (k === "build" ? 12 : hot ? 3.5 : 3);
+      kw[k] = damp(kw[k], on ? 1 : 0, rate, dt);
+    }
+    if (m.sectionEvent) {
+      // кадр смены части: сразу даём «стартовую» долю нового варианта и обрываем нарастание
+      if (kw[kind] !== undefined) kw[kind] = Math.max(kw[kind], hotKind ? 0.7 : kind === "break" ? 0.4 : 0);
+      if (hotKind || kind === "break") { kw.build = 0; this.buildW = Math.min(this.buildW, 0.15); }
+    }
+    // нарастание: ход самой части «build» (от 0.35 до 1), последние 3 с до дропа (даже без отдельной части)
+    // и слабый вклад роста энергии впереди там, где части трека не размечены как нарастание
+    const pre = m.dropIn < 3 ? clamp(1 - m.dropIn / 3, 0, 1) : 0;
+    const trendW = kind === "groove" || kind === "calm" ? clamp((m.trend || 0) * 2.2, 0, 1) * 0.5 : 0;
+    const tgt = Math.max(kw.build * (0.35 + 0.65 * (m.buildProg || 0)), pre, trendW);
+    this.buildW = damp(this.buildW, tgt, tgt > this.buildW ? 5 : 12, dt);
+    if (m.sectionEvent && hotKind) { this.dropFlash = 1; this.swapTarget = this.swapTarget ? 0 : 1; }
     this.dropFlash = Math.max(0, this.dropFlash - dt * 1.4);
     this.swap = damp(this.swap, this.swapTarget || 0, 2, dt);
   }
