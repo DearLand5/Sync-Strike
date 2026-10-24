@@ -24,7 +24,8 @@ const DEFAULT_SETTINGS = {
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5
   windowScale: 1.0,         // 0.7..1.5
-  autoSync: true,           // автоподстройка latencyMs по ударам в бою
+  autoSync: true,
+  dirSnap: "bar",          // Режиссёр: привязка границ частей — beat | bar | bar4 | free           // автоподстройка latencyMs по ударам в бою
   assist: true,             // буферизация ввода к доле
   btnScale: 1.0,            // общий размер кнопок 0.6..1.5
   btnAlpha: 0.55,           // прозрачность кнопок 0.1..1

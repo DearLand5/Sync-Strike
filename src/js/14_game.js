@@ -759,6 +759,7 @@ class Game {
       if (this.state === "battle") { this.simulate(dtReal); this._autoQuality(dtReal); }
       else this.idle(dtReal);
       if (this.ui.screen === "sync") this.ui.tickSync();
+      if (this.ui.screen === "director") this.ui.tickDirector();
       if (this.ui.screen === "music" || this.ui.screen === "director") { this._mt = (this._mt || 0) + dtReal; if (this._mt > 0.25) { this._mt = 0; this.ui.refreshPlayer(); } }
       this.render(dtReal);
     } catch (e) {

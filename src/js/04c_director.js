@@ -88,21 +88,78 @@ const Director = {
   /** Ручная разметка из готовых частей. */
   toList(sections) { return sections.map((s, i) => ({ s: i ? Math.round(s.start * 1000) / 1000 : 0, k: s.kind || "groove" })); },
 
-  /** Ближайшая граница такта (сильная доля) к t в исходном времени; без тактов — ближайшая доля. */
-  snap(base, t) {
+  /** Сетка привязки границ: массив времён (исходное время) для grid = beat | bar | bar4; free — null. */
+  grid(base, grid) {
+    if (grid === "free") return null;
+    if (grid === "beat") return base.beats;
     const ed = base.bars && base.bars.edges && base.bars.edges.length > 2 ? base.bars.edges : null;
+    let bars = ed;
+    if (!bars) { bars = []; const b = base.beats, st = base.strong; for (let i = 0; i < b.length; i++) if (!st || st[i]) bars.push(b[i]); if (!bars.length) bars = [0]; }
+    if (grid !== "bar4") return bars;
+    // фразы по 4 такта: фаза — по началам частей анализа (они лежат на границах фраз), иначе от начала трека
+    const votes = [0, 0, 0, 0];
+    for (const sc of base.sections || []) {
+      if (!sc.start) continue;
+      let k = 0, bd = Infinity;
+      for (let i = 0; i < bars.length; i++) { const d = Math.abs(bars[i] - sc.start); if (d < bd) { bd = d; k = i; } }
+      votes[k % 4]++;
+    }
+    const ph = votes.indexOf(Math.max(...votes));
+    const out = [0];
+    for (let i = 0; i < bars.length; i++) if (i % 4 === ph && bars[i] > 0) out.push(bars[i]);
+    return out;
+  },
+  /** Ближайшая точка сетки к t (без сетки — само t). */
+  snap(base, t, grid = "bar") {
+    const g = this.grid(base, grid);
+    t = clamp(t, 0, base.duration);
+    if (!g || !g.length) return t;
     let best = t, bd = Infinity;
-    if (ed) { for (const e of ed) { const d = Math.abs(e - t); if (d < bd) { bd = d; best = e; } } return best; }
-    const b = base.beats, st = base.strong;
-    for (let i = 0; i < b.length; i++) { if (st && !st[i]) continue; const d = Math.abs(b[i] - t); if (d < bd) { bd = d; best = b[i]; } }
+    for (let i = 0; i < g.length; i++) { const d = Math.abs(g[i] - t); if (d < bd) { bd = d; best = g[i]; } }
     return best;
   },
-  /** Граница такта на n тактов вперёд/назад от t. */
-  stepBar(base, t, n) {
-    const ed = base.bars && base.bars.edges && base.bars.edges.length > 2 ? base.bars.edges : null;
-    if (!ed) { const bar = 4 * 60 / Math.max(40, base.bpm || 120); return clamp(t + n * bar, 0, base.duration); }
+  /** Точка сетки на n шагов вперёд/назад от t (без сетки — шаг в такт по темпу). */
+  stepBar(base, t, n, grid = "bar") {
+    const g = this.grid(base, grid === "free" ? "bar" : grid);
+    if (!g || g.length < 2) { const bar = 4 * 60 / Math.max(40, base.bpm || 120); return clamp(t + n * bar, 0, base.duration); }
     let i = 0, bd = Infinity;
-    for (let k = 0; k < ed.length; k++) { const d = Math.abs(ed[k] - t); if (d < bd) { bd = d; i = k; } }
-    return ed[clamp(i + n, 0, ed.length - 1)];
+    for (let k = 0; k < g.length; k++) { const d = Math.abs(g[k] - t); if (d < bd) { bd = d; i = k; } }
+    return g[clamp(i + n, 0, g.length - 1)];
   },
+
+  /** Отметка «с этого места» (разметка на слух): часть характера k начинается в s. Возвращает индекс отмеченной части. */
+  mark(list, s, k, duration) {
+    let i = 0;
+    while (i + 1 < list.length && list[i + 1].s <= s) i++;
+    const end = i + 1 < list.length ? list[i + 1].s : duration;
+    let at;
+    if (s - list[i].s < DIR_MIN_LEN) { list[i].k = k; at = i; }                         // у самого начала части — меняем её
+    else if (end - s < DIR_MIN_LEN && i + 1 < list.length) { list[i + 1].s = s; list[i + 1].k = k; at = i + 1; }   // у самого конца — сдвигаем следующую
+    else { list.splice(i + 1, 0, { s, k }); at = i + 1; }
+    return this.tidy(list, at);
+  },
+  /** Слить соседние части одного характера и слишком короткие; вернуть новый индекс части idx. */
+  tidy(list, idx = 0) {
+    list[0].s = 0;
+    for (let i = 1; i < list.length; i++) {
+      if (list[i].k === list[i - 1].k || list[i].s - list[i - 1].s < 0.05) {
+        list.splice(i, 1);
+        if (idx >= i) idx--;
+        i--;
+      }
+    }
+    return clamp(idx, 0, list.length - 1);
+  },
+};
+
+/** Что делает часть на арене — подсказка в настройке Режиссёра. */
+const DIR_DESC = {
+  intro: "фон приглушён, без вспышек",
+  build: "искры летят вверх, свечение растёт к следующему дропу",
+  drop: "лазеры, строб, смена неоновых цветов, вспышка на первой доле",
+  climax: "как дроп, но ярче, с искрами сверху",
+  break: "фон обесцвечивается, прожектор на героя",
+  calm: "фон приглушён",
+  groove: "обычный фон без особых эффектов",
+  outro: "фон приглушён, затихание",
 };

@@ -1,5 +1,6 @@
 // Ручная настройка Режиссёра (отдельный экран «Режиссёр»): node tools/director-ui-test.js [outDir]
-// Демо-трек: режимы Авто/Вручную/Выкл, чувствительность, правка частей, сохранение после перезагрузки, темп 125%, бой.
+// Демо-трек: режимы Авто/Вручную/Выкл, чувствительность, правка частей, разметка на слух, перетаскивание границ, отмена/возврат,
+// привязка, клавиши, предпросмотр, сохранение после перезагрузки, темп 125%, бой.
 const { chromium } = require(process.env.PW || "playwright");
 const path = require("path"), fs = require("fs"), os = require("os");
 const out = process.argv[2] || path.join(__dirname, "../.shots");
@@ -67,8 +68,8 @@ fs.mkdirSync(out, { recursive: true });
   const n0 = s.secs.length;
   await page.click("#dir-split"); s = await st();
   check(s.secs.length === n0 + 1 && s.sel === 2, "разрезать: +1 часть, выбрана правая");
-  await page.click("#dir-prev"); await page.click("#dir-merge"); s = await st();
-  check(s.secs.length === n0, "объединить: обратно " + n0);
+  await page.click("#dir-del"); s = await st();
+  check(s.secs.length === n0 && s.sel === 1, "убрать: часть слилась с предыдущей, обратно " + n0);
   // граница на такт раньше
   const b0 = s.secs[1];
   await page.click("#dir-left"); s = await st();
@@ -103,6 +104,56 @@ fs.mkdirSync(out, { recursive: true });
   await page.click('#dir-mode button[data-m="manual"]');
   s = await st();
   check(s.secs.join(",") === before, "после «Выкл» ручная разметка на месте");
+
+  // ---- разметка на слух: «С нуля», затем отметки во время игры ----
+  const edges = await page.evaluate(() => window.__game.track.base.map.bars.edges);
+  const near = (v, arr) => arr.some(e => Math.abs(e - v) < 0.01);
+  await page.click("#dir-clear"); s = await st();
+  check(s.secs.length === 1 && s.secs[0].startsWith("groove"), "«С нуля» — одна часть «Ровно»");
+  await page.evaluate(() => { const a = window.__game.audio; a.seek(25.1 + 0.35); if (!a.playing) a.play(25.1 + 0.35); });
+  await page.waitForTimeout(150);
+  await page.click('#dir-mark button[data-k="drop"]'); s = await st();
+  const dropAt = parseFloat(s.secs[1].split("@")[1]);
+  check(s.secs.length === 2 && s.secs[1].startsWith("drop") && Math.abs(dropAt - 25.1) < 0.6, "«+ Дроп» во время игры — дроп с ближайшего такта: " + s.secs[1]);
+  await page.evaluate(() => window.__game.audio.seek(58.2 + 0.3)); await page.waitForTimeout(150);
+  await page.keyboard.press("Digit5"); s = await st();
+  check(s.secs.length === 3 && s.secs[2].startsWith("break") && Math.abs(parseFloat(s.secs[2].split("@")[1]) - 58.2) < 0.6, "клавиша 5 — брейк с текущего места: " + s.secs[2]);
+  await page.evaluate(() => window.__game.audio.seek(58.2 + 0.3)); await page.waitForTimeout(100);
+  await page.click('#dir-mark button[data-k="break"]'); s = await st();
+  check(s.secs.length === 3, "повторная отметка того же характера не плодит части");
+  await page.click("#dir-pl"); await page.waitForTimeout(100);
+  // отмена / возврат
+  await page.click("#dir-undo"); await page.click("#dir-undo"); s = await st();
+  check(s.secs.length === 1, "«Отменить» ×2 — снова одна часть");
+  await page.click("#dir-redo"); s = await st();
+  check(s.secs.length === 2, "«↷» — дроп вернулся");
+  await page.keyboard.press("Control+KeyZ"); s = await st();
+  check(s.secs.length === 1, "Ctrl+Z работает");
+  await page.keyboard.press("Control+KeyY"); await page.click("#dir-redo"); s = await st();
+  check(s.secs.length === 3, "Ctrl+Y и «↷» — всё вернулось");
+  // перетаскивание границы на карте (привязка «Такт»)
+  await page.click('#dir-snap button[data-g="bar"]');
+  const mb = await page.locator("#dir-map").boundingBox();
+  const b1 = await page.evaluate(() => window.__game.track.director.secs[1].s);
+  const dur2 = await page.evaluate(() => window.__game.track.base.map.duration);
+  const x1 = mb.x + mb.width * b1 / dur2, y1 = mb.y + mb.height * 0.4;
+  await page.mouse.move(x1, y1); await page.mouse.down(); await page.mouse.move(x1 + 25, y1, { steps: 5 }); await page.mouse.move(x1 + 50, y1, { steps: 5 }); await page.mouse.up();
+  const b2 = await page.evaluate(() => window.__game.track.director.secs[1].s);
+  check(b2 > b1 + 2 && near(b2, edges), `граница перетаскивается и встаёт на такт: ${b1.toFixed(2)} → ${b2.toFixed(2)}`);
+  // привязка «Свободно» — граница не обязана стоять на такте
+  await page.click('#dir-snap button[data-g="free"]');
+  check(await page.evaluate(() => window.__game.settings.v.dirSnap === "free"), "привязка «Свободно» сохраняется в настройках");
+  await page.click('#dir-snap button[data-g="bar"]');
+  await shot("dir-live-1100.png");
+  // предпросмотр: панель скрыта, полоска внизу, трек играет
+  await page.click("#dir-preview"); await page.waitForTimeout(400);
+  const pv = await page.evaluate(() => ({ panel: document.getElementById("scr-director").hidden, bar: !document.getElementById("dir-pv").hidden, play: window.__game.audio.playing, now: document.querySelector("#dir-pv-now b").textContent }));
+  await page.screenshot({ path: path.join(out, "dir-preview-1100.png") });
+  check(pv.panel && pv.bar && pv.play && pv.now !== "—", "предпросмотр: панель скрыта, трек играет, видно «сейчас»: " + pv.now);
+  await page.click("#dir-pv-back");
+  check(await page.evaluate(() => !document.getElementById("scr-director").hidden && document.getElementById("dir-pv").hidden), "«Вернуться к настройке»");
+  await page.click("#dir-pl");
+  s = await st();
 
   // в бою карточка заблокирована, часы видят ручные части
   await page.evaluate(() => window.__game.startBattle("track"));

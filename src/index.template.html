@@ -166,20 +166,34 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 #tempo-card.busy{opacity:.55;pointer-events:none}
 /* Режиссёр */
 #dir-card.busy{opacity:.55;pointer-events:none}
-.dir-map{width:100%;height:64px;display:block;border-radius:4px;background:#0d0e14;touch-action:manipulation;cursor:pointer}
+.dir-map{width:100%;height:110px;display:block;border-radius:4px;background:#0d0e14;touch-action:none;cursor:pointer}
 .dir-info{font-size:12px;min-height:16px}
-.dir-player{grid-template-columns:auto auto 1fr}
-.dir-player .hint{font-size:12px;line-height:1.35}
-#scr-director .dir-map{height:84px}
+.dir-head,.dir-transport{gap:8px;flex-wrap:wrap}
+.dir-sp{flex:1}
+.dir-big{min-width:56px;font-size:16px}
+.dir-now{display:inline-flex;align-items:baseline;gap:6px;padding:4px 10px;border-radius:4px;border:1px solid var(--line2);font-family:var(--f-mono);min-height:30px;box-sizing:border-box}
+.dir-now small{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.dir-now b{font-size:13px;letter-spacing:.06em;color:var(--k,var(--fg))}
 .dir-sens{grid-template-columns:auto 1fr auto auto minmax(92px,auto)}
 .dir-lab{font-size:14px}
+.dir-step{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.dir-step .hint{font-size:12px}
 .dir-kinds{gap:6px}
 .dir-kinds button{min-height:32px;padding:4px 10px;font-size:13px;border-left:4px solid var(--k,#777)}
 .dir-kinds button[aria-pressed="true"]{background:var(--fg);color:#0b0c10}
+.dir-mark button{background:rgba(255,255,255,.04)}
+.dir-mark button i{font-style:normal;opacity:.5;font-size:11px;margin-left:4px}
+.dir-mark button.hit{background:var(--k);color:#0b0c10}
 .dir-tools{gap:6px}
+.dir-opts{align-items:center}
+.dir-opts .seg button{padding:6px 10px}
 #dir-card [hidden]{display:none!important}
+.dir-pv{position:absolute;left:max(12px,var(--sal));right:max(12px,var(--sar));bottom:calc(10px + var(--sab));z-index:7;background:rgba(11,12,16,.82);border:1px solid var(--line2);border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.dir-pv[hidden]{display:none}
+.dir-pv-map{height:34px}
+.dir-pv-row{gap:8px;align-items:center}
 @media (max-width:560px){.dir-sens{grid-template-columns:1fr auto auto}.dir-sens input{grid-column:1/-1;grid-row:2}.dir-sens output{grid-column:1/-1;text-align:left}}
-@media (max-height:520px) and (min-width:560px){#dir-card{padding:8px 12px;gap:6px}#scr-director .dir-map{height:52px}#scr-director .panel{gap:8px}#dir-note{display:none}#dir-card .btn.small{min-height:32px;padding:4px 10px}.dir-kinds button{min-height:28px}}
+@media (max-height:520px) and (min-width:560px){#dir-card{padding:8px 12px;gap:6px}#scr-director .dir-map{height:70px}#scr-director .panel{gap:8px}#dir-card .btn.small{min-height:32px;padding:4px 10px}.dir-kinds button{min-height:28px}.dir-step .hint{display:none}}
 @media (max-width:560px){.tempo-row{grid-template-columns:auto 1fr auto auto}.tempo-row output{grid-column:1/-1;text-align:left}}
 @media (max-height:520px) and (min-width:560px){#tempo-card{padding:8px 12px;gap:6px}#tempo-card .btn.small{min-height:32px;padding:4px 10px}.tempo-keep{min-height:26px}}
 /* невысокий горизонтальный экран телефона: меню в две колонки, чтобы всё помещалось */
@@ -350,10 +364,24 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <span class="track-line"><i class="dot" id="dir-dot"></i><span id="dir-track">Трек не выбран</span></span>
       </div>
       <div class="card" id="dir-card">
-        <div class="row" style="justify-content:space-between"><span class="h3">Части трека и эффекты арены</span>
-          <div class="seg" id="dir-mode"><button data-m="auto">Авто</button><button data-m="manual">Вручную</button><button data-m="off">Выкл</button></div></div>
-        <canvas id="dir-map" class="dir-map" aria-label="Части трека: нажмите, чтобы выбрать часть и перемотать"></canvas>
+        <div class="row dir-head">
+          <div class="seg" id="dir-mode"><button data-m="auto">Авто</button><button data-m="manual">Вручную</button><button data-m="off">Выкл</button></div>
+          <span class="dir-now" id="dir-now"><small>сейчас</small><b>—</b></span>
+          <span class="dir-sp"></span>
+          <button class="btn small" id="dir-undo" title="Отменить (Ctrl+Z)">↶ Отменить</button>
+          <button class="btn small" id="dir-redo" title="Вернуть (Ctrl+Y)">↷</button>
+        </div>
+        <div class="row dir-transport">
+          <button class="btn small dir-big" id="dir-pl" aria-label="Воспроизвести">▶</button>
+          <button class="btn small" id="dir-back5" aria-label="На 5 секунд назад">−5 с</button>
+          <button class="btn small" id="dir-fwd5" aria-label="На 5 секунд вперёд">+5 с</button>
+          <span class="time" id="dir-time">0:00 / 0:00</span>
+          <span class="dir-sp"></span>
+          <button class="btn small" id="dir-preview" title="Скрыть панель и смотреть, как арена реагирует на части трека">👁 Смотреть эффекты</button>
+        </div>
+        <canvas id="dir-map" class="dir-map" aria-label="Карта частей трека: нажмите, чтобы выбрать часть и перемотать; границы можно перетаскивать"></canvas>
         <div class="mono muted dir-info" id="dir-info">—</div>
+
         <div class="tempo-row dir-sens" id="dir-auto">
           <span class="dir-lab">Смены частей</span>
           <input type="range" id="dir-sens" min="-2" max="2" step="1" value="0" aria-label="Как часто меняются части">
@@ -361,25 +389,30 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
           <button class="btn small" id="dir-sens-p" aria-label="Чаще смены частей">Чаще</button>
           <output id="dir-sens-o">как в анализе</output>
         </div>
+
         <div class="dir-manual" id="dir-manual">
+          <div class="dir-step"><span class="h3">1 · Слушайте и отмечайте</span><span class="hint">включите трек и нажимайте в момент, когда начинается часть (клавиши 1–8)</span></div>
+          <div class="row dir-kinds dir-mark" id="dir-mark"></div>
+          <div class="dir-step"><span class="h3">2 · Выбранная часть</span><span class="hint" id="dir-desc"></span></div>
           <div class="row dir-kinds" id="dir-kinds"></div>
           <div class="row dir-tools">
-            <button class="btn small" id="dir-prev" aria-label="Предыдущая часть">◀</button>
-            <button class="btn small" id="dir-next" aria-label="Следующая часть">▶</button>
-            <button class="btn small" id="dir-left" title="Начало части на такт раньше">Начало −такт</button>
-            <button class="btn small" id="dir-right" title="Начало части на такт позже">Начало +такт</button>
-            <button class="btn small" id="dir-split" title="Разрезать часть по позиции трека (или пополам)">Разрезать</button>
-            <button class="btn small" id="dir-merge" title="Слить со следующей частью">Объединить</button>
+            <button class="btn small" id="dir-prev" aria-label="Предыдущая часть" title="Предыдущая часть (←)">◀</button>
+            <button class="btn small" id="dir-next" aria-label="Следующая часть" title="Следующая часть (→)">▶</button>
             <button class="btn small" id="dir-play" title="Слушать с начала части">▶ Отсюда</button>
+            <button class="btn small" id="dir-left" title="Начало части раньше на шаг привязки">Начало ◂</button>
+            <button class="btn small" id="dir-right" title="Начало части позже на шаг привязки">Начало ▸</button>
+            <button class="btn small" id="dir-split" title="Разрезать часть по позиции трека (или пополам)">Разрезать</button>
+            <button class="btn small" id="dir-del" title="Убрать часть: она сольётся с предыдущей (Delete)">Убрать</button>
+          </div>
+          <div class="row dir-tools dir-opts">
+            <span class="dir-lab">Привязка границ</span>
+            <div class="seg" id="dir-snap"><button data-g="beat">Доля</button><button data-g="bar">Такт</button><button data-g="bar4">4 такта</button><button data-g="free">Свободно</button></div>
+            <span class="dir-sp"></span>
             <button class="btn small" id="dir-reset" title="Взять части из анализа">Из анализа</button>
+            <button class="btn small" id="dir-clear" title="Одна часть «Ровно» — размечать с нуля">С нуля</button>
           </div>
         </div>
         <p class="hint" id="dir-hint"></p>
-      </div>
-      <div class="player-row dir-player">
-        <button class="btn small" id="dir-pl" aria-label="Воспроизвести">▶</button>
-        <span class="time" id="dir-time">0:00 / 0:00</span>
-        <span class="hint" id="dir-note">Эффекты арены (лазеры, строб, прожектор, искры) включаются по частям трека. Настройка сохраняется для каждого трека.</span>
       </div>
       <div class="row">
         <button class="btn" id="dir-back">Назад</button>
@@ -388,6 +421,18 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       </div>
     </div>
   </section>
+
+  <!-- предпросмотр Режиссёра: панель скрыта, видна арена -->
+  <div id="dir-pv" class="dir-pv" hidden>
+    <canvas id="dir-pv-map" class="dir-map dir-pv-map" aria-hidden="true"></canvas>
+    <div class="row dir-pv-row">
+      <button class="btn small dir-big" id="dir-pv-pl" aria-label="Воспроизвести">▶</button>
+      <span class="dir-now" id="dir-pv-now"><small>сейчас</small><b>—</b></span>
+      <span class="time" id="dir-pv-time">0:00</span>
+      <span class="dir-sp"></span>
+      <button class="btn small primary" id="dir-pv-back">Вернуться к настройке</button>
+    </div>
+  </div>
 
   <!-- ============ БИБЛИОТЕКА ============ -->
   <section class="screen" id="scr-library" hidden>
