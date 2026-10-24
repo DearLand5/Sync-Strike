@@ -42,10 +42,27 @@ Object.assign(SKINS, {
   vampire:   { cat: "horror", from: "готический вампир", name: "Граф", mask: "#efe8f2", eye: "#ff1f4d", accent: "#ff1f4d", cloak: "#0b0609", head: "vamp", scarf: null, hem: "bat", mark: "brooch", back: null, wide: 1.35 },
 });
 
-/* Ореол и комок света «Светоча»: [радиус, прозрачность], от внешнего круга к внутреннему (в low — два кольца). */
-const LUMEN_HALO = []; for (let i = 0; i < 12; i++) LUMEN_HALO.push([28 - i * 1.6, 0.012 + 0.0042 * i]);
-const LUMEN_HALO_LOW = [[22, 0.05], [15, 0.07], [10, 0.1]];
-const LUMEN_ORB = [[9, 0.04], [7.5, 0.05], [6, 0.08], [4.6, 0.14], [3.4, 0.3]];
+/* Ореол и комок света «Светоча»: единичный радиальный градиент (радиус 1), один на контекст —
+   рисуется через translate/scale/arc, без аллокаций в кадре; «дыхание» — globalAlpha и радиус. */
+const _lumenGr = new WeakMap();
+function lumenGrad(ctx, kind) {
+  let m = _lumenGr.get(ctx);
+  if (!m) { m = {}; _lumenGr.set(ctx, m); }
+  let g = m[kind];
+  if (!g) {
+    g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    const st = kind === "orb" ? [[0, 0.9], [0.3, 0.45], [0.6, 0.12], [1, 0]] : [[0, 0.55], [0.3, 0.3], [0.55, 0.13], [0.8, 0.04], [1, 0]];
+    for (const q of st) g.addColorStop(q[0], "rgba(255,255,255," + q[1] + ")");
+    m[kind] = g;
+  }
+  return g;
+}
+function lumenGlow(ctx, kind, x, y, r, a) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(r, r); ctx.globalAlpha *= a;
+  ctx.fillStyle = lumenGrad(ctx, kind);
+  ctx.beginPath(); ctx.arc(0, 0, 1, 0, TAU); ctx.fill();
+  ctx.restore();
+}
 const SKIN_C = { tint: null, accent: "#ffffff", mc: "#ffffff", hq: false, now: 0, boost: 0, A: null };
 SKIN_C.A = a => rgba(SKIN_C.accent, a);
 const SKIN_G = { accent: "#ffffff", wide: 1, shoulderY: 0, hipY: 0, hemY: 0, fl: 0, hq: false, now: 0, A: null };
@@ -69,11 +86,7 @@ const HEAD_PARTS = {
     back(ctx, c) {
       if (c.tint) return;
       const br = 0.5 + 0.5 * Math.sin(c.now / 1100), k = 0.9 + 0.1 * br + 0.35 * Math.min(1, c.boost);
-      const R = c.hq ? LUMEN_HALO : LUMEN_HALO_LOW;
-      for (let i = 0; i < R.length; i++) {
-        ctx.beginPath(); ctx.arc(0.4, -0.2, R[i][0] * (0.94 + 0.06 * br), 0, TAU);
-        ctx.fillStyle = rgba("#ffffff", Math.round(R[i][1] * k * 50) / 50); ctx.fill();
-      }
+      lumenGlow(ctx, "halo", 0.4, -0.2, (c.hq ? 29 : 23) * (0.95 + 0.05 * br), Math.min(1, k));
     },
     front(ctx, c) {
       // ядро: овал белого света с мягкой кромкой
@@ -604,7 +617,7 @@ const MARK_PARTS = {
     ctx.beginPath(); ctx.ellipse(0.8, g.shoulderY + 1.4, 6.4 * g.wide, 3.4, 0, 0, TAU); ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,.14)";
     ctx.beginPath(); ctx.ellipse(1.6, g.shoulderY + 4.6, 5, 4.2, 0, 0, TAU); ctx.fill();
-    for (const q of LUMEN_ORB) { ctx.fillStyle = rgba("#ffffff", Math.round(q[1] * (0.9 + 0.1 * br) * 50) / 50); ctx.beginPath(); ctx.arc(x, y, q[0] * (0.96 + 0.06 * br), 0, TAU); ctx.fill(); }
+    lumenGlow(ctx, "orb", x, y, 10 * (0.96 + 0.06 * br), 0.9 + 0.1 * br);
     ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(x, y, 1.9, 0, TAU); ctx.fill();
   },
   poncho(ctx, g) {
