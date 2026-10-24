@@ -48,20 +48,38 @@ const BANDS = { low: [30, 160], mid: [160, 2500], high: [2500, 11000] };
 const ONSET_BIAS = 0.004;
 
 /* =====================================================================
-   Части трека. Сегментация по тактам (от сильных долей) методом оптимального разбиения:
-   такт — вектор признаков (энергия, низы/середина/верха, плотность потока в трёх полосах),
-   часть — участок с «постоянными» признаками; цена границы не даёт дребезга и коротких частей
-   (минимум ~4 такта; одиночный фильл не становится брейком), границы тянутся к сетке фраз
-   (кратно 8 / 4 тактам от общего смещения). Затем каждая часть получает kind по признакам
-   относительно самого трека. Границы всегда лежат на сильных долях.
+   Режиссёр: части трека (анализ). Части задают эффекты арены (нарастание, дроп, брейк…).
+   Сегментация по тактам (от сильных долей) методом оптимального разбиения:
+   такт — вектор признаков (уровни в дБ по полосам относительно громкой части трека + плотность потока
+   в трёх полосах), часть — участок с «постоянными» признаками. Цена границы выражена в единицах шума
+   самого трека (шум — медиана разностей соседних тактов, не меньше нижней границы), поэтому на «живом»
+   треке с неровностью и на чистом синтезированном порог один и тот же; границы тянутся к сетке фраз
+   (кратно 8 / 4 тактам от общего смещения), минимум ~4 такта. После разбиения соседи, различие между
+   которыми не заметно ни по одному признаку (меньше порога τ), сливаются. Затем каждая часть получает kind
+   по «интенсивности» (уровни + плотность событий) относительно самого трека: скачок вверх — вход (дроп),
+   вниз — брейк, нарастание — рост перед входом. Границы всегда лежат на сильных долях.
    ===================================================================== */
-const SECTION_DIMS = [   // признак, вес
-  ["e", 1.0], ["l", 0.9], ["m", 0.4], ["h", 0.4], ["kf", 0.8], ["mf", 0.4], ["hf", 0.5],
+const SECTION_DIMS = [   // признак, вес в разбиении, нижняя граница шума σ, порог заметного различия τ
+  ["e", 1.0, 0.07, 0.12], ["l", 0.9, 0.07, 0.15], ["m", 0.4, 0.09, 0.18], ["h", 0.5, 0.09, 0.18],
+  ["kf", 0.8, 0.12, 0.22], ["mf", 0.4, 0.12, 0.22], ["hf", 0.5, 0.12, 0.22],
 ];
-const SECTION_LAMBDA = 0.8;      // цена границы (сумма взвешенных квадратов отклонений признаков по тактам)
+const SECTION_LAMBDA = 40;       // цена границы в единицах σ² (сумма взвешенных квадратов отклонений признаков по тактам)
 
-function buildSections(a) {
-  const { beats, strong, duration, envFps, energy, bl, bm, bh, fL, fM, fH, frameOf } = a;
+/** Медианный фильтр радиуса r: убирает одиночные «выбросы» тактов (филлы, паузы, стоп-тайм) и сохраняет ступени. */
+function medianFilter(arr, r) {
+  const out = new Array(arr.length);
+  for (let i = 0; i < arr.length; i++) {
+    const w = arr.slice(Math.max(0, i - r), Math.min(arr.length, i + r + 1)).sort((x, y) => x - y);
+    out[i] = w[w.length >> 1];
+  }
+  return out;
+}
+
+/** Такты трека и их признаки (от сильных долей): границы тактов, уровни энергии/низов/середины/верхов (по мощности такта в дБ
+    относительно p90 тактов трека, размах фиксирован) и плотность потока бочки/середины/верхов (относительно трека).
+    Общая часть для buildSections и инструментов отладки. */
+function sectionBars(a) {
+  const { beats, strong, duration, envFps, energy, bl, fL, fM, fH, pL, pM, pH, frameOf } = a;
   const st = [];
   for (let i = 0; i < beats.length; i++) if (strong[i]) st.push(beats[i]);
   const gaps = [];
@@ -73,31 +91,69 @@ function buildSections(a) {
   if (edges.length > 1 && duration - edges[edges.length - 1] < 0.6 * barLen) edges.pop();
   edges.push(duration);
   let B = edges.length - 1;
-  const single = () => finishSections(a, [{ start: 0, end: duration }]);
   const Lmin = clamp(Math.ceil(7 / barLen), 2, 4);
   /* тишина в хвосте (после последнего звука) не должна влиять на последнюю часть — она просто в неё входит */
   const envMeanTail = k => { let s = 0, c = 0; for (let i = Math.floor(edges[k] * envFps); i < Math.min(energy.length, Math.ceil(edges[k + 1] * envFps)); i++) { s += energy[i] + bl[i]; c++; } return c ? s / c : 0; };
   while (B > 2 * Lmin && envMeanTail(B - 1) < 0.05) { edges.splice(B - 1, 1); B--; }
   edges[B] = duration;
-  if (B < 2 * Lmin || B < 6) return single();
-
-  /* признаки тактов */
-  const envMean = (arr, t0, t1) => { let s = 0, c = 0; for (let i = Math.floor(t0 * envFps); i < Math.min(arr.length, Math.ceil(t1 * envFps)); i++) { s += arr[i]; c++; } return c ? s / c : 0; };
+  let lastLoud = energy.length - 1;
+  while (lastLoud > 0 && energy[lastLoud] < 0.04 && bl[lastLoud] < 0.04) lastLoud--;
+  const tLoud = (lastLoud + 1) / envFps;
+  /* признаки тактов (окно последнего такта кончается там, где кончается звук) */
   const frMean = (arr, t0, t1) => { const i0 = frameOf(t0), i1 = Math.max(i0 + 1, frameOf(t1)); let s = 0; for (let i = i0; i < i1; i++) s += arr[i]; return s / (i1 - i0); };
   const raw = { e: [], l: [], m: [], h: [], kf: [], mf: [], hf: [] };
+  const dbs = { e: [], l: [], m: [], h: [] };
+  const db = v => 10 * Math.log10(v + 1e-12);   // мощность такта усредняем по мощности, затем в дБ: «качание» сайдчейна не размывает уровень
   for (let k = 0; k < B; k++) {
-    const t0 = edges[k], t1 = edges[k + 1];
-    raw.e.push(envMean(energy, t0, t1)); raw.l.push(envMean(bl, t0, t1)); raw.m.push(envMean(bm, t0, t1)); raw.h.push(envMean(bh, t0, t1));
+    const t0 = edges[k], t1 = Math.min(edges[k + 1], Math.max(tLoud, t0 + 1));
+    const pl = frMean(pL, t0, t1), pm = frMean(pM, t0, t1), ph = frMean(pH, t0, t1);
+    dbs.e.push(db(pl + pm + ph)); dbs.l.push(db(pl)); dbs.m.push(db(pm)); dbs.h.push(db(ph));
     raw.kf.push(frMean(fL, t0, t1)); raw.mf.push(frMean(fM, t0, t1)); raw.hf.push(frMean(fH, t0, t1));
+  }
+  /* уровни — в дБ относительно громкой части трека (p90 тактов), фиксированный размах: тихий такт = 0, громкий = 1 */
+  for (const [key, span] of [["e", 15], ["l", 22], ["m", 18], ["h", 22]]) {
+    const ref = percentile(dbs[key], 0.9);
+    for (let k = 0; k < B; k++) raw[key].push(clamp(1 + (dbs[key][k] - ref) / span, 0, 1.15));
   }
   for (const key of ["kf", "mf", "hf"]) {   // потоки — относительно трека (p90 тактов, не меньше 1.5 среднего)
     const arr = raw[key], mean = arr.reduce((x, y) => x + y, 0) / B || 1e-6;
     const sc = Math.max(percentile(arr, 0.9), 1.5 * mean, 1e-6);
     for (let k = 0; k < B; k++) arr[k] = Math.min(1.3, arr[k] / sc);
   }
+  const F = {};
+  for (const [key] of SECTION_DIMS) F[key] = medianFilter(raw[key], 2);
+  /* интенсивность такта = «бас» (уровни в дБ — абсолютные, + плотность бочки) + «воздух» (середина/верха и плотность событий —
+     относительно диапазона самого трека; размах не уже 0.3, чтобы шум ровного трека не раздувался в «структуру») */
+  const rel = key => { const lo = percentile(F[key], 0.1), hi = percentile(F[key], 0.9), r = Math.max(hi - lo, 0.3); return F[key].map(v => clamp((v - lo) / r, 0, 1)); };
+  const rh = rel("h"), rhf = rel("hf"), rmf = rel("mf"), rkf = rel("kf");
+  const I = new Array(B);
+  for (let k = 0; k < B; k++) {
+    const bass = 0.40 * F.e[k] + 0.35 * F.l[k] + 0.25 * rkf[k], air = 0.35 * rh[k] + 0.35 * rhf[k] + 0.30 * rmf[k];
+    I[k] = 0.65 * bass + 0.35 * air;
+  }
+  return { edges, B, barLen, Lmin, raw, F, I, tLoud };
+}
+
+function buildSections(a) {
+  const { duration } = a;
+  const bars = sectionBars(a);
+  const { edges, B, Lmin, F } = bars;
+  const single = () => finishSections(a, bars, [{ start: 0, end: duration, i0: 0, i1: B }]);
+  /* ритма нет (эмбиент, свободный темп; уверенность < 0.4): сетка тактов условна, лазеры и «брейки» не к месту — одна спокойная часть */
+  if (B < 2 * Lmin || B < 6 || (a.confidence != null && a.confidence < 0.4)) return single();
+  /* ритм найден неуверенно (0.4–0.5: живая игра, плавающий темп): части нужны только при резких перепадах — цена границы ×3,
+     различие частей ×2, вход и брейк только резкие; плавные «волны» громкости событиями не становятся */
+  const weak = a.confidence != null && a.confidence < 0.5;
+
+  /* шум признака — медиана модуля разности соседних тактов (на ступенях разность большая, но их мало) */
   const D = SECTION_DIMS.length;
   const S1 = SECTION_DIMS.map(() => new Float64Array(B + 1)), S2 = SECTION_DIMS.map(() => new Float64Array(B + 1));
-  SECTION_DIMS.forEach(([key, w], d) => { for (let k = 0; k < B; k++) { const x = raw[key][k] * w; S1[d][k + 1] = S1[d][k] + x; S2[d][k + 1] = S2[d][k] + x * x; } });
+  SECTION_DIMS.forEach(([key, w, floor], d) => {
+    const diffs = [];
+    for (let k = 0; k + 1 < B; k++) diffs.push(Math.abs(bars.raw[key][k + 1] - bars.raw[key][k]));
+    const sigma = Math.max(floor, 1.5 * median(diffs)), g = Math.sqrt(w) / sigma;
+    for (let k = 0; k < B; k++) { const x = F[key][k] * g; S1[d][k + 1] = S1[d][k] + x; S2[d][k + 1] = S2[d][k] + x * x; }
+  });
   const cost = (i, j) => { let c = 0; const n = j - i; for (let d = 0; d < D; d++) { const s = S1[d][j] - S1[d][i]; c += S2[d][j] - S2[d][i] - s * s / n; } return c; };
 
   /* оптимальное разбиение; смещение фазы фраз перебираем (0..7) и берём лучшее */
@@ -105,7 +161,7 @@ function buildSections(a) {
   for (let ph = 0; ph < 8; ph++) {
     const dp = new Float64Array(B + 1).fill(Infinity), from = new Int32Array(B + 1).fill(-1);
     dp[0] = 0;
-    const pen = i => { if (i === 0) return 0; const r = ((i - ph) % 8 + 8) % 8; return SECTION_LAMBDA + (r === 0 ? 0 : r === 4 ? 0.15 : r % 2 === 0 ? 0.55 : 0.85); };
+    const pen = i => { if (i === 0) return 0; const r = ((i - ph) % 8 + 8) % 8; return SECTION_LAMBDA * (weak ? 3 : 1) * (1 + (r === 0 ? 0 : r === 4 ? 0.19 : r % 2 === 0 ? 0.69 : 1.06)); };
     for (let j = Lmin; j <= B; j++) {
       if (j < B && B - j < Lmin) continue;
       for (let i = 0; i <= j - Lmin; i++) {
@@ -121,72 +177,104 @@ function buildSections(a) {
     }
   }
   if (!best) return single();
-  const segs = [];
+  let segs = [];
   for (let s = 0; s < best.cuts.length; s++) {
     const i = best.cuts[s], j = s + 1 < best.cuts.length ? best.cuts[s + 1] : B;
-    segs.push({ start: i === 0 ? 0 : edges[i], end: j === B ? duration : edges[j] });
+    segs.push({ start: i === 0 ? 0 : edges[i], end: j === B ? duration : edges[j], i0: i, i1: j });
   }
-  return finishSections(a, segs);
+  /* слияние соседей, между которыми нет заметного различия ни по одному признаку (статистически значимая, но неслышная ступень) */
+  const mean = (key, i0, i1) => { let s = 0; for (let k = i0; k < i1; k++) s += F[key][k]; return s / (i1 - i0); };
+  const avgI = (x) => { let s = 0; for (let k = x.i0; k < x.i1; k++) s += bars.I[k]; return s / (x.i1 - x.i0); };
+  const contrast = (x, y) => { let c = Math.abs(avgI(x) - avgI(y)) / 0.12; for (const [key, , , tau] of SECTION_DIMS) c = Math.max(c, Math.abs(mean(key, x.i0, x.i1) - mean(key, y.i0, y.i1)) / tau); return c; };
+  for (;;) {
+    let wi = -1, wc = weak ? 2 : 1;
+    for (let i = 0; i + 1 < segs.length; i++) { const c = contrast(segs[i], segs[i + 1]); if (c < wc) { wc = c; wi = i; } }
+    if (wi < 0) break;
+    segs.splice(wi, 2, { start: segs[wi].start, end: segs[wi + 1].end, i0: segs[wi].i0, i1: segs[wi + 1].i1 });
+  }
+  return finishSections(a, bars, segs);
 }
 
-/** Характер частей (kind) по признакам относительно трека + слияние соседних одинаковых. */
-function finishSections(a, segs) {
-  const { duration, envFps, energy, bl, bh, fL, frameOf } = a;
+/** Характер частей (kind) по интенсивности относительно трека + слияние соседних одинаковых. */
+function finishSections(a, bars, segs) {
+  const { duration, envFps, energy, bl, bh } = a;
+  const { I, F } = bars;
+  const weak = a.confidence != null && a.confidence < 0.5, EDGE = weak ? 0.35 : 0.1;   // резкость границы, нужная для входа/брейка
   const secMean = (arr, t0, t1) => { let s = 0, c = 0; for (let i = Math.floor(t0 * envFps); i < Math.min(arr.length, Math.ceil(t1 * envFps)); i++) { s += arr[i]; c++; } return c ? s / c : 0; };
   const gLow = secMean(bl, 0, duration), gHigh = secMean(bh, 0, duration);
-  let kfAll = 0; for (let i = 0; i < fL.length; i++) kfAll += fL[i]; kfAll = kfAll / fL.length || 1e-6;
-  const kfMean = (t0, t1) => { const i0 = frameOf(t0), i1 = Math.max(i0 + 1, frameOf(t1)); let s = 0; for (let i = i0; i < i1; i++) s += fL[i]; return s / (i1 - i0); };
-  /* конец звука: тишина в хвосте файла не должна давать «спад» у последней части */
-  let lastLoud = energy.length - 1;
-  while (lastLoud > 0 && energy[lastLoud] < 0.04 && bl[lastLoud] < 0.04) lastLoud--;
-  const tLoud = (lastLoud + 1) / envFps;
+  const tLoud = bars.tLoud;
   const slopeOf = sc => { const e1 = Math.max(sc.start + 1, Math.min(sc.end, tLoud)), q = Math.min(4, (e1 - sc.start) * 0.25); return secMean(energy, e1 - q, e1) - secMean(energy, sc.start, sc.start + q); };
-  const bassOf = sc => (secMean(bl, sc.start, sc.end) + Math.min(1, kfMean(sc.start, sc.end) / (2 * kfAll))) / 2;
+  const avg = (arr, i0, i1) => { let s = 0; for (let k = i0; k < i1; k++) s += arr[k]; return s / Math.max(1, i1 - i0); };
   segs.forEach(sc => {
     const e = secMean(energy, sc.start, Math.max(sc.start + 1, Math.min(sc.end, tLoud)));
     sc.energy = e; sc.level = e < 0.38 ? "calm" : e > 0.66 ? "intense" : "mid";
     sc.slope = slopeOf(sc);
     sc.bassy = secMean(bl, sc.start, sc.end) > gLow * 1.12;
     sc.bright = secMean(bh, sc.start, sc.end) > gHigh * 1.12;
+    /* интенсивность части и её ход внутри (последняя треть минус первая) */
+    const n = sc.i1 - sc.i0, th = Math.max(1, Math.floor(n / 3));
+    sc.drive = avg(I, sc.i0, sc.i1); sc.low = avg(F.l, sc.i0, sc.i1);
+    sc.rise = n >= 3 ? avg(I, sc.i1 - th, sc.i1) - avg(I, sc.i0, sc.i0 + th) : 0;
+    /* резкость границы слева: изменение интенсивности (или баса) между 4 тактами до и 4 после — плавный подъём на ступеньки не режется на «дропы» */
+    const k0 = sc.i0;
+    sc.edge = k0 > 0 ? Math.max(avg(I, k0, k0 + 4) - avg(I, Math.max(0, k0 - 4), k0), 0.7 * (avg(F.l, k0, k0 + 4) - avg(F.l, Math.max(0, k0 - 4), k0))) : 0;
   });
   const n = segs.length;
-  const E = segs.map(s => s.energy), Bs = segs.map(bassOf);
-  const eMax = Math.max(...E), eMin = Math.min(...E);
-  const delta = i => i ? E[i] - E[i - 1] : 0;
-  const step = i => i ? Math.max(E[i] - E[i - 1], 0.8 * (Bs[i] - Bs[i - 1])) : 0;   // скачок громкости или низов
-  const flat = eMax - eMin < 0.2;
-  const hot = k => k === "drop" || k === "climax";
-  segs.forEach((sc, i) => {
-    const e = E[i], prev = i ? segs[i - 1] : null;
-    const nextStep = i + 1 < n ? step(i + 1) : 0;
-    const d = delta(i);
-    let kind;
-    if (flat) kind = e < 0.38 ? "calm" : "groove";
-    else if (i === 0 && e < 0.55) kind = "intro";
-    else if (i === n - 1 && n > 2 && (d < -0.1 || sc.slope < -0.15)) kind = "outro";
-    else if (i > 0 && step(i) >= 0.15 && e >= 0.5) {
-      if (nextStep >= 0.15 && e < 0.8 * E[i + 1]) kind = "build";     // «лестница»: нижняя ступень — нарастание
-      else kind = e >= eMax - 0.05 && e > 0.6 ? "climax" : "drop";
+  /* «громко» и «тихо» трека — взвешенные по длительности перцентили средних интенсивностей ЧАСТЕЙ (не тактов: шум тактов смещал бы порог) */
+  const byDrive = segs.map(s => [s.drive, s.end - s.start]).sort((x, y) => x[0] - y[0]);
+  const wq = q => { let acc = 0; const tot = byDrive.reduce((x, y) => x + y[1], 0); for (const [v, w] of byDrive) { acc += w; if (acc >= q * tot) return v; } return byDrive[byDrive.length - 1][0]; };
+  const Ihi = wq(0.75), Ilo = wq(0.12), R = Math.max(Ihi - Ilo, 0.25);
+  const isHot = sc => sc.drive >= Ihi - 0.22 * R;
+  const Imax = Math.max(...segs.map(s => s.drive));
+  const hotKind = k => k === "drop" || k === "climax";
+  /* опорные уровни: самая тихая / самая громкая из частей за REF_WIN секунд до начала (ступенчатое нарастание считаем целиком) */
+  const REF_WIN = 45;
+  const refOf = (i, pick) => {
+    let r = null;
+    for (let j = i - 1; j >= 0; j--) {
+      const o = Math.min(segs[j].end, segs[i].start) - Math.max(segs[j].start, segs[i].start - REF_WIN);
+      if (o < 4 && j !== i - 1) { if (segs[j].end <= segs[i].start - REF_WIN) break; continue; }
+      r = r == null ? segs[j].drive : pick(r, segs[j].drive);
     }
-    else if (i > 0 && (d <= -0.2 || (Bs[i - 1] - Bs[i] >= 0.25 && d <= -0.1))) kind = "break";
-    else if (sc.slope >= 0.12 || (i > 0 && nextStep >= 0.15 && e < 0.8 * E[i + 1])) kind = "build";
-    else if (prev && hot(prev.kind) && Math.abs(d) < 0.1 && e > 0.5) kind = prev.kind;   // продолжение дропа не меняет эффект
-    else if (e >= eMax - 0.03 && e > 0.6) kind = "climax";
-    else kind = e < 0.38 ? "calm" : "groove";
+    return r == null ? segs[i].drive : r;
+  };
+  let hotSeen = false;
+  segs.forEach((sc, i) => {
+    const p = i ? segs[i - 1] : null, nx = i + 1 < n ? segs[i + 1] : null;
+    const step = p ? sc.drive - p.drive : 0;
+    const len = sc.end - sc.start, hot = isHot(sc);
+    /* вход: громкая часть после негромкой — скачок интенсивности, ступень баса или ступенчатый подъём за последние 45 с */
+    const enters = (q, pp, i2) => pp && q.edge >= EDGE && (
+      (isHot(q) && (!isHot(pp) || q.low - pp.low >= 0.2) && (q.drive - pp.drive >= 0.08 || q.low - pp.low >= 0.2 || q.drive - refOf(i2, Math.min) >= 0.15)) ||
+      (q.low - pp.low >= 0.3 && q.low >= 0.8 && q.drive >= 0.55));   // вступил бас — вход, даже если часть не «самая громкая» трека
+    const nxEnter = nx ? enters(nx, sc, i + 1) : false;
+    const nxBass = nx && isHot(nx) && nx.low - sc.low >= 0.2;                       // у следующей части вступил бас: эта — разгон
+    let kind;
+    if (n === 1) kind = sc.drive < 0.33 ? "calm" : "groove";
+    else if (i === 0 && !hot && len <= Math.max(60, 0.3 * duration)) kind = "intro";
+    else if (i === n - 1 && step <= -0.12 && len <= Math.max(35, 0.25 * duration)) kind = "outro";
+    else if (p && !hot && step <= -0.1 && (sc.edge <= -EDGE || step <= -0.25) && refOf(i, Math.max) - sc.drive >= 0.18 && sc.drive <= 0.85 * refOf(i, Math.max) && (len <= 40 || sc.low < 0.6 || (step <= -0.2 && sc.edge <= -0.15))) kind = "break";
+    else if ((nxBass && len <= 45) || (nxEnter && !hot && (len <= 45 || sc.rise >= 0.1))) kind = "build";   // перед входом: нарастание
+    else if (enters(sc, p, i)) kind = hotSeen && sc.drive >= Imax - 0.03 ? "climax" : "drop";
+    else if (p && hotKind(p.kind) && hot) kind = p.kind;                          // продолжение дропа не меняет эффект
+    else kind = sc.drive < 0.33 ? "calm" : "groove";
     sc.kind = kind;
+    if (hotKind(kind)) hotSeen = true;
   });
   /* слияние соседних частей одного характера и уровня (смена без смысла = дребезг эффектов) */
   const out = [];
   for (const sc of segs) {
     const p = out[out.length - 1];
-    if (p && p.kind === sc.kind && p.level === sc.level) {
+    if (p && p.kind === sc.kind) {
       const w0 = p.end - p.start, w1 = sc.end - sc.start;
       p.energy = (p.energy * w0 + sc.energy * w1) / (w0 + w1);
-      p.end = sc.end; p.bassy = p.bassy || sc.bassy; p.bright = p.bright || sc.bright;
+      p.level = p.energy < 0.38 ? "calm" : p.energy > 0.66 ? "intense" : "mid";
+      p.drive = (p.drive * w0 + sc.drive * w1) / (w0 + w1); p.low = (p.low * w0 + sc.low * w1) / (w0 + w1);
+      p.end = sc.end; p.i1 = sc.i1; p.bassy = p.bassy || sc.bassy; p.bright = p.bright || sc.bright;
       p.slope = slopeOf(p);
     } else out.push(sc);
   }
-  out.forEach((sc, i) => { sc.delta = i ? sc.energy - out[i - 1].energy : 0; });
+  out.forEach((sc, i) => { sc.delta = i ? sc.energy - out[i - 1].energy : 0; delete sc.i0; delete sc.i1; delete sc.rise; delete sc.low; delete sc.edge; });
   return out;
 }
 
@@ -682,7 +770,7 @@ class RhythmAnalyzer {
     }
 
         /* ---- части трека: сегментация по тактам + характер (kind), см. buildSections ---- */
-    const sections = buildSections({ beats, strong, duration, envFps, energy, bl, bm, bh, fL, fM, fH, frameOf });
+    const sections = buildSections({ beats, strong, duration, envFps, energy, bl, bm, bh, fL, fM, fH, pL: eL, pM: eM, pH: eH, confidence, frameOf });
 
     /* ---- кандидаты событий по полосам (порог применяется во время игры) ---- */
     const onsets = { low: [], mid: [], high: [] };
@@ -720,6 +808,12 @@ class RhythmAnalyzer {
       bright: (meanC / frames) / 4000,
       energyVar: sections.length > 1 ? Math.max(...sections.map(s => s.energy)) - Math.min(...sections.map(s => s.energy)) : 0,
     };
+    /* без ритма (эмбиент) часть одна, но размах громкости по ходу трека всё же есть — для подбора арены берём его по 12-секундным окнам */
+    if (sections.length === 1 && confidence < 0.5) {
+      const w = Math.max(1, Math.round(12 * envFps)), means = [];
+      for (let i = 0; i + w <= energy.length; i += w) { let a = 0; for (let k = i; k < i + w; k++) a += energy[k]; means.push(a / w); }
+      if (means.length > 1) features.energyVar = Math.max(...means) - Math.min(...means);
+    }
 
     onProgress(1, "Готово");
     return {

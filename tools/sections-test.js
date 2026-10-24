@@ -4,6 +4,9 @@
 // точность kind по времени, лишние/пропущенные границы, момент события «section» в часах (RhythmClock).
 // ANALYZER=<путь> подменяет 04_analyzer.js, CLOCK=<путь> — 05_clock.js, ARENA=<путь> — 09_arena.js (сравнение «до/после»).
 // Арена: прогон ArenaRenderer.updateVariants с состоянием из часов — задержка веса дропа и «хвост» нарастания.
+// Отладка: BARS=1 — признаки тактов (I — интенсивность, e/l/m/h — уровни в дБ, kf/mf/hf — плотность потока), DRIVE=1 — интенсивность частей в списке kind-ов.
+// Код возврата 1, если kind < 98%, есть лишние или пропущенные границы (проверка Режиссёра на синтетике с известной разметкой).
+// Режиссёр на настоящей музыке — tools/real-sections.js.
 const fs = require("fs"), vm = require("vm"), path = require("path");
 const SR = Number(process.argv[2]) || 44100, FILTER = process.argv[3] || "";
 const ctx = { console, performance, setTimeout, Math, Float32Array, Float64Array, Int32Array, Uint8Array, Uint32Array, Promise, document: { createElement: () => ({ getContext: () => ({}) }) }, window: {}, navigator: {} };
@@ -13,6 +16,7 @@ for (const f of ["00_util.js", "04_analyzer.js", "05_clock.js", "09_arena.js"]) 
   const p = f === "04_analyzer.js" && process.env.ANALYZER ? process.env.ANALYZER : f === "05_clock.js" && process.env.CLOCK ? process.env.CLOCK : f === "09_arena.js" && process.env.ARENA ? process.env.ARENA : src(f);
   vm.runInContext(fs.readFileSync(p, "utf8"), ctx, { filename: f });
 }
+
 const TAU = Math.PI * 2;
 function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
@@ -134,6 +138,7 @@ track("ложный провал: филлы на 1 такт", () => {
 /* ---- метрики ---- */
 const COMPAT = { intro: ["intro", "calm"], build: ["build"], drop: ["drop", "climax"], break: ["break", "calm"], outro: ["outro", "calm"], flat: ["groove", "calm"], smooth: ["groove", "calm", "build", "intro", "outro", "climax"] };
 const median = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[s.length >> 1] : NaN; };
+vm.runInContext(`var __cap = null; if (typeof buildSections === "function") { const __o = buildSections; buildSections = function (a) { __cap = a; return __o(a); }; }`, ctx);
 vm.runInContext(`class FakeBuffer { constructor(n, sr){ this.numberOfChannels=1; this.length=n; this.sampleRate=sr; this.duration=n/sr; this._d=new Float32Array(n); } getChannelData(){ return this._d; } }`, ctx);
 
 /** События «section» из RhythmClock при воспроизведении карты. */
@@ -165,7 +170,7 @@ function arenaRun(m, dur, drops, builds) {
     for (let t = 0; t < __dur; t += dt) {
       clock.update(t, dt, null, true);
       mm.kind = clock.kind; mm.trend = clock.trend; mm.timeToNext = clock.timeToNext;
-      mm.dropIn = clock.dropIn; mm.buildProg = clock.buildProg;
+      mm.dropIn = clock.dropIn; mm.buildProg = clock.buildProg; mm.sectionT = clock.sectionT;
       mm.sectionEvent = clock.events.some(e => e.type === "section");
       mm.dropSoon = (clock.nextKind === "drop" || clock.nextKind === "climax") && clock.timeToNext < 4 && clock.timeToNext > 0;
       A.updateVariants(mm, dt);
@@ -188,6 +193,7 @@ function arenaRun(m, dur, drops, builds) {
     const g = T.f();
     ctx.__d = g.buf; ctx.__sr = SR;
     const m = await vm.runInContext(`(async()=>{ const b = new FakeBuffer(__d.length, __sr); b._d.set(__d); return await new RhythmAnalyzer().analyze(b); })()`, ctx);
+    if (process.env.BARS) { ctx.__a = vm.runInContext("__cap", ctx); const b = vm.runInContext("(() => { const b = sectionBars(__a); return { edges: b.edges, I: b.I, F: b.F }; })()", ctx); for (let k = 0; k < b.edges.length - 1; k++) console.log(k, b.edges[k].toFixed(1), "I", b.I[k].toFixed(2), ["e", "l", "m", "h", "kf", "mf", "hf"].map(x => x + b.F[x][k].toFixed(2)).join(" ")); }
     const P = 60 / g.bpm, t0 = g.beats[0];
     const fb = m.sections.slice(1).map(s => s.start), tb = g.truth.slice(1).map(s => s.start);
     // сопоставление границ (окно 4 с)
@@ -235,7 +241,7 @@ function arenaRun(m, dur, drops, builds) {
       "дроп-событие мс": dropEv.length ? dropEv.map(x => (x * 1000).toFixed(0)).join("/") : "-",
       "арена: дроп≥0.5 мс": ar ? ar.drop.map(x => x == null ? "нет" : (x * 1000).toFixed(0)).join("/") : "-",
       "хвост нараст.": ar ? ar.tail.map(x => x.toFixed(2)).join("/") : "-",
-      "kind-ы": m.sections.map(s => s.kind[0] + s.kind[1] + "@" + s.start.toFixed(0)).join(" "),
+      "kind-ы": m.sections.map(s => s.kind[0] + s.kind[1] + "@" + s.start.toFixed(0) + (s.drive != null && process.env.DRIVE ? ":" + s.drive.toFixed(2) : "")).join(" "),
     };
     rows.push(row);
     agg.n++; agg.errs.push(...abs); if (!g.truth.some(x => x.soft)) { agg.strong[0] += onStrong; agg.strong[1] += fb.length; agg.phrase[0] += onPhrase; agg.phrase[1] += fb.length; }
@@ -247,5 +253,7 @@ function arenaRun(m, dur, drops, builds) {
     `ош. границы мед ${(median(agg.errs) * 1000).toFixed(0)} мс, на сильной ${agg.strong[0]}/${agg.strong[1]}, на 4-такт. фразе ${agg.phrase[0]}/${agg.phrase[1]}` +
     (agg.dropEv.length ? `, событие дропа в часах: мед ${(median(agg.dropEv) * 1000).toFixed(0)} мс` : ""));
   console.log(`АРЕНА: вес дропа ≥ 0.5 — мед ${(median(agg.arDrop) * 1000).toFixed(0)} мс после истинной 1-й доли дропа (не включился: ${agg.arMiss}), остаток нарастания через 0.25 с после дропа: макс ${Math.max(...agg.arTail).toFixed(2)}, лишних включений дропа: ${agg.arUps}`);
+  const kindPct = 100 * agg.acc.reduce((a, b) => a + b, 0) / agg.acc.length;
+  if (!FILTER && (kindPct < 98 || agg.extra > 0 || agg.miss > 0)) { console.log(`ПРОВАЛ: kind ${kindPct.toFixed(1)}%, лишних ${agg.extra}, пропущено ${agg.miss}`); process.exitCode = 1; }
   console.log("kind-ы: in=intro bu=build dr=drop cl=climax br=break ou=outro ca=calm gr=groove; допустимо: drop≡climax, intro/outro/break≡calm для сравнения по времени");
 })();

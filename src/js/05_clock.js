@@ -1,7 +1,8 @@
 /* =====================================================================
    RhythmClock — единый музыкальный контроллер.
    Все игровые системы берут ритм отсюда: фазу, доли, окна точности,
-   интенсивность, полосы спектра, события кадра.
+   интенсивность, полосы спектра, события кадра. Части трека (kind, section, sectionT, dropIn) — вход «Режиссёра»:
+   по ним арена выбирает эффекты (09_arena updateVariants).
    ===================================================================== */
 const RATING = {
   perfect: { label: "PERFECT", mult: 1.5, score: 2.0, color: "#3ef0ff" },
@@ -30,6 +31,7 @@ class RhythmClock {
     this.sectionIdx = 0; this.section = null;
     this.level = "mid"; this.kind = "groove"; this.trend = 0; this.nextKind = null; this.timeToNext = 99;
     this.sectionProg = 0; this.buildProg = 0; this.dropIn = 99;   // доля пройденной части, ход нарастания, секунд до дропа
+    this.sectionT = 0;                                            // секунд с начала текущей части (Режиссёр гасит долгий дроп)
     this.bassy = false; this.bright = false;
     this._ptr = { low: 0, mid: 0, high: 0 };
     this._lastT = 0;
@@ -130,6 +132,7 @@ class RhythmClock {
       this.bassy = !!(sc && sc.bassy);
       this.bright = !!(sc && sc.bright);
       this.sectionProg = sc ? clamp((tc - sc.start) / Math.max(0.5, sc.end - sc.start), 0, 1) : 0;
+      this.sectionT = sc ? Math.max(0, tc - sc.start) : 0;
       this.buildProg = this.kind === "build" ? this.sectionProg : 0;
       // взгляд вперёд: рост энергии в ближайшие 3 с (сглажен — иначе дребезжит вместе с огибающей)
       const ahead = clamp((t + 3) * m.envFps, 0, m.energy.length - 1);

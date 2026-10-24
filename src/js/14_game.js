@@ -856,7 +856,7 @@ class Game {
     }
     m.kind = c.kind; m.trend = c.trend; m.timeToNext = c.timeToNext; m.bassy = c.bassy; m.bright = c.bright;
     m.dropSoon = (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0;
-    m.dropIn = c.dropIn; m.buildProg = c.buildProg; m.sectionProg = c.sectionProg;
+    m.dropIn = c.dropIn; m.buildProg = c.buildProg; m.sectionProg = c.sectionProg; m.sectionT = c.sectionT;
     m.halfPulse = c.halfPulse;
     return m;
   }
