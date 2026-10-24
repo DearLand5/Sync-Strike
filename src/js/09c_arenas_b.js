@@ -532,23 +532,31 @@
           c.fillStyle = rgba("#e8f4ff", 0.2 + 0.4 * (0.5 + 0.5 * Math.sin(t * 1.2 + s.ph)) * (0.4 + m.high));
           c.fillRect(x, s.y * F * 0.6, 1.4, 1.4);
         }
-        // три волны сияния: нижняя кромка яркая, лучи вверх; скорость и размах — от энергии и баса
+        // три ленты сияния: нижняя кромка яркая, лучи вверх. Движение — только медленное течение:
+        // фазы ИНТЕГРИРУЮТСЯ (ph += dt·скорость), скорость и все музыкальные входы сглажены.
+        // (Раньше фаза = t·sp с «живой» sp, и любое колебание sp давало скачок фазы t·Δsp — отсюда дёрганье;
+        // плюс высокочастотная рябь hot·sin(t·3) и прямая привязка высоты/яркости к импульсам доли.)
+        const dt = Math.min(R.dt || 0.016, 0.05), Q = this.aur || (this.aur = { ph: 0, I: 0.7, low: 0.4, hot: 0, calm: 0, mid: 0.4, pulse: 0, strong: 0, xs: new Float32Array(37), ys: new Float32Array(37) });
+        Q.I = damp(Q.I, m.I, 0.7, dt); Q.low = damp(Q.low, m.low, 0.9, dt); Q.mid = damp(Q.mid, m.mid, 0.9, dt);
+        Q.hot = damp(Q.hot, hot, 0.8, dt); Q.calm = damp(Q.calm, calm, 0.8, dt);
+        Q.pulse = damp(Q.pulse, m.pulse, 2.2, dt); Q.strong = damp(Q.strong, m.strong, 1.5, dt);
+        Q.ph += dt * (0.16 + 0.07 * Q.hot + 0.04 * Q.mid);      // общая фаза течения, всегда растёт плавно
         c.save(); c.globalCompositeOperation = "lighter";
-        const cols = [A.neon(0), A.neon(1), "#4d9bff"], N = 36, amp = 0.55 + 0.45 * m.I, sp = 0.25 + 0.2 * hot + 0.12 * m.mid;
+        const cols = [A.neon(0), A.neon(1), "#4d9bff"], N = 36, amp = 0.55 + 0.45 * Q.I, hot2 = Q.hot, ph0 = Q.ph;
         for (let r = 0; r < 3; r++) {
-          const baseY = F * (0.3 + 0.07 * r), hg = F * (0.3 + 0.05 * r) * (0.75 + 0.35 * amp + 0.25 * m.low);
-          const ph = t * sp * (r % 2 ? -1 : 1) + r * 2.3, px = v.camX * v.scale * 0.03;
-          const ys = [], xs = [];
+          const baseY = F * (0.3 + 0.07 * r), hg = F * (0.3 + 0.05 * r) * (0.8 + 0.28 * amp + 0.12 * Q.low);
+          const ph = ph0 * (r % 2 ? -1 : 1) * (1 + 0.15 * r) + r * 2.3, px = v.camX * v.scale * 0.03;
+          const ys = Q.ys, xs = Q.xs;   // буферы без аллокаций в кадре
           for (let i = 0; i <= N; i++) {
             const x = -20 + i / N * (v.w + 40), xw = (x + px) * 0.006;
-            xs.push(x); ys.push(baseY + Math.sin(xw * 1.3 + ph) * F * 0.07 * amp + Math.sin(xw * 3.1 - ph * 1.6 + r) * F * 0.025 + hot * Math.sin(xw * 7 + t * 3) * 4);
+            xs[i] = x; ys[i] = (baseY + Math.sin(xw * 1.3 + ph) * F * 0.07 * amp + Math.sin(xw * 2.3 - ph * 1.4 + r) * F * 0.022);
           }
-          const a = (0.95 + 0.3 * m.pulse + 0.25 * m.strong * hot) * (1 - 0.3 * calm) * (r === 2 ? 0.7 : 1);
+          const a = (0.95 + 0.1 * Q.pulse + 0.08 * Q.strong * hot2) * (1 - 0.3 * Q.calm) * (r === 2 ? 0.7 : 1);
           const g = c.createLinearGradient(0, baseY - hg - F * 0.1, 0, baseY + F * 0.1);
           g.addColorStop(0, rgba(cols[r], 0)); g.addColorStop(0.72, rgba(cols[r], 0.13 * a)); g.addColorStop(0.92, rgba(cols[r], 0.3 * a)); g.addColorStop(1, rgba(cols[r], 0));
           c.fillStyle = g; c.beginPath(); c.moveTo(xs[0], ys[0] + 6);
           for (let i = 0; i <= N; i++) c.lineTo(xs[i], ys[i] + 6);
-          for (let i = N; i >= 0; i--) c.lineTo(xs[i], ys[i] - hg * (0.7 + 0.3 * Math.sin(xs[i] * 0.01 + ph * 1.3 + r * 4)));
+          for (let i = N; i >= 0; i--) c.lineTo(xs[i], ys[i] - hg * (0.7 + 0.3 * Math.sin(xs[i] * 0.01 + ph * 0.8 + r * 4)));
           c.closePath(); c.fill();
           c.strokeStyle = rgba(cols[r], 0.14 * a); c.lineWidth = 2; c.beginPath();
           for (let i = 0; i <= N; i++) { const rl = hg * 0.8 * this.rays[i % this.rays.length]; c.moveTo(xs[i], ys[i]); c.lineTo(xs[i] + 4, ys[i] - rl); }

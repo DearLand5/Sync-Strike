@@ -35,6 +35,57 @@
     });
   }
 
+  /* ---------- облака «Ливневых крыш» ---------- */
+  // Три гряды (дальняя светлее и туманнее, ближняя темнее и крупнее). Гряда — ряд перекрывающихся кругов-«клубов»,
+  // нарисованных тремя проходами: широкое мягкое гало → тонкое ядро. Все клубы одной гряды заливаются ОДНИМ путём
+  // (объединение без наложения альфы — чистый силуэт). Подсветка кромок без градиентов: тот же путь, сдвинутый
+  // вниз на пару пикселей неоном города (виден узкой полоской по нижней кромке) и вверх — отсветом луны.
+  // Молния: вся гряда светлеет, а клубы возле удара — сильнее. Дрейф медленный, привязан к времени и параллаксу.
+  const CLOUD_BANKS = [
+    // y — высота центра (доля пола), th — толщина, r — радиусы (доли пола), col/a — цвет и плотность ядра, rim — подсветка снизу
+    { y: 0.3, th: 0.09, sq: 0.4, r0: 0.05, r1: 0.1, n: 22, col: "#1b3050", a: 0.42, sp: 3.5, par: 0.02, rim: 0.25, up: 0.5 },
+    { y: 0.2, th: 0.1, sq: 0.38, r0: 0.055, r1: 0.12, n: 24, col: "#0a1626", a: 0.6, sp: 7, par: 0.045, rim: 0.5, up: 0.35 },
+    { y: 0.09, th: 0.1, sq: 0.36, r0: 0.065, r1: 0.14, n: 20, col: "#03060d", a: 0.8, sp: 12, par: 0.08, rim: 0.7, up: 0.15 },
+  ];
+  /** Клубы гряд: x в долях периода, y в долях толщины, радиус в долях [r0, r1] (с огибающей: середина толще). */
+  const buildClouds = rng => CLOUD_BANKS.map(B => {
+    const n = B.n, x = new Float32Array(n), y = new Float32Array(n), r = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = (i + 0.3 + 0.4 * rng()) / n, env = 0.5 + 0.5 * Math.sin(u * TAU * 2 + rng() * 0.8) * Math.sin(u * TAU * 3.1 + 1);
+      x[i] = u; r[i] = lerp(B.r0, B.r1, Math.pow(rng(), 1.4) * (0.45 + 0.55 * env)); y[i] = (rng() - 0.5) * 2 * (0.4 + 0.6 * env);
+    }
+    return { x, y, r };
+  });
+  /** Один проход: объединённый путь всех видимых клубов гряды (масштаб радиуса k, сдвиг по y — dy, только клубы с |x−bx| < near). */
+  const cloudPath = (c, B, G, P, off, F, k, dy, w, bx, near) => {
+    c.beginPath();
+    for (let i = 0; i < B.n; i++) {
+      const ry = G.r[i] * F * B.sq, rx = G.r[i] * F * 2.3, cy = F * B.y + G.y[i] * F * B.th + dy;   // вытянутые «слоистые» клубы
+      for (let xx = off + G.x[i] * P; xx < w + rx * 1.5; xx += P) {
+        if (xx < -rx * 1.5 || (near > 0 && Math.abs(xx - bx) > near)) continue;
+        c.moveTo(xx + rx * k, cy); c.ellipse(xx, cy, rx * k, ry * k, 0, 0, TAU);
+      }
+    }
+  };
+  const cloudWarm = { v: 0 };
+  const drawClouds = (c, v, m, R, th, fl, bx, soft) => {
+    const F = v.floorY, P = v.w + 720, cl = th.clouds, low = R.amount < 1;
+    cloudWarm.v = damp(cloudWarm.v, 0.55 + 0.45 * m.I, 0.8, Math.min(R.dt || 0.016, 0.05));   // медленный отсвет города
+    for (let b = 0; b < 3; b++) {
+      const B = CLOUD_BANKS[b], G = cl[b];
+      const off = -((m.time * B.sp + v.camX * v.scale * B.par) % P + P) % P;
+      if (!low) { cloudPath(c, B, G, P, off, F, 1.3, 0, v.w, 0, 0); c.fillStyle = rgba(B.col, B.a * 0.2); c.fill(); }   // мягкий край: слой гало вокруг ядра
+      if (b > 0 || fl > 0.05) {   // подсветка снизу неоном города (ядро закроет всё, кроме полоски у нижней кромки); дальняя гряда — только при молнии
+        cloudPath(c, B, G, P, off, F, 1.0, 2.5 + 2 * b, v.w, 0, 0); c.fillStyle = rgba(R.arena.neon(b === 1 ? 1 : 0), 0.2 * B.rim * cloudWarm.v + 0.5 * fl * soft); c.fill();
+      }
+      cloudPath(c, B, G, P, off, F, 1.0, 0, v.w, 0, 0); c.fillStyle = rgba(B.col, B.a); c.fill();   // ядро
+      if (fl > 0.02) {   // молния: гряда целиком чуть светлеет, клубы возле удара — сильнее
+        cloudPath(c, B, G, P, off, F, 1.0, 0, v.w, 0, 0); c.fillStyle = rgba("#9cc8ff", 0.22 * fl * soft * (1 - 0.3 * b)); c.fill();
+        cloudPath(c, B, G, P, off, F, 1.15, 0, v.w, bx, v.w * 0.22); c.fillStyle = rgba("#dcebff", 0.3 * fl * soft); c.fill();
+      }
+    }
+  };
+
   /* ---------- состояние молний «Ливневых крыш» ---------- */
   const rainS = { fl: 0, bolt: null, prevDF: 0, cool: 0 };
   const newBolt = () => {
@@ -55,6 +106,7 @@
     pal: { sky: ["#050b16", "#1a2b44"], glow: "#4aa8ff", neonA: "#43d6ff", neonB: "#ff4fa0", floor: "#05080e", edge: "#43d6ff", fog: "#15263a" },
     profile: { bpm: [98, 22], high: [0.32, 0.1], bright: [0.45, 0.14], dynamics: [0.5, 0.3], density: [3, 2.2] },
     fogA: 0.34,
+    build(rng) { this.clouds = buildClouds(rng); },
     layers: [
       // дальние башни с антеннами; на антеннах — красные огни
       { top: 0.84, f: 0.07, haze: 0.55, paint(c, w, h, rng, A) {
@@ -149,10 +201,7 @@
       const g = c.createRadialGradient(mx, my, 6, mx, my, v.h * 0.45);
       g.addColorStop(0, rgba("#7fb0ff", 0.14 + 0.05 * m.low)); g.addColorStop(1, "rgba(127,176,255,0)");
       c.fillStyle = g; c.fillRect(0, 0, v.w, v.floorY);
-      for (let i = 0; i < 3; i++) {
-        const x = ((m.time * (5 + i * 3) + i * 380 - v.camX * v.scale * 0.04) % (v.w + 500)) - 250, y = v.floorY * (0.08 + 0.14 * i);
-        c.fillStyle = rgba("#02040a", 0.5); c.beginPath(); c.ellipse(x + 250, y, 320, 22 + i * 6, 0, 0, TAU); c.fill();
-      }
+      // облака рисуются ниже, после расчёта молнии (нужна её яркость и место удара)
       // --- молнии: сильный удар на входе в дроп, короткие вспышки на сильных долях кульминации и редко в обычном бою
       S.cool -= dt;
       const edge = A.dropFlash > S.prevDF + 0.4;
@@ -160,9 +209,11 @@
       if (edge || (m.strongEvent && S.cool <= 0 && rand() < (kw.climax + kw.drop > 0.4 ? 0.6 : 0.07))) {
         S.fl = edge ? 1 : 0.7; S.bolt = newBolt(); S.cool = edge ? 3 : (kw.climax + kw.drop > 0.4 ? 1.8 : 7);
       }
+      if (S.fl <= 0) drawClouds(c, v, m, R, this, 0, 0, 1);
       if (S.fl > 0) {
         S.fl = Math.max(0, S.fl - dt * 2.6);
         const k = S.fl * (0.65 + 0.35 * Math.sin(S.fl * 28)), soft = R.flashes ? 1 : 0.3;
+        drawClouds(c, v, m, R, this, k, S.bolt ? S.bolt[0][0][0] * v.w : v.w * 0.5, soft);
         c.fillStyle = rgba("#9cc8ff", 0.3 * k * soft); c.fillRect(0, 0, v.w, v.floorY);
         if (S.bolt && S.fl > 0.25) {
           c.save(); c.globalCompositeOperation = "lighter"; c.lineJoin = "round";
