@@ -669,7 +669,9 @@ class UIManager {
         const sk = SKINS[id];
         const b = document.createElement("button");
         b.className = "skin"; b.type = "button"; b.dataset.id = id; b.dataset.cat = sk.cat || "classic";
-        const cv = document.createElement("canvas"); cv.width = 200; cv.height = 200;
+        // превью — картинка, а не canvas: содержимое canvas стирается при сбросе GPU (Android) и в фоне,
+        // а карточки рисуются один раз — иконки «пропадали» через время
+        const cv = document.createElement("img"); cv.alt = ""; cv.width = 200; cv.height = 200; cv.decoding = "async";
         const label = document.createElement("b"); label.textContent = sk.name;
         const sub = document.createElement("small"); sub.textContent = sk.from || "";
         b.append(cv, label, sub);
@@ -711,7 +713,9 @@ class UIManager {
     const cur = this.game.settings.v.skin;
     for (const id in this._skinCards) this._skinCards[id].setAttribute("aria-pressed", String(id === cur));
   }
-  _drawSkin(cv, id) {
+  _drawSkin(img, id) {
+    const cv = this._skinCv || (this._skinCv = document.createElement("canvas"));
+    cv.width = 200; cv.height = 200;                       // сброс холста перед каждым скином
     const c = cv.getContext("2d"), sk = SKINS[id];
     const gr = c.createLinearGradient(0, 0, 0, cv.height);
     gr.addColorStop(0, "#0d0e14"); gr.addColorStop(1, mixHex("#0d0e14", sk.accent, 0.15));
@@ -720,6 +724,7 @@ class UIManager {
     const ch = { kind: "player", skin: sk, x: cv.width / 2, y: cv.height * 0.82, facing: 1, scale: 3.4, anim: new AnimState(), scarfColor: null, weapon: "dagger", eyeBoost: 0.3, flash: 0, groundY: cv.height * 0.82, vx: 0, vy: 0 };
     Object.assign(ch.anim.pose, { armF: 0.5, elbowF: 0.5, lean: 0.05 });
     CharacterRenderer.draw(c, ch);
+    try { img.src = cv.toDataURL("image/png"); } catch (e) { img.removeAttribute("src"); }
   }
 
   refreshSync() {

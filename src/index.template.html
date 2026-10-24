@@ -142,7 +142,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 /* skins */
 .skins{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
 .skin{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:6px;background:#0f1016;display:flex;flex-direction:column;align-items:center;padding-bottom:10px}
-.skin canvas{width:100%;aspect-ratio:1;display:block}
+.skin img{width:100%;height:auto;aspect-ratio:1;display:block}
 .skin b{font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;text-align:center;padding:0 4px}
 .skin small{color:var(--muted);font-size:11px;line-height:1.25;text-align:center;padding:2px 6px 0}
 .skin[hidden]{display:none!important}
@@ -172,7 +172,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   #skin-hint{display:none}
   .skins{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
   .skin{padding-bottom:5px}
-  .skin canvas{width:auto;height:78px;margin:0 auto}
+  .skin img{width:auto;height:78px;margin:0 auto}
   .skin small{font-size:10px;padding-top:0}
   #skin-cats button{padding:6px 10px}
   .menu-list{display:grid;grid-template-columns:repeat(2,max-content);column-gap:34px;row-gap:0;max-width:none}
