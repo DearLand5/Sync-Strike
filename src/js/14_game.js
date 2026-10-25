@@ -7,26 +7,26 @@
 //  hurtIF — неуязвимость после удара (с); perfectDodge — окно идеального уклона (с);
 //  spawnGrace — пауза перед первой атакой нового врага (с); gap — множитель паузы между атаками разных врагов;
 //  tokens(n)/ranged(n) — сколько врагов (и стрелков) может атаковать одновременно на волне n;
-//  alive(n) — сколько врагов одновременно на арене; waveHeal — лечение между волнами (доля от макс. HP);
+//  (натиск появляется целиком, следующий — когда выбит предыдущий; размер ещё × SPAWN_AMOUNTS из настройки «Врагов»); waveHeal — лечение между волнами (доля от макс. HP);
 //  waveSize — доля врагов в каждом натиске волны (WAVES); eliteHp — множитель HP элитных врагов («+» в WAVES);
 //  windBeats — добавка к числу долей замаха врага (тип задаёт базу; темп трека добавляет/убирает доли, см. Enemy._windBeats).
 const DIFFS = {
   easy: {
     hp: 0.85, playerHp: 1.3, dmg: 0.5, playerDmg: 1.15, cd: 1.5, wind: 1.25, bolt: 0.85,
     hurtIF: 1.1, perfectDodge: 0.22, spawnGrace: 0.9, gap: 1.5, extra: -1,
-    tokens: n => 1 + Math.floor(n / 5), ranged: n => 1, alive: n => 3 + Math.floor(n / 3), waveHeal: 0.25,
+    tokens: n => 1 + Math.floor(n / 5), ranged: n => 1, waveHeal: 0.25,
     waveSize: 0.7, eliteHp: 1.4, windBeats: 1,
   },
   normal: {
     hp: 1.1, playerHp: 1, dmg: 0.6, playerDmg: 1, cd: 1.2, wind: 1.07, bolt: 0.95,
     hurtIF: 0.85, perfectDodge: 0.18, spawnGrace: 0.55, gap: 1.15, extra: 0,
-    tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), alive: n => 3 + Math.floor(n / 2), waveHeal: 0.35,
+    tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), waveHeal: 0.35,
     waveSize: 0.8, eliteHp: 1.8, windBeats: 0,
   },
   hard: {
     hp: 1.2, playerHp: 0.85, dmg: 0.95, playerDmg: 0.95, cd: 0.9, wind: 0.88, bolt: 1.1,
     hurtIF: 0.7, perfectDodge: 0.15, spawnGrace: 0.35, gap: 1, extra: 1,
-    tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), alive: n => 4 + Math.floor(n / 2), waveHeal: 0.25,
+    tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), waveHeal: 0.25,
     waveSize: 0.9, eliteHp: 2, windBeats: 0,
   },
 };
@@ -37,6 +37,9 @@ const SLOWMO_MODES = {
   rare:   { gap: 2.5, flairGap: 4.0, budget: 0.2, stopScale: 0.85 },
   off:    { gap: 1e9, flairGap: 1e9, budget: 0, stopScale: 0.6 },
 };
+// Настройка «Количество врагов»: множитель размера натиска («Волны») и группы («До конца трека»).
+// «normal» — чуть меньше, чем было до групп (по просьбе пользователя).
+const SPAWN_AMOUNTS = { few: 0.65, normal: 0.85, many: 1.15 };
 const SLOW_PRIORITY = { flair: 1, dodge: 2, takedown: 3, finale: 4 };
 const SECTION_NAMES = { intro: "ИНТРО", build: "НАРАСТАНИЕ", drop: "ДРОП", climax: "КУЛЬМИНАЦИЯ", break: "БРЕЙК", calm: "ЗАТИШЬЕ", groove: "ГРУВ", outro: "ФИНАЛ" };
 const MODE_NAMES = { waves: "Волны", track: "До конца трека", practice: "Практика" };
@@ -75,7 +78,7 @@ class Game {
     this.acc = 0; this.hitstopT = 0; this.slowT = 0; this.slowDur = 0; this.slowScale = 1;
     this.resetTimeFx();
     this.deferPose = false; this._m = { onsets: [] };
-    this.hurtFlash = 0; this.endT = 0; this.endWin = false;
+    this.hurtFlash = 0; this.impactFlash = 0; this.endT = 0; this.endWin = false;
     this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitle = ""; this.takedownTitleT = 0;
     this.sectionTitle = ""; this.sectionTitleT = 0;
     this.fps = 60; this._ft = 16; this._slowFrames = 0; this.autoLow = false;
@@ -111,6 +114,14 @@ class Game {
   }
 
   sfx(name, a, b) { const s = this.audio.sfx; if (s && s[name]) s[name](a, b); }
+  /** Звук ровно в музыкальный момент songT: смешивается с той же позицией трека, поэтому звучит точно на доле
+   *  при любой задержке вывода (на Android — десятки мс). В замедлении/прошлом — сразу. */
+  sfxAt(songT, name, a, b) {
+    const s = this.audio.sfx;
+    if (!s || !s[name]) return;
+    s.when = this.timeScale > 0.97 ? this.audio.ctxTimeAt(songT) : null;
+    try { s[name](a, b); } finally { s.when = null; }
+  }
 
   /* ---------- качество и размеры ---------- */
   applyQuality() {
@@ -487,7 +498,7 @@ class Game {
     this.fx.clear();
     this.afterimages = [];
     this.camera.x = this.player.x; this.camera.trauma = 0;
-    this.hitstopT = 0; this.slowT = 0; this.hurtFlash = 0; this.endT = 0;
+    this.hitstopT = 0; this.slowT = 0; this.hurtFlash = 0; this.impactFlash = 0; this.endT = 0;
     this.resetTimeFx();
     this.battleActive = true;
     this.state = "battle";
@@ -833,15 +844,21 @@ class Game {
     for (const a of this.afterimages) a.life -= dt;
     compactInPlace(this.afterimages, a => a.life > 0);
     this.hurtFlash = Math.max(0, this.hurtFlash - dtReal * 2.5);
+    this.impactFlash = Math.max(0, this.impactFlash - dtReal * 6);
 
-    // музыка в мире: толчок камеры на сильных долях, кольцо под ногами, смена частей трека
+    // музыка в мире: камера «качает» на каждой доле, кольцо под ногами на сильной, свечение героя по груву, смена частей
     for (const ev of this.clock.events) {
       if (ev.type === "section" && SECTION_NAMES[ev.kind]) {
         this.sectionTitle = SECTION_NAMES[ev.kind]; this.sectionTitleT = 2;
         if (ev.kind === "drop" || ev.kind === "climax") { this.camera.kick(0.04); this.camera.shake(0.3); this.fx.shockwave(p.x, p.groundY, p.skin.accent, 220); }
       }
+      if (ev.type === "beat") {
+        const I = this.clock.intensitySmooth, sh = 0.4 + 0.6 * this.settings.v.shake;
+        this.camera.kick((ev.strong ? 0.007 : 0.0035) * (0.4 + I) * sh);
+        const gv = this.combat.groove;
+        if (gv && !this.combat.td && p.alive) this.fx.glow(p.x, p.y - 18, 10, 26 + gv * 8, p.skin.accent, 0.3, 0.08 + 0.06 * gv);
+      }
       if (ev.type === "strongBeat") {
-        this.camera.kick(0.006 * this.clock.intensitySmooth);
         if (!this.combat.td) this.fx.shockwave(p.x, p.groundY, p.skin.accent, 60 + 40 * this.clock.intensitySmooth);   // без лишних колец во время добивания
       } else if (ev.type === "onset" && ev.band === "high" && ev.strength > 0.5 && this.effQuality === "high") {
         this.fx.spawn("dot", p.x + rand(-200, 200), rand(-220, -40), { vy: -20, life: 0.6, size: 1.6, color: this.arena.theme.pal.neonB, add: true });
@@ -872,6 +889,7 @@ class Game {
     m.dropSoon = (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0;
     m.dropIn = c.dropIn; m.buildProg = c.buildProg; m.sectionProg = c.sectionProg; m.sectionT = c.sectionT;
     m.halfPulse = c.halfPulse;
+    m.groove = this.battleActive ? this.combat.groove : 0;   // серия в такт — арена ярче
     m.dirOff = !!(c.map && c.map.directorOff);   // Режиссёр выключен вручную — без эффектов по частям
     return m;
   }

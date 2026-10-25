@@ -24,8 +24,8 @@ const DEFAULT_SETTINGS = {
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5
   windowScale: 1.0,         // 0.7..1.5
-  autoSync: true,
-  dirSnap: "bar",          // Режиссёр: привязка границ частей — beat | bar | bar4 | free           // автоподстройка latencyMs по ударам в бою
+  autoSync: true,           // автоподстройка latencyMs по ударам в бою
+  dirSnap: "bar",           // Режиссёр: привязка границ частей — beat | bar | bar4 | free
   assist: true,             // буферизация ввода к доле
   btnScale: 1.0,            // общий размер кнопок 0.6..1.5
   btnAlpha: 0.55,           // прозрачность кнопок 0.1..1
@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
   skin: "shade",
   mode: "waves",
   difficulty: "normal",
+  spawnAmount: "normal",    // количество врагов в группе: few | normal | many (SPAWN_AMOUNTS в 14_game)
 };
 
 class Settings extends Emitter {

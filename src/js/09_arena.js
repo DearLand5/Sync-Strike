@@ -847,7 +847,7 @@ class ArenaRenderer {
     m.I = clamp(0.45 + 0.55 * (m.intensity * 0.6 + this.levelMix * 0.4), 0, 1);
     this.updateVariants(m, R.dt);
     const kw = this.kw;
-    m.I = clamp(m.I + 0.25 * (kw.drop + kw.climax) - 0.2 * (kw.break + kw.calm + kw.intro + kw.outro), 0.25, 1);
+    m.I = clamp(m.I + 0.25 * (kw.drop + kw.climax) - 0.2 * (kw.break + kw.calm + kw.intro + kw.outro) + 0.04 * (m.groove || 0), 0.25, 1);
 
     // небо
     const g = ctx.createLinearGradient(0, 0, 0, v.floorY);

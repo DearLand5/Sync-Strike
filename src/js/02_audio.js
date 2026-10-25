@@ -186,6 +186,15 @@ class AudioManager extends Emitter {
   /** Музыкальное время для игровой логики: слышимая позиция минус калибровка. */
   songTime() { return this.heardPosition() - this.settings.v.latencyMs / 1000; }
 
+  /** Время аудиоконтекста, когда звук, запущенный в нём, прозвучит вместе с музыкой в момент songT
+   *  (звук эффекта смешивается с той же позицией трека — задержка вывода у обоих одна). null — «сейчас». */
+  ctxTimeAt(songT) {
+    if (!this.playing || !this.ctx) return null;
+    const c = this.ctx;
+    const t = this.startCtx + (songT + this.settings.v.latencyMs / 1000 - this.startOffset);
+    return t > c.currentTime + 0.003 && t < c.currentTime + 0.5 ? t : null;
+  }
+
   /** Перевод отметки времени события (performance.now) в музыкальное время. */
   songTimeAt(eventStamp) {
     const now = this.songTime();
@@ -212,6 +221,7 @@ class SFX {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this._last = {};
+    this.when = null;          // время аудиоконтекста для звуков «в долю» (Game.sfxAt), иначе — сейчас
     this.samples = {};      // имя события → [AudioBuffer]
     this._lastIdx = {};
     this.loadSamples();
@@ -242,7 +252,7 @@ class SFX {
     let i = Math.floor(Math.random() * list.length);
     if (list.length > 1 && i === this._lastIdx[name]) i = (i + 1) % list.length;   // без повтора подряд
     this._lastIdx[name] = i;
-    const c = this.ctx, t = o.at != null ? o.at : c.currentTime + (o.delay || 0);
+    const c = this.ctx, t = o.at != null ? o.at : (this.when != null ? this.when : c.currentTime) + (o.delay || 0);
     const src = c.createBufferSource(), g = c.createGain();
     src.buffer = list[i];
     src.playbackRate.value = (o.rate || 1) * this.v(o.vary == null ? 0.06 : o.vary);
@@ -274,7 +284,7 @@ class SFX {
   }
   tone(o) {
     if (!this.can()) return;
-    const c = this.ctx, t = o.at != null ? o.at : c.currentTime + (o.delay || 0);
+    const c = this.ctx, t = o.at != null ? o.at : (this.when != null ? this.when : c.currentTime) + (o.delay || 0);
     const osc = c.createOscillator(), g = c.createGain();
     osc.type = o.type || "sine";
     osc.frequency.setValueAtTime(o.f, t);
@@ -290,7 +300,7 @@ class SFX {
   }
   noiseBurst(o) {
     if (!this.can()) return;
-    const c = this.ctx, t = o.at != null ? o.at : c.currentTime + (o.delay || 0);
+    const c = this.ctx, t = o.at != null ? o.at : (this.when != null ? this.when : c.currentTime) + (o.delay || 0);
     const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
     src.buffer = this.noise;
     f.type = o.ft || "bandpass";
@@ -362,6 +372,13 @@ class SFX {
   slam() { if (this.sample("slam", { vol: 0.7, vary: 0.04 })) return; this.tone({ f: 95, f2: 32, dur: 0.5, vol: 0.55 }); this.noiseBurst({ ft: "lowpass", f: 800, f2: 200, dur: 0.4, vol: 0.38 }); }
   // Perfect и метроном остаются синтезированными: точная высота и тайминг важнее «живого» тембра
   perfect() { const b = 880 * this.v(0.02); this.tone({ type: "triangle", f: b, dur: 0.16, vol: 0.07 }); this.tone({ type: "triangle", f: b * 1.26, dur: 0.2, vol: 0.06, delay: 0.035 }); }
+  /** Удар «в долю»: короткая плотная бочка под ударом/выстрелом — ставится ровно на долю музыки (Game.sfxAt). */
+  beatHit(power = 1) {
+    if (!this.gate("beatHit", 0.08)) return;
+    const p = this.v(0.03);
+    this.tone({ f: 150 * p, f2: 46, dur: 0.12, vol: 0.26 * power, a: 0.002 });
+    this.noiseBurst({ ft: "highpass", f: 2400, dur: 0.025, vol: 0.07 * power });
+  }
   combo(level) {
     if (this.sample("combo", { vol: 0.32, rate: 1 + 0.05 * clamp(level, 1, 5), vary: 0 })) return;
     const scale = [0, 3, 5, 7, 10, 12, 15];

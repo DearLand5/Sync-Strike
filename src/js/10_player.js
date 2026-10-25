@@ -119,10 +119,24 @@ class Player {
     game.sfx("dodge");
     game.fx.dust(this.x, this.y, 5);
     if (this.dodgeSync) {
+      game.combat.rhythm(1);
       game.fx.ring(this.x, this.y - 14, 4, 30, this.skin.accent, 0.3, 2);
       game.fx.text(this.x, this.y - 48, "SYNC", this.skin.accent, 12, 0.5);
     }
     return true;
+  }
+
+  /** Скорость фазы шага (рад/с; шаг — каждые π). Под музыку шаги встают на доли: целое число шагов на долю
+   *  (или шаг на две доли), ближайшее к естественному темпу шага, и подтяжка фазы к доле. */
+  _stepRate(game) {
+    const rate = Math.abs(this.vx) * 0.075, c = game.clock;
+    if (rate < 2 || !c.map || !game.audio.playing) return rate;
+    const spb = rate / Math.PI * c.period;                      // шагов на долю при естественном шаге
+    const m = spb < 0.7 ? 0.5 : clamp(Math.round(spb), 1, 4);
+    let e = (Math.PI * m * (Math.max(0, c.idx) + c.phase) - this.runPhase) % Math.PI;
+    if (e < 0) e += Math.PI;
+    if (e > Math.PI / 2) e -= Math.PI;                          // ошибка фазы до ближайшего шага, −π/2..π/2
+    return Math.max(0, Math.PI * m / c.period + e * 6);
   }
 
   hurt(dmg, fromX, game) {
@@ -243,7 +257,7 @@ class Player {
     }
     if ((this.state === "run" || this.state === "walk") && this.onGround) {
       const prevPh = this.runPhase;
-      this.runPhase += Math.abs(this.vx) * dt * 0.075;
+      this.runPhase += this._stepRate(game) * dt;
       if (Math.floor(prevPh / Math.PI) !== Math.floor(this.runPhase / Math.PI)) game.sfx("step");
     }
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);

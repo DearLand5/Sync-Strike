@@ -528,12 +528,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
     <div class="panel">
       <div class="topbar"><h2 class="title h2">Режим</h2><span class="track-line"><i class="dot" id="mode-dot"></i><span id="mode-track"></span></span></div>
       <div class="grid2" id="mode-list">
-        <button class="card arena" data-mode="waves" aria-pressed="true"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>Волны</b><span style="white-space:normal">Шесть волн, сложность растёт. Трек играет по кругу.</span></div></button>
-        <button class="card arena" data-mode="track" aria-pressed="false"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>До конца трека</b><span style="white-space:normal">Натиск врагов следует за энергией музыки. Продержитесь до финала.</span></div></button>
+        <button class="card arena" data-mode="waves" aria-pressed="true"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>Волны</b><span style="white-space:normal">Шесть волн по три натиска: следующий — когда выбит предыдущий. Трек играет по кругу.</span></div></button>
+        <button class="card arena" data-mode="track" aria-pressed="false"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>До конца трека</b><span style="white-space:normal">Новая группа сразу после предыдущей, её размер — по энергии музыки. Продержитесь до финала.</span></div></button>
         <button class="card arena" data-mode="practice" aria-pressed="false"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>Практика</b><span style="white-space:normal">Подсказки по шагам, поражения нет.</span></div></button>
       </div>
       <div class="row"><span class="h3">Сложность</span>
         <div class="seg" id="diff-seg"><button data-diff="easy">Легко</button><button data-diff="normal">Норма</button><button data-diff="hard">Тяжело</button></div>
+        <span class="h3">Врагов</span>
+        <div class="seg" id="spawn-seg"><button data-spawn="few">Меньше</button><button data-spawn="normal">Норма</button><button data-spawn="many">Больше</button></div>
       </div>
       <div class="row">
         <button class="btn" data-go="menu">Назад</button>
@@ -823,8 +825,8 @@ const DEFAULT_SETTINGS = {
   latencyMs: 0,             // пользовательская калибровка задержки звука
   sensitivity: 1.0,         // 0.5..1.5
   windowScale: 1.0,         // 0.7..1.5
-  autoSync: true,
-  dirSnap: "bar",          // Режиссёр: привязка границ частей — beat | bar | bar4 | free           // автоподстройка latencyMs по ударам в бою
+  autoSync: true,           // автоподстройка latencyMs по ударам в бою
+  dirSnap: "bar",           // Режиссёр: привязка границ частей — beat | bar | bar4 | free
   assist: true,             // буферизация ввода к доле
   btnScale: 1.0,            // общий размер кнопок 0.6..1.5
   btnAlpha: 0.55,           // прозрачность кнопок 0.1..1
@@ -834,6 +836,7 @@ const DEFAULT_SETTINGS = {
   skin: "shade",
   mode: "waves",
   difficulty: "normal",
+  spawnAmount: "normal",    // количество врагов в группе: few | normal | many (SPAWN_AMOUNTS в 14_game)
 };
 
 class Settings extends Emitter {
@@ -1039,6 +1042,15 @@ class AudioManager extends Emitter {
   /** Музыкальное время для игровой логики: слышимая позиция минус калибровка. */
   songTime() { return this.heardPosition() - this.settings.v.latencyMs / 1000; }
 
+  /** Время аудиоконтекста, когда звук, запущенный в нём, прозвучит вместе с музыкой в момент songT
+   *  (звук эффекта смешивается с той же позицией трека — задержка вывода у обоих одна). null — «сейчас». */
+  ctxTimeAt(songT) {
+    if (!this.playing || !this.ctx) return null;
+    const c = this.ctx;
+    const t = this.startCtx + (songT + this.settings.v.latencyMs / 1000 - this.startOffset);
+    return t > c.currentTime + 0.003 && t < c.currentTime + 0.5 ? t : null;
+  }
+
   /** Перевод отметки времени события (performance.now) в музыкальное время. */
   songTimeAt(eventStamp) {
     const now = this.songTime();
@@ -1065,6 +1077,7 @@ class SFX {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this._last = {};
+    this.when = null;          // время аудиоконтекста для звуков «в долю» (Game.sfxAt), иначе — сейчас
     this.samples = {};      // имя события → [AudioBuffer]
     this._lastIdx = {};
     this.loadSamples();
@@ -1095,7 +1108,7 @@ class SFX {
     let i = Math.floor(Math.random() * list.length);
     if (list.length > 1 && i === this._lastIdx[name]) i = (i + 1) % list.length;   // без повтора подряд
     this._lastIdx[name] = i;
-    const c = this.ctx, t = o.at != null ? o.at : c.currentTime + (o.delay || 0);
+    const c = this.ctx, t = o.at != null ? o.at : (this.when != null ? this.when : c.currentTime) + (o.delay || 0);
     const src = c.createBufferSource(), g = c.createGain();
     src.buffer = list[i];
     src.playbackRate.value = (o.rate || 1) * this.v(o.vary == null ? 0.06 : o.vary);
@@ -1127,7 +1140,7 @@ class SFX {
   }
   tone(o) {
     if (!this.can()) return;
-    const c = this.ctx, t = o.at != null ? o.at : c.currentTime + (o.delay || 0);
+    const c = this.ctx, t = o.at != null ? o.at : (this.when != null ? this.when : c.currentTime) + (o.delay || 0);
     const osc = c.createOscillator(), g = c.createGain();
     osc.type = o.type || "sine";
     osc.frequency.setValueAtTime(o.f, t);
@@ -1143,7 +1156,7 @@ class SFX {
   }
   noiseBurst(o) {
     if (!this.can()) return;
-    const c = this.ctx, t = o.at != null ? o.at : c.currentTime + (o.delay || 0);
+    const c = this.ctx, t = o.at != null ? o.at : (this.when != null ? this.when : c.currentTime) + (o.delay || 0);
     const src = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
     src.buffer = this.noise;
     f.type = o.ft || "bandpass";
@@ -1215,6 +1228,13 @@ class SFX {
   slam() { if (this.sample("slam", { vol: 0.7, vary: 0.04 })) return; this.tone({ f: 95, f2: 32, dur: 0.5, vol: 0.55 }); this.noiseBurst({ ft: "lowpass", f: 800, f2: 200, dur: 0.4, vol: 0.38 }); }
   // Perfect и метроном остаются синтезированными: точная высота и тайминг важнее «живого» тембра
   perfect() { const b = 880 * this.v(0.02); this.tone({ type: "triangle", f: b, dur: 0.16, vol: 0.07 }); this.tone({ type: "triangle", f: b * 1.26, dur: 0.2, vol: 0.06, delay: 0.035 }); }
+  /** Удар «в долю»: короткая плотная бочка под ударом/выстрелом — ставится ровно на долю музыки (Game.sfxAt). */
+  beatHit(power = 1) {
+    if (!this.gate("beatHit", 0.08)) return;
+    const p = this.v(0.03);
+    this.tone({ f: 150 * p, f2: 46, dur: 0.12, vol: 0.26 * power, a: 0.002 });
+    this.noiseBurst({ ft: "highpass", f: 2400, dur: 0.025, vol: 0.07 * power });
+  }
   combo(level) {
     if (this.sample("combo", { vol: 0.32, rate: 1 + 0.05 * clamp(level, 1, 5), vary: 0 })) return;
     const scale = [0, 3, 5, 7, 10, 12, 15];
@@ -6083,7 +6103,7 @@ class ArenaRenderer {
     m.I = clamp(0.45 + 0.55 * (m.intensity * 0.6 + this.levelMix * 0.4), 0, 1);
     this.updateVariants(m, R.dt);
     const kw = this.kw;
-    m.I = clamp(m.I + 0.25 * (kw.drop + kw.climax) - 0.2 * (kw.break + kw.calm + kw.intro + kw.outro), 0.25, 1);
+    m.I = clamp(m.I + 0.25 * (kw.drop + kw.climax) - 0.2 * (kw.break + kw.calm + kw.intro + kw.outro) + 0.04 * (m.groove || 0), 0.25, 1);
 
     // небо
     const g = ctx.createLinearGradient(0, 0, 0, v.floorY);
@@ -8214,10 +8234,24 @@ class Player {
     game.sfx("dodge");
     game.fx.dust(this.x, this.y, 5);
     if (this.dodgeSync) {
+      game.combat.rhythm(1);
       game.fx.ring(this.x, this.y - 14, 4, 30, this.skin.accent, 0.3, 2);
       game.fx.text(this.x, this.y - 48, "SYNC", this.skin.accent, 12, 0.5);
     }
     return true;
+  }
+
+  /** Скорость фазы шага (рад/с; шаг — каждые π). Под музыку шаги встают на доли: целое число шагов на долю
+   *  (или шаг на две доли), ближайшее к естественному темпу шага, и подтяжка фазы к доле. */
+  _stepRate(game) {
+    const rate = Math.abs(this.vx) * 0.075, c = game.clock;
+    if (rate < 2 || !c.map || !game.audio.playing) return rate;
+    const spb = rate / Math.PI * c.period;                      // шагов на долю при естественном шаге
+    const m = spb < 0.7 ? 0.5 : clamp(Math.round(spb), 1, 4);
+    let e = (Math.PI * m * (Math.max(0, c.idx) + c.phase) - this.runPhase) % Math.PI;
+    if (e < 0) e += Math.PI;
+    if (e > Math.PI / 2) e -= Math.PI;                          // ошибка фазы до ближайшего шага, −π/2..π/2
+    return Math.max(0, Math.PI * m / c.period + e * 6);
   }
 
   hurt(dmg, fromX, game) {
@@ -8338,7 +8372,7 @@ class Player {
     }
     if ((this.state === "run" || this.state === "walk") && this.onGround) {
       const prevPh = this.runPhase;
-      this.runPhase += Math.abs(this.vx) * dt * 0.075;
+      this.runPhase += this._stepRate(game) * dt;
       if (Math.floor(prevPh / Math.PI) !== Math.floor(this.runPhase / Math.PI)) game.sfx("step");
     }
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
@@ -8953,6 +8987,7 @@ const ATTACKS = {
   dive:     { kind: "dive",   startup: 0.04, active: 0.35, recovery: 0.1,  cancel: 0.1,  dmg: 14, reach: 22, knock: 120, stun: 0.3, name: "Пике" },
 };
 const RATING_ORDER = ["perfect", "good", "early", "late", "miss"];
+const BEAT_MIN_STARTUP = 0.025;   // самая короткая подготовка, когда удар подгоняется к уже наступившей доле
 
 class CombatSystem {
   constructor(game) {
@@ -8964,7 +8999,8 @@ class CombatSystem {
     this.projectiles.length = 0;
     this.score = 0; this.kills = 0;
     this.combo = 0; this.maxCombo = 0; this.comboT = 0;
-    this.chain = 0;            // серия точных нажатий
+    this.chain = 0;            // серия действий в такт (удары и уклоны), из неё — грув
+    this.grooveT = 0;          // вспышка шкалы грува при новом уровне
     this.ratings = { perfect: 0, good: 0, early: 0, late: 0, miss: 0 };
     this.perfectDodges = 0; this.damageTaken = 0; this.hits = 0;
     this.lastRating = null; this.lastRatingT = 0;
@@ -8985,7 +9021,11 @@ class CombatSystem {
     if (!p.alive || p.state === "victory") return;
     const act = p.action;
     const busy = !p.canAct || (act && act.t < act.cancel);
-    if (busy) { this.buffer = { song: songT, real: this.time }; return; }
+    if (busy) {
+      const r = this.game.clock.judge(songT).rating;
+      this.buffer = { song: songT, real: this.time, onBeat: r === "perfect" || r === "good" };
+      return;
+    }
     this.execute(songT);
   }
 
@@ -8995,7 +9035,9 @@ class CombatSystem {
     if (!b) return;
     if (this.time - b.real > 0.22) { this.buffer = null; return; }
     const p = this.game.player, act = p.action;
-    if (p.canAct && (!act || act.t >= act.cancel)) { this.buffer = null; this.execute(b.song); }
+    // нажатие в долю не ждёт конца окна отмены: прерывает восстановление прошлого удара, чтобы попасть в бит
+    const early = b.onBeat && act && act.phase === "recovery";
+    if (p.canAct && (!act || act.t >= act.cancel || early)) { this.buffer = null; this.execute(b.song); }
   }
 
   execute(pressSong) {
@@ -9027,13 +9069,27 @@ class CombatSystem {
       act.travel = Math.min(def.maxTravel, dist / def.speed);
       act.dashTo = target.x - act.dir * (target.w * target.scale * 0.5 + 12);
     }
-    // подгонка к доле: раннее нажатие растягивает подготовку, чтобы удар пришёлся точно на долю
-    const impact = act.startup + (def.kind === "dash" ? act.travel : 0);
-    if (g.settings.v.assist) {
+    // подгонка к доле («удар в бит»): раннее нажатие растягивает подготовку, нажатие на долю или чуть позже —
+    // сокращает её, чтобы сам удар/выстрел пришёлся точно на долю (без подгонки удар шёл на 50–80 мс позже доли)
+    const lead = def.kind === "dash" ? act.travel : 0;
+    const fireAt = def.fireAt || 0;
+    const impact = act.startup + lead + fireAt;
+    if (g.settings.v.assist && g.clock.map) {
       const toBeat = j.beatTime - g.songNow;
-      const maxHold = Math.min(0.16, 0.3 * j.period);
+      const maxHold = Math.min(0.2, 0.4 * j.period);
+      const minImpact = BEAT_MIN_STARTUP + Math.min(lead, 0.045) + fireAt;
       if (toBeat > impact && toBeat - impact < maxHold) act.startup += toBeat - impact;
+      else if (toBeat < impact && (j.rating === "perfect" || j.rating === "good")) {
+        let over = impact - Math.max(toBeat, minImpact);
+        const cut = Math.min(over, act.startup - BEAT_MIN_STARTUP);
+        act.startup -= cut; over -= cut;
+        // рывок: остаток — за счёт более быстрого пути (не короче 0.045 с)
+        if (over > 0 && act.travel > 0.045) act.travel = Math.max(0.045, act.travel - over);
+      }
     }
+    // момент удара в музыкальном времени; «в долю» — если удар встаёт на долю точнее 35 мс
+    act.impactSong = g.songNow + act.startup + act.travel + fireAt;
+    act.onBeat = Math.abs(act.impactSong - j.beatTime) < 0.035 && j.rating !== "miss";
     act.total = act.startup + act.travel + act.active + act.recovery;
     act.cancel = Math.min(def.cancel + (act.startup - def.startup) + act.travel, act.total);
     p.action = act;
@@ -9049,9 +9105,12 @@ class CombatSystem {
     else this.shotChain = 0;
     this.lastAction = name; this.lastActionT = this.time;
 
-    // звук и вспышки
-    if (def.kind === "dash") { g.sfx("dash"); }
-    else if (def.kind === "melee" || def.kind === "dive") g.sfx("slash", name === "slash3" || name === "rise" ? 1.4 : 1);
+    // звук и вспышки: взмах и выстрел звучат в момент удара — вместе с долей музыки (Game.sfxAt)
+    if (def.kind === "dash") { g.sfx("dash"); g.sfxAt(act.impactSong, "slash", 1.2); }
+    else if (def.kind === "melee") g.sfxAt(act.impactSong, "slash", name === "slash3" || name === "rise" ? 1.4 : 1);
+    else if (def.kind === "dive") g.sfx("slash", 1);
+    if (def.kind === "ranged") { g.sfxAt(act.impactSong, "shot", def.pierce); act.shotSound = true; }
+    if (act.onBeat && def.kind !== "dive") g.sfxAt(act.impactSong, "beatHit", empowered ? 1.25 : j.strong ? 1.1 : 0.9);
     if (def.kind === "ranged") p.pistolT = 0.6;
     if (def.backflip) { p.vx = -act.dir * 240; p.vy = -330; p.onGround = false; act.noGravity = false; }
     if (name === "rise") { this.lastRiseT = this.time; }
@@ -9063,11 +9122,26 @@ class CombatSystem {
   registerRating(j) {
     this.ratings[j.rating]++;
     this.lastRating = j.rating; this.lastRatingT = this.time;
-    if (j.rating === "perfect" || j.rating === "good") this.chain++;
-    else this.chain = 0;
+    this.rhythm(j.rating === "perfect" || j.rating === "good" ? 1 : j.rating === "miss" ? -2 : -1);
     const p = this.game.player;
     const R = RATING[j.rating];
     this.game.fx.text(p.x, p.y - 52, R.label, R.color, j.rating === "perfect" ? 15 : 12, 0.7);
+  }
+
+  /** Грув — уровень серии действий в такт (0..4, по `chain`): в HUD, свечение героя на долях, яркость арены. */
+  get groove() { const c = this.chain; return c >= 24 ? 4 : c >= 14 ? 3 : c >= 7 ? 2 : c >= 3 ? 1 : 0; }
+  /** Действие в такт (+1: удар/уклон в долю), мимо (−1: серия вдвое), промах/урон (−2: сброс). */
+  rhythm(d) {
+    const before = this.groove;
+    this.chain = d > 0 ? this.chain + 1 : d === -1 ? Math.floor(this.chain / 2) : 0;
+    const lv = this.groove;
+    this.grooveT = lv > before ? 1 : this.grooveT;
+    if (lv > before) {
+      const g = this.game, p = g.player;
+      this.flashLabel("ГРУВ " + ["", "I", "II", "III", "MAX"][lv]);
+      g.sfx("combo", lv + 1);
+      g.fx.ring(p.x, p.y - 18, 8, 50 + lv * 10, p.skin.accent, 0.45, 3);
+    }
   }
 
   flashLabel(s) { this.comboLabel = s; this.comboLabelT = 1.2; }
@@ -9301,8 +9375,14 @@ class CombatSystem {
     this.spawnProjectile({ x: hand.x, y: hand.y, vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed, owner: "player", act, r: def.pierce ? 6 : 3.5, color: p.skin.accent, life: 0.9, pierce: !!def.pierce });
     g.fx.sparks(hand.x, hand.y, act.empowered ? 9 : 5, p.skin.accent, 240, ang, 0.7, 0.2);
     g.fx.ring(hand.x, hand.y, 2, act.empowered ? 18 : 11, "#ffffff", 0.14, 2);
-    g.sfx("shot", def.pierce);
-    g.camera.kick(0.004);
+    if (act.shotSound && n === 0) act.shotSound = false;   // первый выстрел уже поставлен на долю в execute
+    else g.sfx("shot", def.pierce);
+    g.camera.kick(act.onBeat ? 0.012 : 0.004);
+    if (act.onBeat && n === 0) {
+      // выстрел в долю: вспышка у ствола крупнее и белая
+      g.fx.glow(hand.x, hand.y, 4, 26, "#ffffff", 0.12, 0.5);
+      g.camera.shake(0.08);
+    }
   }
 
   spawnProjectile(o) { o.hit = new Set(); this.projectiles.push(o); }
@@ -9336,10 +9416,16 @@ class CombatSystem {
     g.fx.sparks(hx, hy, perfect ? 14 : 8, col, perfect ? 340 : 240, dirX > 0 ? 0 : Math.PI, 1.6);
     g.fx.sparks(hx, hy, 4, "#ffffff", 200, null);
     g.fx.ring(hx, hy, 4, perfect ? 30 : 20, perfect ? "#ffffff" : col, 0.22, perfect ? 3 : 2);
+    // попадание ровно в долю: белая вспышка в точке удара и короткий отсвет экрана в цвет героя
+    if (act.onBeat && !act.beatFx) {
+      act.beatFx = true;
+      g.fx.glow(hx, hy, 6, perfect ? 54 : 42, "#ffffff", 0.14, 0.5);
+      g.impactFlash = 1;
+    }
     // один стоп-кадр на атаку (вихрь по нескольким целям, пробивающая пуля); частые выстрелы — вдвое короче
     if (!act.stopped) { act.stopped = true; g.hitstop((perfect ? 0.075 : 0.045) * (def.kind === "ranged" && !def.pierce ? 0.5 : 1)); }
     g.camera.shake(act.empowered ? 0.35 : perfect ? 0.22 : 0.12);
-    g.camera.kick(perfect ? 0.02 : 0.008);
+    g.camera.kick(act.onBeat ? 0.026 : perfect ? 0.02 : 0.008);
     if (killed) this._onKill(e, act);
     // особо зрелищные моменты — замедление времени
     // зрелищные: вихрь на сильной доле, усиленное убийство, точное убийство на сильной доле дропа/кульминации
@@ -9753,7 +9839,7 @@ class CombatSystem {
     if (p.invulnerable || p.scripted) return;
     if (p.hurt(dmg, fromX, g)) {
       this.damageTaken += dmg;
-      this.combo = 0; this.chain = 0;
+      this.combo = 0; this.rhythm(-2);
       g.sfx("hurt");
       g.camera.shake(0.45);
       g.hurtFlash = 1;
@@ -9765,6 +9851,7 @@ class CombatSystem {
     const g = this.game;
     this.time += dt;
     this.comboT -= dt;
+    this.grooveT = Math.max(0, this.grooveT - dt * 2);
     if (this.comboT <= 0 && this.combo > 0) this.combo = 0;
     this.comboLabelT = Math.max(0, this.comboLabelT - dt);
     if (g.player.state !== "dodge") g.player.perfectDodgeUsed = false;
@@ -9878,11 +9965,17 @@ class WaveDirector {
     this.wave = 0; this.queue = []; this.between = 1.2; this.spawnTimer = 0;
     this.done = false; this.banner = ""; this.bannerT = 0;
     this.step = 0; this.stepT = 0; this.freeT = 0;
-    this.trackSpawnT = 2;
+    this.pending = [];        // группа, которая сейчас появляется (по одному через ~0.1 с)
+    this.clearT = -1;         // сколько поле уже пустое (старт боя — на секунду позже)
+    this.groups = 0;          // сколько групп появилось за бой («До конца трека»)
   }
   get totalWaves() { return WAVES.length; }
 
   aliveCount() { return this.game.enemies.filter(e => e.alive).length; }
+  /** Множитель числа врагов из настройки «Количество врагов». */
+  get spawnMul() { return SPAWN_AMOUNTS[this.game.settings.v.spawnAmount] || SPAWN_AMOUNTS.normal; }
+  /** Группа выбита целиком: никого на арене и никого в очереди появления. */
+  get cleared() { return !this.pending.length && this.aliveCount() === 0; }
 
   update(dt) {
     const g = this.game;
@@ -9894,23 +9987,22 @@ class WaveDirector {
 
     if (this.mode === "practice") return this._practice(dt, strongBeat || beat);
 
+    // группа появляется вся сразу (с небольшим разносом порталов), рядом с игроком
+    if (this.pending.length && this.spawnTimer <= 0) {
+      const k = this.pending.shift(), elite = k.endsWith("+");
+      this.spawn(elite ? k.slice(0, -1) : k, false, elite);
+      this.spawnTimer = 0.1;
+    }
+    this.clearT = this.cleared ? this.clearT + dt : 0;
+
     if (this.mode === "track") {
-      // натиск следует за энергией музыки
+      // «До конца трека»: следующая группа — почти сразу после того, как выбита предыдущая (на ближайшей доле)
       const I = g.clock.intensitySmooth;
       const prog = g.audio.duration ? clamp(g.songNow / g.audio.duration, 0, 1) : 0;
-      const target = Math.round(2 + I * 3.5 + prog * 1.8 + g.diff.extra);
       const n = 1 + Math.round(I * 3 + prog * 2);   // «условная волна» по энергии и прогрессу трека
       g.director.setLimits(clamp(g.diff.tokens(n), 1, 3), g.diff.ranged(n));
       this.wave = 1 + Math.floor(prog * 5);
-      if (this.aliveCount() < target && (beat || this.spawnTimer < -1.2) && this.spawnTimer <= 0) {
-        const pool = ["blade", "blade", "gunner"];
-        if (prog > 0.15 || I > 0.6) pool.push("swift");
-        if (prog > 0.35 && I > 0.55) pool.push("brute");
-        if (I > 0.7) pool.push("swift", "gunner");
-        const kind = pick(pool);
-        if (kind !== "brute" || !g.enemies.some(e => e.alive && e.kind === "brute")) this.spawn(kind);
-        this.spawnTimer = 0.45;
-      }
+      if (this.clearT > 0 && ((beat && this.clearT > 0.15) || this.clearT > 0.45)) this._trackGroup(I, prog);
       return;
     }
 
@@ -9920,24 +10012,17 @@ class WaveDirector {
       if (this.between <= 0) this.startWave(this.wave + 1);
       return;
     }
-    const maxAlive = g.diff.alive(this.wave);
+    if (!this.cleared) return;
     if (this.queue[0] === "|") {
-      // подкрепление: поле почти пустое → следующий натиск на сильной доле (или через 1.5 с без неё)
-      if (this.aliveCount() <= 1) {
-        this.pushWait += dt;
-        if ((strongBeat && this.pushWait > 0.4) || this.pushWait > 1.5) {
-          this.queue.shift(); this.push++; this.pushWait = 0;
-          this.showBanner("ПОДКРЕПЛЕНИЕ", 1.4);
-          g.sfx("waveStart");
-          this.spawnTimer = 0.25;
-        }
+      // подкрепление: все враги натиска выбиты → следующий натиск чуть погодя, на сильной доле
+      if ((strongBeat && this.clearT > 0.6) || this.clearT > 1.1) {
+        this.queue.shift(); this.push++;
+        this.showBanner("ПОДКРЕПЛЕНИЕ", 1.4);
+        g.sfx("waveStart");
+        this._takeGroup();
       }
-    } else if (this.queue.length && this.aliveCount() < maxAlive && this.spawnTimer <= 0 && (beat || this.spawnTimer < -1.2)) {
-      const k = this.queue.shift(), elite = k.endsWith("+");
-      this.spawn(elite ? k.slice(0, -1) : k, false, elite);
-      this.spawnTimer = 0.35;
-    }
-    if (!this.queue.length && this.aliveCount() === 0) {
+    } else if (this.queue.length) this._takeGroup();
+    else {
       if (this.wave >= WAVES.length) { this.done = true; g.onVictory(); }
       else {
         this.between = 2.4;
@@ -9948,21 +10033,47 @@ class WaveDirector {
     }
   }
 
+  /** Натиск из очереди волны (до разделителя) — в очередь появления. */
+  _takeGroup() {
+    while (this.queue.length && this.queue[0] !== "|") this.pending.push(this.queue.shift());
+    this.spawnTimer = 0;
+    this.clearT = 0;
+  }
+
+  /** Группа «До конца трека»: размер по энергии музыки, прогрессу и настройке количества. */
+  _trackGroup(I, prog) {
+    const g = this.game;
+    const size = clamp(Math.round((1.6 + I * 2.6 + prog * 1.6 + g.diff.extra) * this.spawnMul), 1, 7);
+    const pool = ["blade", "blade", "gunner"];
+    if (prog > 0.15 || I > 0.6) pool.push("swift");
+    if (I > 0.7) pool.push("swift", "gunner");
+    const grp = [];
+    if (prog > 0.35 && I > 0.55 && size >= 3 && Math.random() < 0.5) grp.push("brute");   // не больше одного громилы
+    while (grp.length < size) grp.push(pick(pool));
+    // элита — изредка, ближе к концу трека
+    if (prog > 0.5 && size >= 3 && Math.random() < 0.35) grp[grp.length - 1] += "+";
+    this.pending.push(...grp);
+    this.groups++;
+    this.spawnTimer = 0;
+    this.clearT = 0;
+  }
+
   startWave(n) {
     const g = this.game;
     this.wave = n;
     this.queue = this.buildQueue(n);
-    this.push = 1; this.pushWait = 0;
+    this.push = 1;
     this.showBanner("ВОЛНА " + n + " / " + WAVES.length);
     g.sfx("waveStart");
     g.director.setLimits(clamp(g.diff.tokens(n), 1, 3), g.diff.ranged(n));
+    this._takeGroup();
     this.spawnTimer = 0.3;
     g.onWaveStart(n);
   }
 
-  /** Очередь волны: натиски через "|", размер по сложности. */
+  /** Очередь волны: натиски через "|", размер по сложности и настройке «Количество врагов». */
   buildQueue(n) {
-    const size = this.game.diff.waveSize, q = [];
+    const size = this.game.diff.waveSize * this.spawnMul, q = [];
     WAVES[n - 1].forEach((push, i) => {
       if (i) q.push("|");
       q.push(...push.slice(0, Math.max(2, Math.round(push.length * size))));
@@ -9971,7 +10082,7 @@ class WaveDirector {
   }
   get totalPushes() { return WAVES[Math.max(0, this.wave - 1)] ? WAVES[Math.max(0, this.wave - 1)].length : 1; }
   /** Сколько врагов осталось в волне (на арене + в очереди). */
-  remaining() { return this.aliveCount() + this.queue.filter(k => k !== "|").length; }
+  remaining() { return this.aliveCount() + this.pending.length + this.queue.filter(k => k !== "|").length; }
 
   showBanner(s, t = 2.2) { this.banner = s; this.bannerT = t; this.bannerDur = t; }
 
@@ -10147,7 +10258,23 @@ class HUD {
       ctx.lineWidth = 1.5; ctx.strokeStyle = rgba("#e8e2d6", 0.75);
       ctx.strokeText(String(cb.combo), rx, T + 40);
       ctx.font = "300 12px 'Oswald', sans-serif"; ctx.fillStyle = "rgba(232,226,214,.75)";
-      ctx.fillText("КОМБО" + (cb.chain > 2 ? "  ·  РИТМ ×" + (1 + Math.min(cb.chain, 10) * 0.1).toFixed(1) : ""), rx, T + 56);
+      ctx.fillText("КОМБО", rx, T + 56);
+    }
+    // --- грув: 4 деления серии действий в такт, горящие пульсируют на долях ---
+    if (g.mode !== "practice" && cb.chain > 0) {
+      const lv = cb.groove, segW = 14, gap = 3, y0 = T + 86, x1 = rx;
+      ctx.textAlign = "right";
+      ctx.font = "500 10px 'Oswald', sans-serif";
+      ctx.fillStyle = lv ? accent : "rgba(232,226,214,.55)";
+      ctx.fillText(lv >= 4 ? "ГРУВ MAX" : "ГРУВ", x1 - 4 * (segW + gap) - 4, y0 + 5);
+      for (let i = 0; i < 4; i++) {
+        const x = x1 - (4 - i) * (segW + gap) + gap;
+        const on = i < lv, pu = on ? 0.55 + 0.45 * clock.pulse : 0.18;
+        ctx.globalAlpha = on ? Math.min(1, pu + cb.grooveT * 0.5) : pu;
+        ctx.fillStyle = on ? accent : "#e8e2d6";
+        ctx.fillRect(x, y0 - (on ? clock.pulse * 1.5 : 0), segW, 5);
+      }
+      ctx.globalAlpha = 1;
     }
     if (cb.comboLabelT > 0) {
       ctx.textAlign = "right";
@@ -10171,6 +10298,12 @@ class HUD {
       ctx.fillText(W.banner, cx, h * 0.36);
       ctx.fillStyle = accent; ctx.fillRect(cx - 40, h * 0.36 + 10, 80, 2);
       ctx.globalAlpha = 1;
+    }
+    // --- отсвет удара в долю (цвет героя по краям экрана) ---
+    if (g.impactFlash > 0) {
+      const vg = ctx.createRadialGradient(cx, h / 2, Math.min(w, h) * 0.35, cx, h / 2, Math.max(w, h) * 0.75);
+      vg.addColorStop(0, rgba(accent, 0)); vg.addColorStop(1, rgba(accent, (g.settings.v.flashes ? 0.16 : 0.08) * g.impactFlash));
+      ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
     }
     // --- красная вспышка урона ---
     if (g.hurtFlash > 0) {
@@ -10379,6 +10512,9 @@ class UIManager {
     document.querySelectorAll("#diff-seg [data-diff]").forEach(b => b.addEventListener("click", () => {
       S.set("difficulty", b.dataset.diff); this.sfx("uiClick"); this.refreshMode();
     }));
+    document.querySelectorAll("#spawn-seg [data-spawn]").forEach(b => b.addEventListener("click", () => {
+      S.set("spawnAmount", b.dataset.spawn); this.sfx("uiClick"); this.refreshMode();
+    }));
     $("btn-start").addEventListener("click", () => { this.sfx("uiClick"); g.startBattle(S.v.mode); });
     $("btn-practice").addEventListener("click", () => { this.sfx("uiClick"); g.startBattle("practice"); });
 
@@ -10573,6 +10709,7 @@ class UIManager {
     const g = this.game, S = g.settings.v;
     document.querySelectorAll("#mode-list [data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode)));
     document.querySelectorAll("#diff-seg [data-diff]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.diff === S.difficulty)));
+    document.querySelectorAll("#spawn-seg [data-spawn]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.spawn === S.spawnAmount)));
     $("mode-track").textContent = g.track ? g.track.meta.name : "Демо-трек";
     $("mode-dot").classList.toggle("ok", !!g.track);
   }
@@ -11425,26 +11562,26 @@ class UIManager {
 //  hurtIF — неуязвимость после удара (с); perfectDodge — окно идеального уклона (с);
 //  spawnGrace — пауза перед первой атакой нового врага (с); gap — множитель паузы между атаками разных врагов;
 //  tokens(n)/ranged(n) — сколько врагов (и стрелков) может атаковать одновременно на волне n;
-//  alive(n) — сколько врагов одновременно на арене; waveHeal — лечение между волнами (доля от макс. HP);
+//  (натиск появляется целиком, следующий — когда выбит предыдущий; размер ещё × SPAWN_AMOUNTS из настройки «Врагов»); waveHeal — лечение между волнами (доля от макс. HP);
 //  waveSize — доля врагов в каждом натиске волны (WAVES); eliteHp — множитель HP элитных врагов («+» в WAVES);
 //  windBeats — добавка к числу долей замаха врага (тип задаёт базу; темп трека добавляет/убирает доли, см. Enemy._windBeats).
 const DIFFS = {
   easy: {
     hp: 0.85, playerHp: 1.3, dmg: 0.5, playerDmg: 1.15, cd: 1.5, wind: 1.25, bolt: 0.85,
     hurtIF: 1.1, perfectDodge: 0.22, spawnGrace: 0.9, gap: 1.5, extra: -1,
-    tokens: n => 1 + Math.floor(n / 5), ranged: n => 1, alive: n => 3 + Math.floor(n / 3), waveHeal: 0.25,
+    tokens: n => 1 + Math.floor(n / 5), ranged: n => 1, waveHeal: 0.25,
     waveSize: 0.7, eliteHp: 1.4, windBeats: 1,
   },
   normal: {
     hp: 1.1, playerHp: 1, dmg: 0.6, playerDmg: 1, cd: 1.2, wind: 1.07, bolt: 0.95,
     hurtIF: 0.85, perfectDodge: 0.18, spawnGrace: 0.55, gap: 1.15, extra: 0,
-    tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), alive: n => 3 + Math.floor(n / 2), waveHeal: 0.35,
+    tokens: n => 1 + Math.floor((n + 1) / 3), ranged: n => (n >= 4 ? 2 : 1), waveHeal: 0.35,
     waveSize: 0.8, eliteHp: 1.8, windBeats: 0,
   },
   hard: {
     hp: 1.2, playerHp: 0.85, dmg: 0.95, playerDmg: 0.95, cd: 0.9, wind: 0.88, bolt: 1.1,
     hurtIF: 0.7, perfectDodge: 0.15, spawnGrace: 0.35, gap: 1, extra: 1,
-    tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), alive: n => 4 + Math.floor(n / 2), waveHeal: 0.25,
+    tokens: n => Math.min(3, 2 + Math.floor(n / 3)), ranged: n => (n >= 3 ? 2 : 1), waveHeal: 0.25,
     waveSize: 0.9, eliteHp: 2, windBeats: 0,
   },
 };
@@ -11455,6 +11592,9 @@ const SLOWMO_MODES = {
   rare:   { gap: 2.5, flairGap: 4.0, budget: 0.2, stopScale: 0.85 },
   off:    { gap: 1e9, flairGap: 1e9, budget: 0, stopScale: 0.6 },
 };
+// Настройка «Количество врагов»: множитель размера натиска («Волны») и группы («До конца трека»).
+// «normal» — чуть меньше, чем было до групп (по просьбе пользователя).
+const SPAWN_AMOUNTS = { few: 0.65, normal: 0.85, many: 1.15 };
 const SLOW_PRIORITY = { flair: 1, dodge: 2, takedown: 3, finale: 4 };
 const SECTION_NAMES = { intro: "ИНТРО", build: "НАРАСТАНИЕ", drop: "ДРОП", climax: "КУЛЬМИНАЦИЯ", break: "БРЕЙК", calm: "ЗАТИШЬЕ", groove: "ГРУВ", outro: "ФИНАЛ" };
 const MODE_NAMES = { waves: "Волны", track: "До конца трека", practice: "Практика" };
@@ -11493,7 +11633,7 @@ class Game {
     this.acc = 0; this.hitstopT = 0; this.slowT = 0; this.slowDur = 0; this.slowScale = 1;
     this.resetTimeFx();
     this.deferPose = false; this._m = { onsets: [] };
-    this.hurtFlash = 0; this.endT = 0; this.endWin = false;
+    this.hurtFlash = 0; this.impactFlash = 0; this.endT = 0; this.endWin = false;
     this.letterbox = 0; this.letterboxTarget = 0; this.flashT = 0; this.takedownTitle = ""; this.takedownTitleT = 0;
     this.sectionTitle = ""; this.sectionTitleT = 0;
     this.fps = 60; this._ft = 16; this._slowFrames = 0; this.autoLow = false;
@@ -11529,6 +11669,14 @@ class Game {
   }
 
   sfx(name, a, b) { const s = this.audio.sfx; if (s && s[name]) s[name](a, b); }
+  /** Звук ровно в музыкальный момент songT: смешивается с той же позицией трека, поэтому звучит точно на доле
+   *  при любой задержке вывода (на Android — десятки мс). В замедлении/прошлом — сразу. */
+  sfxAt(songT, name, a, b) {
+    const s = this.audio.sfx;
+    if (!s || !s[name]) return;
+    s.when = this.timeScale > 0.97 ? this.audio.ctxTimeAt(songT) : null;
+    try { s[name](a, b); } finally { s.when = null; }
+  }
 
   /* ---------- качество и размеры ---------- */
   applyQuality() {
@@ -11905,7 +12053,7 @@ class Game {
     this.fx.clear();
     this.afterimages = [];
     this.camera.x = this.player.x; this.camera.trauma = 0;
-    this.hitstopT = 0; this.slowT = 0; this.hurtFlash = 0; this.endT = 0;
+    this.hitstopT = 0; this.slowT = 0; this.hurtFlash = 0; this.impactFlash = 0; this.endT = 0;
     this.resetTimeFx();
     this.battleActive = true;
     this.state = "battle";
@@ -12251,15 +12399,21 @@ class Game {
     for (const a of this.afterimages) a.life -= dt;
     compactInPlace(this.afterimages, a => a.life > 0);
     this.hurtFlash = Math.max(0, this.hurtFlash - dtReal * 2.5);
+    this.impactFlash = Math.max(0, this.impactFlash - dtReal * 6);
 
-    // музыка в мире: толчок камеры на сильных долях, кольцо под ногами, смена частей трека
+    // музыка в мире: камера «качает» на каждой доле, кольцо под ногами на сильной, свечение героя по груву, смена частей
     for (const ev of this.clock.events) {
       if (ev.type === "section" && SECTION_NAMES[ev.kind]) {
         this.sectionTitle = SECTION_NAMES[ev.kind]; this.sectionTitleT = 2;
         if (ev.kind === "drop" || ev.kind === "climax") { this.camera.kick(0.04); this.camera.shake(0.3); this.fx.shockwave(p.x, p.groundY, p.skin.accent, 220); }
       }
+      if (ev.type === "beat") {
+        const I = this.clock.intensitySmooth, sh = 0.4 + 0.6 * this.settings.v.shake;
+        this.camera.kick((ev.strong ? 0.007 : 0.0035) * (0.4 + I) * sh);
+        const gv = this.combat.groove;
+        if (gv && !this.combat.td && p.alive) this.fx.glow(p.x, p.y - 18, 10, 26 + gv * 8, p.skin.accent, 0.3, 0.08 + 0.06 * gv);
+      }
       if (ev.type === "strongBeat") {
-        this.camera.kick(0.006 * this.clock.intensitySmooth);
         if (!this.combat.td) this.fx.shockwave(p.x, p.groundY, p.skin.accent, 60 + 40 * this.clock.intensitySmooth);   // без лишних колец во время добивания
       } else if (ev.type === "onset" && ev.band === "high" && ev.strength > 0.5 && this.effQuality === "high") {
         this.fx.spawn("dot", p.x + rand(-200, 200), rand(-220, -40), { vy: -20, life: 0.6, size: 1.6, color: this.arena.theme.pal.neonB, add: true });
@@ -12290,6 +12444,7 @@ class Game {
     m.dropSoon = (c.nextKind === "drop" || c.nextKind === "climax") && c.timeToNext < 4 && c.timeToNext > 0;
     m.dropIn = c.dropIn; m.buildProg = c.buildProg; m.sectionProg = c.sectionProg; m.sectionT = c.sectionT;
     m.halfPulse = c.halfPulse;
+    m.groove = this.battleActive ? this.combat.groove : 0;   // серия в такт — арена ярче
     m.dirOff = !!(c.map && c.map.directorOff);   // Режиссёр выключен вручную — без эффектов по частям
     return m;
   }

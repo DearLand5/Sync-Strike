@@ -112,7 +112,23 @@ class HUD {
       ctx.lineWidth = 1.5; ctx.strokeStyle = rgba("#e8e2d6", 0.75);
       ctx.strokeText(String(cb.combo), rx, T + 40);
       ctx.font = "300 12px 'Oswald', sans-serif"; ctx.fillStyle = "rgba(232,226,214,.75)";
-      ctx.fillText("КОМБО" + (cb.chain > 2 ? "  ·  РИТМ ×" + (1 + Math.min(cb.chain, 10) * 0.1).toFixed(1) : ""), rx, T + 56);
+      ctx.fillText("КОМБО", rx, T + 56);
+    }
+    // --- грув: 4 деления серии действий в такт, горящие пульсируют на долях ---
+    if (g.mode !== "practice" && cb.chain > 0) {
+      const lv = cb.groove, segW = 14, gap = 3, y0 = T + 86, x1 = rx;
+      ctx.textAlign = "right";
+      ctx.font = "500 10px 'Oswald', sans-serif";
+      ctx.fillStyle = lv ? accent : "rgba(232,226,214,.55)";
+      ctx.fillText(lv >= 4 ? "ГРУВ MAX" : "ГРУВ", x1 - 4 * (segW + gap) - 4, y0 + 5);
+      for (let i = 0; i < 4; i++) {
+        const x = x1 - (4 - i) * (segW + gap) + gap;
+        const on = i < lv, pu = on ? 0.55 + 0.45 * clock.pulse : 0.18;
+        ctx.globalAlpha = on ? Math.min(1, pu + cb.grooveT * 0.5) : pu;
+        ctx.fillStyle = on ? accent : "#e8e2d6";
+        ctx.fillRect(x, y0 - (on ? clock.pulse * 1.5 : 0), segW, 5);
+      }
+      ctx.globalAlpha = 1;
     }
     if (cb.comboLabelT > 0) {
       ctx.textAlign = "right";
@@ -136,6 +152,12 @@ class HUD {
       ctx.fillText(W.banner, cx, h * 0.36);
       ctx.fillStyle = accent; ctx.fillRect(cx - 40, h * 0.36 + 10, 80, 2);
       ctx.globalAlpha = 1;
+    }
+    // --- отсвет удара в долю (цвет героя по краям экрана) ---
+    if (g.impactFlash > 0) {
+      const vg = ctx.createRadialGradient(cx, h / 2, Math.min(w, h) * 0.35, cx, h / 2, Math.max(w, h) * 0.75);
+      vg.addColorStop(0, rgba(accent, 0)); vg.addColorStop(1, rgba(accent, (g.settings.v.flashes ? 0.16 : 0.08) * g.impactFlash));
+      ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
     }
     // --- красная вспышка урона ---
     if (g.hurtFlash > 0) {
@@ -344,6 +366,9 @@ class UIManager {
     document.querySelectorAll("#diff-seg [data-diff]").forEach(b => b.addEventListener("click", () => {
       S.set("difficulty", b.dataset.diff); this.sfx("uiClick"); this.refreshMode();
     }));
+    document.querySelectorAll("#spawn-seg [data-spawn]").forEach(b => b.addEventListener("click", () => {
+      S.set("spawnAmount", b.dataset.spawn); this.sfx("uiClick"); this.refreshMode();
+    }));
     $("btn-start").addEventListener("click", () => { this.sfx("uiClick"); g.startBattle(S.v.mode); });
     $("btn-practice").addEventListener("click", () => { this.sfx("uiClick"); g.startBattle("practice"); });
 
@@ -538,6 +563,7 @@ class UIManager {
     const g = this.game, S = g.settings.v;
     document.querySelectorAll("#mode-list [data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === S.mode)));
     document.querySelectorAll("#diff-seg [data-diff]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.diff === S.difficulty)));
+    document.querySelectorAll("#spawn-seg [data-spawn]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.spawn === S.spawnAmount)));
     $("mode-track").textContent = g.track ? g.track.meta.name : "Демо-трек";
     $("mode-dot").classList.toggle("ok", !!g.track);
   }

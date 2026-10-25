@@ -528,12 +528,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
     <div class="panel">
       <div class="topbar"><h2 class="title h2">Режим</h2><span class="track-line"><i class="dot" id="mode-dot"></i><span id="mode-track"></span></span></div>
       <div class="grid2" id="mode-list">
-        <button class="card arena" data-mode="waves" aria-pressed="true"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>Волны</b><span style="white-space:normal">Шесть волн, сложность растёт. Трек играет по кругу.</span></div></button>
-        <button class="card arena" data-mode="track" aria-pressed="false"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>До конца трека</b><span style="white-space:normal">Натиск врагов следует за энергией музыки. Продержитесь до финала.</span></div></button>
+        <button class="card arena" data-mode="waves" aria-pressed="true"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>Волны</b><span style="white-space:normal">Шесть волн по три натиска: следующий — когда выбит предыдущий. Трек играет по кругу.</span></div></button>
+        <button class="card arena" data-mode="track" aria-pressed="false"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>До конца трека</b><span style="white-space:normal">Новая группа сразу после предыдущей, её размер — по энергии музыки. Продержитесь до финала.</span></div></button>
         <button class="card arena" data-mode="practice" aria-pressed="false"><div style="flex-direction:column;align-items:flex-start;gap:6px;padding:14px"><b>Практика</b><span style="white-space:normal">Подсказки по шагам, поражения нет.</span></div></button>
       </div>
       <div class="row"><span class="h3">Сложность</span>
         <div class="seg" id="diff-seg"><button data-diff="easy">Легко</button><button data-diff="normal">Норма</button><button data-diff="hard">Тяжело</button></div>
+        <span class="h3">Врагов</span>
+        <div class="seg" id="spawn-seg"><button data-spawn="few">Меньше</button><button data-spawn="normal">Норма</button><button data-spawn="many">Больше</button></div>
       </div>
       <div class="row">
         <button class="btn" data-go="menu">Назад</button>
