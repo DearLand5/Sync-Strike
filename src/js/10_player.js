@@ -83,6 +83,7 @@ class Player {
     this.killT = 0; this.killAmt = 1;                        // жест после убийства
     this.turnT = 0; this.prevFacing = 1;                     // разворот на месте
     this.airT = 0;                                           // время в воздухе (высота прыжка)
+    this.poseAct = null;                                     // пафосная поза (10b_poses), состояние "pose"
     this.anim = new AnimState();
   }
 
@@ -227,6 +228,12 @@ class Player {
       if (this.stateT >= PL.dodgeT) { this.setState(this.onGround ? "idle" : "fall"); this.vx *= 0.5; }
     }
     if (this.state === "hurt" && this.stateT >= PL.hurtT) this.setState(this.onGround ? "idle" : "fall");
+    // пафосная поза: прерывается движением, прыжком, атакой, уклоном, уроном
+    if (this.state === "pose") {
+      if (!this.poseAct || Math.abs(inp.moveX) > 0.35 || !this.onGround || this.action) this.setState("idle");
+      else { this.vx = damp(this.vx, 0, 12, dt); if (!game.poses.tick(this, dt)) this.setState("idle"); }
+    }
+    if (this.state !== "pose") this.poseAct = null;
 
     const px = this.x, vyBefore = this.vy;
     moveBody(this, dt);
@@ -386,6 +393,12 @@ class Player {
       case "attack":
         if (this.action) { Object.assign(P, game.combat.actionPose(this, this.action)); rate = 40; }
         break;
+      case "pose": {
+        const a = this.poseAct;
+        if (a) Object.assign(P, POSES[a.id].pose(clamp(a.t / a.dur, 0, 1), clamp((a.t - a.dur) / a.rel, 0, 1), this, game));
+        rate = 24;
+        break;
+      }
     }
     // занос при развороте на бегу: корпус откинут против движения, ноги широко, руки для баланса
     if (this.skid > 0 && (st === "run" || st === "walk" || st === "idle")) Object.assign(P, { lean: -0.32, legAmp: 0.2, legSpread: 2.0, bodyY: 2, armF: 1.0, armB: -1.2, sx: 1.04, sy: 0.94, cloak: -0.9, headTilt: 0.1 });

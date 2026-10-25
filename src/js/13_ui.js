@@ -172,6 +172,38 @@ class HUD {
     ctx.restore();
   }
 
+  /** Колесо пафосных поз (поверх сенсорных кнопок): 4 сектора, выбранный подсвечен; пульс в такт. */
+  drawWheel(ctx) {
+    const g = this.game, w = g.input.wheel, accent = g.player.skin.accent, pu = g.clock.pulse;
+    if (!w.open) return;
+    const R = WHEEL_R, r0 = R * 0.3;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(w.x, w.y, R, 0, TAU);
+    ctx.fillStyle = "rgba(8,9,13,0.78)"; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = rgba(accent, 0.5 + 0.3 * pu); ctx.stroke();
+    for (let i = 0; i < 4; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 2, on = w.sel === i;
+      ctx.beginPath(); ctx.arc(w.x, w.y, R - 3, a - Math.PI / 4 + 0.04, a + Math.PI / 4 - 0.04); ctx.arc(w.x, w.y, r0 + 3, a + Math.PI / 4 - 0.04, a - Math.PI / 4 + 0.04, true); ctx.closePath();
+      ctx.fillStyle = on ? rgba(accent, 0.55) : "rgba(232,226,214,0.06)"; ctx.fill();
+      const P = POSES[POSE_IDS[i]], lx = w.x + Math.cos(a) * R * 0.64, ly = w.y + Math.sin(a) * R * 0.64;
+      ctx.textAlign = "center"; ctx.fillStyle = on ? "#0b0c10" : "#e8e2d6";
+      ctx.font = "600 12px 'Oswald', 'Arial Narrow', sans-serif";
+      ctx.fillText(P.short, lx, ly + 2);
+      ctx.font = "500 9px 'JetBrains Mono', monospace"; ctx.fillStyle = on ? "rgba(11,12,16,.7)" : "rgba(232,226,214,.45)";
+      ctx.fillText(String(i + 1), lx, ly + 14);
+    }
+    ctx.beginPath(); ctx.arc(w.x, w.y, r0, 0, TAU); ctx.fillStyle = "rgba(11,12,16,0.9)"; ctx.fill();
+    ctx.textAlign = "center"; ctx.fillStyle = accent; ctx.font = "600 10px 'Oswald', sans-serif";
+    ctx.fillText(w.sel >= 0 ? "ОТПУСТИТЕ" : "ПАФОС", w.x, w.y + 4);
+    if (w.sel >= 0) {
+      const P = POSES[POSE_IDS[w.sel]];
+      ctx.font = "500 13px 'IBM Plex Sans', sans-serif"; ctx.fillStyle = "#e8e2d6";
+      ctx.fillText(P.name, w.x, w.y + R + 18 > g.cssH - 6 ? w.y - R - 8 : w.y + R + 18);
+    }
+    ctx.restore();
+  }
+
   _beatGuide(ctx, x, y, accent) {
     const c = this.game.clock, cb = this.game.combat;
     const ph = c.phase;
@@ -409,6 +441,7 @@ class UIManager {
     this.bindCheck("set-land", "forceLandscape");
     this.bindCheck("set-fps", "showFps");
     this.bindCheck("set-assist", "assist");
+    document.querySelectorAll("#seg-pose [data-p]").forEach(b => b.addEventListener("click", () => { S.set("poseMode", b.dataset.p); this.refreshSettings(); this.sfx("uiClick"); }));
     this.bindCheck("set-autosync", "autoSync");
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.addEventListener("click", () => { S.set("slowmoMode", b.dataset.s); this.refreshSettings(); this.sfx("uiClick"); }));
@@ -571,6 +604,7 @@ class UIManager {
     this.syncAll();
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.q === this.game.settings.v.quality)));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.s === this.game.settings.v.slowmoMode)));
+    document.querySelectorAll("#seg-pose [data-p]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.p === (this.game.settings.v.poseMode || "both"))));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.x === this.game.settings.v.sfxStyle)));
     document.querySelectorAll("#seg-fps [data-f]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.f === (+this.game.settings.v.fpsCap || 0))));
   }
@@ -1378,7 +1412,7 @@ class UIManager {
 
   refreshEditor() {
     const g = this.game, sel = g.input.touch.selected;
-    const names = { joy: "Джойстик", attack: "Атака", jump: "Прыжок", dodge: "Уклон" };
+    const names = { joy: "Джойстик", attack: "Атака", jump: "Прыжок", dodge: "Уклон", pose: "Колесо поз" };
     $("ed-sel").textContent = "Выбрано: " + names[sel];
     const s = Math.round(g.settings.v.layout[sel].s * 100);
     $("ed-size").value = s; $("ed-size").nextElementSibling.textContent = s + "%";

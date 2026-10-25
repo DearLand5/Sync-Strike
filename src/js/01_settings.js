@@ -7,6 +7,7 @@ const DEFAULT_LAYOUT = {
   attack: { x: 0.885, y: 0.72, s: 1 },
   jump:   { x: 0.755, y: 0.84, s: 1 },
   dodge:  { x: 0.80, y: 0.53, s: 1 },
+  pose:   { x: 0.95, y: 0.36, s: 1 },     // колесо пафосных поз
 };
 
 const DEFAULT_SETTINGS = {
@@ -27,6 +28,7 @@ const DEFAULT_SETTINGS = {
   autoSync: true,           // автоподстройка latencyMs по ударам в бою
   dirSnap: "bar",           // Режиссёр: привязка границ частей — beat | bar | bar4 | free
   assist: true,             // буферизация ввода к доле
+  poseMode: "both",         // пафосные анимации (эксперимент): both — авто и колесо | auto | wheel | off
   btnScale: 1.0,            // общий размер кнопок 0.6..1.5
   btnAlpha: 0.55,           // прозрачность кнопок 0.1..1
   joyFloat: true,

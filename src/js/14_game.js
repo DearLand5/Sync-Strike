@@ -66,6 +66,7 @@ class Game {
     this.sync = new AutoSync(this);
     this.director = new AttackDirector(this);
     this.waves = new WaveDirector(this);
+    this.poses = new PoseSystem(this);     // пафосные анимации (10b_poses)
     this.hud = new HUD(this);
     this.afterimages = [];
     this._aiT = 0;
@@ -495,6 +496,7 @@ class Game {
     this.sync.reset();
     this.director.reset();
     this.waves.reset(mode);
+    this.poses.reset();
     this.fx.clear();
     this.afterimages = [];
     this.camera.x = this.player.x; this.camera.trauma = 0;
@@ -811,6 +813,7 @@ class Game {
       if (ev.type === "attack") this.combat.onAttackPress(this.audio.songTimeAt(ev.stamp));
       else if (ev.type === "jump") p.pressJump();
       else if (ev.type === "dodge") p.tryDodge(this);
+      else if (ev.type === "pose") this.poses.request(ev.id);
     }
     // стоп-кадр и плавное замедление
     const scale = this.updateTimeScale(dtReal);
@@ -838,6 +841,7 @@ class Game {
     this.takedownTitleT = Math.max(0, this.takedownTitleT - dtReal);
     this.sectionTitleT = Math.max(0, this.sectionTitleT - dtReal);
     this.waves.update(dt);
+    this.poses.update();
     this.fx.update(dt);
     this._aiT -= dt;
     if (p.state === "dodge") this.addAfterimage(p);
@@ -949,6 +953,7 @@ class Game {
     if (this.flashT > 0) { ctx.fillStyle = rgba("#ffffff", this.flashT * (this.settings.v.flashes ? 0.55 : 0.2)); ctx.fillRect(0, 0, w, h); }
     if (this.battleActive || this.state === "results") this.hud.draw(ctx, w, h, dt);
     if (this.input.showTouch && (this.state === "battle" || this.state === "editor")) this.input.touch.draw(ctx, this.clock, this.player.skin.accent);
+    if (this.state === "battle" && this.input.wheel.open) this.hud.drawWheel(ctx);
   }
 
   _drawWalls(ctx, m) {
@@ -1011,4 +1016,4 @@ window.addEventListener("load", () => {
   }
 });
 window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS;
-window.SKINS_REF = SKINS; window.AnimStateRef = AnimState; window.CharacterRendererRef = CharacterRenderer;
+window.SKINS_REF = SKINS; window.AnimStateRef = AnimState; window.CharacterRendererRef = CharacterRenderer; window.POSES_REF = POSES; window.BASE_POSE_REF = BASE_POSE;

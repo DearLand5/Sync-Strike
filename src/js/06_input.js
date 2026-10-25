@@ -16,6 +16,8 @@ class InputManager {
     this.touch = new TouchControls(settings);
     this.rotated = false;       // интерфейс повёрнут на 90° (портретный телефон в режиме «горизонтально»)
     this.onPause = null;
+    // колесо пафосных поз: open, x/y — центр на экране, sx/sy — откуда тянем, sel — сектор (-1 нет), pid — палец, sticky — открыто тапом
+    this.wheel = { open: false, x: 0, y: 0, sx: 0, sy: 0, sel: -1, pid: null, sticky: false, key: false, t: 0 };
     this._bind();
   }
 
@@ -31,8 +33,13 @@ class InputManager {
       else if (c === "KeyJ" || c === "KeyZ" || c === "Enter") this.push("attack", e.timeStamp);
       else if (c === "KeyK" || c === "KeyL" || c === "KeyX" || c === "ShiftRight") this.push("dodge", e.timeStamp);
       else if (c === "Escape" || c === "KeyP") { if (this.onPause) this.onPause(); }
+      else if (c === "KeyQ" && this.wheelAllowed) { const r = this.canvas.getBoundingClientRect(); this.openWheel(r.width / 2, r.height / 2, null, true); }
+      else if (this.wheel.open && /^Digit[1-4]$/.test(c)) this.pickWheel(+c.slice(5) - 1);
     };
-    const ku = e => { this.keys.delete(e.code); };
+    const ku = e => {
+      this.keys.delete(e.code);
+      if (e.code === "KeyQ" && this.wheel.open && this.wheel.key) { if (this.wheel.sel >= 0) this.pickWheel(this.wheel.sel); else this.closeWheel(); }
+    };
     window.addEventListener("keydown", kd);
     window.addEventListener("keyup", ku);
     window.addEventListener("blur", () => { this.keys.clear(); this.touch.releaseAll(); this.jumpHeld = false; });
@@ -55,17 +62,37 @@ class InputManager {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
 
+  /* ---------- колесо поз ---------- */
+  get wheelAllowed() { const m = this.settings.v.poseMode || "both"; return m === "both" || m === "wheel"; }
+  openWheel(x, y, pid, key = false) {
+    const w = this.wheel, R = WHEEL_R, cw = this.touch.w, ch = this.touch.h;
+    Object.assign(w, { open: true, x: clamp(x, R + 10, cw - R - 10), y: clamp(y, R + 10, ch - R - 10), sx: x, sy: y, sel: -1, pid, sticky: false, key, t: performance.now() });
+  }
+  closeWheel() { this.wheel.open = false; this.wheel.pid = null; this.wheel.sel = -1; }
+  pickWheel(i) { if (i >= 0 && i < POSE_IDS.length) this.queue.push({ type: "pose", id: POSE_IDS[i], stamp: performance.now() }); this.closeWheel(); }
+  /** Сектор по вектору (dx, dy): 0 — вверх, 1 — вправо, 2 — вниз, 3 — влево; -1 — у центра. */
+  _sector(dx, dy, dead) { if (Math.hypot(dx, dy) < dead) return -1; const a = Math.atan2(dx, -dy); return ((Math.round(a / (Math.PI / 2)) % 4) + 4) % 4; }
+
   isTouchPath(e) { return e.pointerType === "touch" || e.pointerType === "pen" || this.settings.v.touchForce || this.touch.editing; }
 
   _down(e) {
     if (e.pointerType === "touch") this.usingTouch = true;
     if (!this.active && !this.touch.editing) return;
+    // открытое колесо: касание по сектору выбирает позу, мимо — закрывает
+    if (this.wheel.open && (this.wheel.sticky || this.wheel.key) && !this.touch.editing) {
+      e.preventDefault();
+      const q = this.local(e), w = this.wheel, d = Math.hypot(q.x - w.x, q.y - w.y);
+      if (d <= WHEEL_R * 1.15) { const s = this._sector(q.x - w.x, q.y - w.y, WHEEL_R * 0.28); if (s >= 0) this.pickWheel(s); else this.closeWheel(); }
+      else this.closeWheel();
+      return;
+    }
     if (this.isTouchPath(e)) {
       e.preventDefault();
       try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
       const q = this.local(e);
       const act = this.touch.down(e.pointerId, q.x, q.y);
-      if (act) this.push(act, e.timeStamp);
+      if (act === "pose") { if (this.wheelAllowed) this.openWheel(q.x, q.y, e.pointerId); }
+      else if (act) this.push(act, e.timeStamp);
       if (act === "jump") this.jumpHeld = true;
     } else if (e.pointerType === "mouse") {
       if (e.button === 0) this.push("attack", e.timeStamp);
@@ -73,19 +100,30 @@ class InputManager {
     }
   }
   _move(e) {
+    const w = this.wheel;
+    if (w.open && w.key) { const q = this.local(e); w.sel = this._sector(q.x - w.x, q.y - w.y, WHEEL_R * 0.28); return; }
     if (!this.isTouchPath(e)) return;
     const q = this.local(e);
+    // колесо: тянем палец от кнопки — сектор по направлению (центр колеса может быть сдвинут от края экрана)
+    if (w.open && w.pid === e.pointerId) w.sel = this._sector(q.x - w.sx, q.y - w.sy, 22);
     this.touch.move(e.pointerId, q.x, q.y);
   }
   _up(e) {
     if (!this.isTouchPath(e)) return;
+    const w = this.wheel;
+    if (w.open && w.pid === e.pointerId) {
+      // отпустили на секторе — поза; быстрый тап без направления — колесо остаётся открытым, выбрать касанием
+      if (w.sel >= 0) this.pickWheel(w.sel);
+      else if (performance.now() - w.t < 350) { w.sticky = true; w.pid = null; }
+      else this.closeWheel();
+    }
     const rel = this.touch.up(e.pointerId);
     if (rel === "jump") this.jumpHeld = false;
   }
 
   push(type, stamp) { this.queue.push({ type, stamp: stamp || performance.now() }); }
   consume() { const q = this.queue; this.queue = []; return q; }
-  clear() { this.queue.length = 0; this.touch.releaseAll(); this.jumpHeld = false; }
+  clear() { this.queue.length = 0; this.touch.releaseAll(); this.jumpHeld = false; this.closeWheel(); }
 
   /** Сводит клавиатуру и джойстик в оси движения. */
   poll() {
@@ -118,7 +156,9 @@ const TOUCH_BUTTONS = {
   attack: { label: "АТАКА", k: 1.25 },
   jump:   { label: "ПРЫЖОК", k: 0.9 },
   dodge:  { label: "УКЛОН", k: 0.8 },
+  pose:   { label: "ПАФОС", k: 0.55, opt: s => s.poseMode === "both" || s.poseMode === "wheel" || s.poseMode == null },   // колесо поз
 };
+const WHEEL_R = 92;          // радиус колеса поз, CSS px
 
 class TouchControls {
   constructor(settings) {
@@ -147,6 +187,9 @@ class TouchControls {
   }
 
   resize(w, h) { this.w = w; this.h = h; this.readSafeArea(); this.layout(); }
+
+  /** Кнопка включена (у необязательных — по настройке, напр. колесо поз). */
+  on(id) { const o = TOUCH_BUTTONS[id].opt; return !o || o(this.settings.v); }
 
   baseR() { return clamp(Math.min(this.w, this.h) * 0.1, 30, 72) * clamp(this.settings.v.btnScale, 0.6, 1.5); }
 
@@ -177,6 +220,7 @@ class TouchControls {
     let hit = null, hd = 1e9;
     for (const id in this.btn) {
       const b = this.btn[id];
+      if (!this.on(id)) continue;
       const d = Math.hypot(x - b.x, y - b.y);
       if (d <= b.r * 1.25 && d < hd && b.pid == null) { hit = b; hd = d; }
     }
@@ -229,6 +273,7 @@ class TouchControls {
     let best = null, bd = 1e9;
     const all = Object.assign({ joy: this.joy }, this.btn);
     for (const id in all) {
+      if (id !== "joy" && !this.on(id)) continue;
       const o = all[id], d = Math.hypot(x - o.x, y - o.y);
       if (d < o.r * 1.3 && d < bd) { best = id; bd = d; }
     }
@@ -271,6 +316,7 @@ class TouchControls {
 
     for (const id in this.btn) {
       const b = this.btn[id];
+      if (!this.on(id)) continue;
       const pr = b.pressed ? 0.92 : 1;
       const r = b.r * pr;
       b.flash = Math.max(0, b.flash - 0.06);
@@ -295,7 +341,7 @@ class TouchControls {
     if (this.editing) {
       ctx.globalAlpha = 1;
       ctx.font = "600 12px 'JetBrains Mono', monospace"; ctx.textAlign = "center"; ctx.fillStyle = "#e8e2d6";
-      for (const id in this.btn) ctx.fillText(TOUCH_BUTTONS[id].label, this.btn[id].x, this.btn[id].y + this.btn[id].r + 16);
+      for (const id in this.btn) if (this.on(id)) ctx.fillText(TOUCH_BUTTONS[id].label, this.btn[id].x, this.btn[id].y + this.btn[id].r + 16);
       ctx.fillText("ДЖОЙСТИК", j.x, j.y + j.r + 16);
     }
     ctx.restore();
@@ -319,6 +365,11 @@ class TouchControls {
     } else if (id === "jump") {
       ctx.beginPath(); ctx.moveTo(-12, 6); ctx.lineTo(0, -8); ctx.lineTo(12, 6); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(-12, 16); ctx.lineTo(0, 2); ctx.lineTo(12, 16); ctx.globalAlpha *= 0.5; ctx.stroke();
+    } else if (id === "pose") {
+      // звезда — колесо пафосных поз
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? 7 : 16; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+      ctx.closePath(); ctx.lineWidth = 2.5; ctx.stroke();
     } else {
       ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(10, 0); ctx.moveTo(4, -7); ctx.lineTo(12, 0); ctx.lineTo(4, 7); ctx.stroke();
       ctx.globalAlpha *= 0.5; ctx.beginPath(); ctx.moveTo(-14, -9); ctx.lineTo(-4, -9); ctx.moveTo(-14, 9); ctx.lineTo(-4, 9); ctx.stroke();
