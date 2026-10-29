@@ -50,7 +50,7 @@ async function run(browser, mode, opts) {
       if (a && a.judge && a.judge.index >= 0) {
         if (a !== prevAct) { prevAct = a; wasStartup = true; }
         const t0 = a.startup + (a.travel || 0) + (a.def.fireAt || 0);
-        if (wasStartup && a.t >= t0) { wasStartup = false; L.imp.push({ d: (g.songNow - a.judge.beatTime) * 1000, plan: (a.impactSong - a.judge.beatTime) * 1000, press: a.__press, exec: a.__exec, onBeat: a.onBeat, kind: a.def.kind, ts: g.timeScale }); }
+        if (wasStartup && a.t >= t0) { wasStartup = false; L.imp.push({ d: (g.songNow - a.judge.beatTime) * 1000, plan: (a.impactSong - a.judge.beatTime) * 1000, press: a.__press, exec: a.__exec, name: a.name, onBeat: a.onBeat, kind: a.def.kind, ts: g.timeScale }); }
       }
       requestAnimationFrame(watch);
     };
@@ -110,15 +110,16 @@ function spawnStats(L) {
     // позднее — не позже, чем через 25 мс подготовки (+60 мс пути рывка) после исполнения
     const imm = L.imp.filter(x => x.exec - x.press < 40);
     // по расчётному моменту удара (impactSong); исполнение кадрами добавляет свою погрешность — печатается отдельно
-    const early = imm.filter(x => x.press >= -120 && x.press <= -30).map(x => x.plan);
-    const late = imm.filter(x => x.press > -30 && x.press <= 60).map(x => x.plan - Math.max(0, x.exec) - (x.kind === "dash" ? 70 : 25));
+    // рывку нужен путь до цели (≥ 45 мс) — он проверяется как «не позже минимума», а не «точно в долю»
+    const early = imm.filter(x => x.press >= -120 && x.press <= -30 && x.kind !== "dash").map(x => x.plan);
+    const late = imm.filter(x => (x.press > -30 || x.kind === "dash") && x.press >= -120 && x.press <= 60).map(x => x.plan - Math.max(0, x.exec) - (x.kind === "dash" ? 70 : 25));
     const frameErr = L.imp.map(x => x.d - x.plan);
     const buf = L.imp.filter(x => x.exec - x.press >= 40);
     var nearEarly = early, nearLate = late;
     console.log(`\n[подгонка ${assist ? "вкл" : "выкл"}] ударов ${L.imp.length} (ближний ${melee.length}, ждали в буфере ${buf.length}); «в долю» ${L.imp.filter(x => x.onBeat).length}`);
-    console.log(`  раннее нажатие −120…−30 мс: удар от доли медиана ${med(early).toFixed(0)} мс, p90 |${p90(early).toFixed(0)}| (n=${early.length}); нажатие −30…+60: удар позже минимума на ${med(late).toFixed(0)} мс (n=${late.length}); факт − расчёт (кадры, замер в rAF): медиана ${med(frameErr).toFixed(0)} мс, p90 |${p90(frameErr).toFixed(0)}|`);
+    console.log(`  раннее нажатие −120…−30 мс (кроме рывка): удар от доли медиана ${med(early).toFixed(0)} мс, p90 |${p90(early).toFixed(0)}| (n=${early.length}); нажатие −30…+60 и рывки: удар позже минимума на ${med(late).toFixed(0)} мс (n=${late.length}); факт − расчёт (кадры, замер в rAF): медиана ${med(frameErr).toFixed(0)} мс, p90 |${p90(frameErr).toFixed(0)}|`);
     console.log("  сдвиг нажатия → удар от доли (мс, медиана; погрешность кадра ±16): " + rows.join("  "));
-    if (process.env.DBG) console.log(imm.filter(x => x.press <= -30).map(x => [x.press, Math.round(x.plan), x.kind].join("/")).join(" "));
+    if (process.env.DBG) console.log(imm.filter(x => x.press <= -30 && x.press >= -120).map(x => [x.press, Math.round(x.plan), x.kind, x.name].join("/")).join(" "));
     if (process.env.DBG) console.log(L.imp.map(x => [x.press, Math.round(x.plan), Math.round(x.d), x.kind[0], +x.ts.toFixed(2)].join("/")).join(" "));
     console.log(`  звуки в долю: заранее ${L.sched}, сразу ${L.now}`);
     console.log(`  шаги: ${L.steps.length}, ошибка фазы медиана ${med(L.steps).toFixed(1)} мс, p90 ${p90(L.steps).toFixed(1)} мс`);

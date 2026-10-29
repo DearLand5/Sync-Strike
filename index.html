@@ -553,9 +553,10 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <div class="card"><span class="h3">1 · Движение</span><p>Джойстик слева: лёгкий наклон даёт шаг, полный наклон бег. «Прыжок» можно нажать дважды в воздухе. Чем дольше держите кнопку, тем выше прыжок.</p></div>
         <div class="card"><span class="h3">2 · Одна кнопка атаки</span><p>Игра сама выбирает приём: рядом с врагом бьёт «Нокс-9», на средней дистанции рывок с ударом, издалека выстрел «Импульс-7». Направление, дистанция и такт решают, какой приём выйдет.</p></div>
         <div class="card"><span class="h3">3 · Ритм</span><p>Кольцо внизу сжимается к доле. Нажатие точно в долю даёт Perfect: сильнее удар, ярче вспышка, больше очков. Чуть ранние нажатия игра придерживает, и удар приходится на долю.</p></div>
-        <div class="card"><span class="h3">4 · Комбо</span><p>Три удара кинжалом подряд дают вихрь. На сильной доле с Perfect время замедляется. Выстрел сразу после вихря даёт «Эхо», рывок после выстрела даёт «Дуэт».</p></div>
-        <div class="card"><span class="h3">5 · Уклонение</span><p>Враги бьют в такт музыке и заранее подают сигнал: вспыхивают глаза, тянется лазер прицела. Уклон в момент удара засчитывается как идеальный и замедляет время.</p></div>
-        <div class="card"><span class="h3">6 · Музыка</span><p>Загрузите MP3 в разделе «Музыка». Если ритм ощущается сдвинутым, пройдите калибровку синхронизации: это займёт десять секунд.</p></div>
+        <div class="card"><span class="h3">4 · Комбо</span><p>Три удара кинжалом подряд дают вихрь, четвёртый в такт — «Крест». Нажатие на «и» (полдоли) сразу после удара — «Шквал» из трёх уколов. Выстрел после вихря — «Эхо», рывок после выстрела — «Дуэт», третий выстрел подряд в такт — «Веер».</p></div>
+        <div class="card"><span class="h3">5 · Связки</span><p>Сильная доля и грув II+ превращают рывок в «Сквозной»: насквозь через врага и удар за спиной. Атака сразу после идеального уклона — «Ответ», вращение с двумя ударами. Два удара в воздухе и третий в такт — «Метеор» с ударной волной.</p></div>
+        <div class="card"><span class="h3">6 · Уклонение</span><p>Враги бьют в такт музыке и заранее подают сигнал: вспыхивают глаза, тянется лазер прицела. Уклон в момент удара засчитывается как идеальный и замедляет время.</p></div>
+        <div class="card"><span class="h3">7 · Музыка</span><p>Загрузите MP3 в разделе «Музыка». Если ритм ощущается сдвинутым, пройдите калибровку синхронизации: это займёт десять секунд.</p></div>
       </div>
       <div class="row"><button class="btn" data-go="menu">Назад</button><button class="btn primary" id="btn-practice">Практика</button></div>
     </div>
@@ -9269,7 +9270,21 @@ const ATTACKS = {
   backShot: { kind: "ranged", startup: 0.04, active: 0.18, recovery: 0.2,  cancel: 0.3,  dmg: 11, speed: 950, knock: 140, stun: 0.2, backflip: true, fireAt: 0.12, name: "Отскок-выстрел" },
   charged:  { kind: "ranged", startup: 0.09, active: 0.02, recovery: 0.24, cancel: 0.16, dmg: 20, speed: 1150, knock: 240, stun: 0.35, pierce: true, name: "Импульс-заряд" },
   dive:     { kind: "dive",   startup: 0.04, active: 0.35, recovery: 0.1,  cancel: 0.1,  dmg: 14, reach: 22, knock: 120, stun: 0.3, name: "Пике" },
+  // ---- комбинации (выбираются по прошлым действиям и такту, см. chooseAttack) ----
+  // 4-й удар серии в такт после вихря: два крестом, второй отбрасывает
+  cross:    { kind: "melee",  startup: 0.07, active: 0.16, recovery: 0.28, cancel: 0.2,  dmg: 13, reach: 38, knock: 380, stun: 0.5,  lunge: 70,  arc: [-2.7, 2.3], hits: 2, name: "Крест" },
+  // нажатие на «и» (полдоли) сразу после удара в долю: три быстрых укола
+  flurry:   { kind: "melee",  startup: 0.03, active: 0.15, recovery: 0.14, cancel: 0.1,  dmg: 6,  reach: 40, knock: 60,  stun: 0.2,  lunge: 90,  thrust: true, hits: 3, name: "Шквал" },
+  // рывок сквозь цель на сильной доле при груве ≥ 2: бьёт всех на пути и разворачивается с ударом за спиной
+  pierce:   { kind: "dash",   startup: 0.05, active: 0.1,  recovery: 0.2,  cancel: 0.14, dmg: 15, reach: 32, knock: 200, stun: 0.4, speed: 1300, maxTravel: 0.2, arc: [-2.4, 1.6], through: true, name: "Сквозной рывок" },
+  // атака в окне контрудара после идеального уклона: вращение с двумя ударами вокруг себя
+  riposte:  { kind: "melee",  startup: 0.03, active: 0.2,  recovery: 0.22, cancel: 0.16, dmg: 12, reach: 46, knock: 260, stun: 0.8,  lunge: 40,  arc: [-2.8, 2.6], spin: true, hits: 2, turn: true, name: "Ответ" },
+  // в воздухе после двух воздушных ударов: удар вниз с ударной волной при приземлении
+  meteor:   { kind: "dive",   startup: 0.06, active: 0.4,  recovery: 0.16, cancel: 0.14, dmg: 16, reach: 26, knock: 160, stun: 0.45, slam: 70, name: "Метеор" },
+  // третий выстрел подряд в такт: веер из трёх пуль
+  fan:      { kind: "ranged", startup: 0.05, active: 0.04, recovery: 0.18, cancel: 0.12, dmg: 7,  speed: 950, knock: 100, stun: 0.18, shots: 3, gap: 0, spread: 0.2, name: "Веер" },
 };
+const COMBO_MOVES = ["cross", "flurry", "pierce", "riposte", "meteor", "fan"];
 const RATING_ORDER = ["perfect", "good", "early", "late", "miss"];
 const BEAT_MIN_STARTUP = 0.025;   // самая короткая подготовка, когда удар подгоняется к уже наступившей доле
 
@@ -9297,6 +9312,9 @@ class CombatSystem {
     this.comboLabel = ""; this.comboLabelT = 0;
     this.td = null; this.lastTdT = -9; this.takedowns = 0;
     this.airCount = 0; this.lastRiseT = -9;
+    this.airChain = 0;         // воздушных ударов с отрыва от земли (для «Метеора»)
+    this.lastPress = null;     // прошлое нажатие атаки {song, beat, period, good} — для «Шквала» на полдоли
+    this.combos = {};          // сколько раз сработала каждая комбинация (итоги, тесты)
   }
 
   /* ---------- ввод ---------- */
@@ -9326,7 +9344,15 @@ class CombatSystem {
 
   execute(pressSong) {
     const g = this.game, p = g.player, clock = g.clock;
-    const j = clock.judge(pressSong);
+    let j = clock.judge(pressSong);
+    // нажатие на «и» (полдоли) сразу после удара в долю — синкопа, а не промах: оценка good, удар — на полдоли
+    const lp = this.lastPress;
+    if (lp && lp.good && clock.map && !j.half) {
+      const half = lp.beat + lp.period / 2, d = pressSong - half;
+      if (Math.abs(d) < Math.min(0.07, lp.period * 0.14) && pressSong - lp.song < lp.period * 0.8)
+        j = Object.assign({}, j, { rating: "good", delta: d, half: true, offbeat: true, strong: false, beatTime: half, period: lp.period / 2 });
+    }
+    this.lastPress = { song: pressSong, beat: j.beatTime, period: j.period || clock.period, good: (j.rating === "perfect" || j.rating === "good") && !j.offbeat };
     const target = this.selectTarget();
     const name = this.chooseAttack(target, j);
     const def = ATTACKS[name];
@@ -9347,8 +9373,13 @@ class CombatSystem {
     };
     if (target) { act.dir = sign(target.x - p.x); p.facing = act.dir; }
 
-    // рывок: время пути до цели
-    if (def.kind === "dash" && target) {
+    // сквозной рывок: путь за спину цели, удар — развернувшись
+    if (def.through && target) {
+      const half = target.w * target.scale * 0.5;
+      const to = clamp(target.x + act.dir * (half + 16), 40, WORLD.w - 40);
+      act.travel = Math.min(def.maxTravel, Math.abs(to - p.x) / def.speed);
+      act.dashTo = to;
+    } else if (def.kind === "dash" && target) {
       const dist = Math.max(0, Math.abs(target.x - p.x) - target.w * target.scale * 0.5 - 14);
       act.travel = Math.min(def.maxTravel, dist / def.speed);
       act.dashTo = target.x - act.dir * (target.w * target.scale * 0.5 + 12);
@@ -9384,7 +9415,7 @@ class CombatSystem {
     const since = this.time - this.lastActionT;
     if (def.kind === "ranged" && this.time - this.lastSlash3HitT < 0.6) { act.echo = true; act.power *= 1.25; this.flashLabel("ЭХО"); }
     if (def.kind === "dash" && this.lastAction && ATTACKS[this.lastAction].kind === "ranged" && since < 0.6) { act.duet = true; act.power *= 1.2; this.flashLabel("ДУЭТ"); }
-    if (def.kind === "melee") { this.comboStep = name === "slash1" ? 1 : name === "slash2" ? 2 : name === "slash3" ? 3 : this.comboStep; this.lastMeleeT = this.time; }
+    if (def.kind === "melee") { this.comboStep = name === "slash1" ? 1 : name === "slash2" ? 2 : name === "slash3" ? 3 : name === "cross" ? 4 : this.comboStep; this.lastMeleeT = this.time; }
     if (def.kind === "ranged") this.shotChain = since < 0.7 && this.lastAction && ATTACKS[this.lastAction].kind === "ranged" ? this.shotChain + 1 : 1;
     else this.shotChain = 0;
     this.lastAction = name; this.lastActionT = this.time;
@@ -9398,7 +9429,12 @@ class CombatSystem {
     if (def.kind === "ranged") p.pistolT = 0.6;
     if (def.backflip) { p.vx = -act.dir * 240; p.vy = -330; p.onGround = false; act.noGravity = false; }
     if (name === "rise") { this.lastRiseT = this.time; }
-    if (name === "airSlash" || name === "airSpin") this.airCount++;
+    if (name === "airSlash" || name === "airSpin") { this.airCount++; this.airChain++; }
+    if (COMBO_MOVES.includes(name)) {
+      this.combos[name] = (this.combos[name] || 0) + 1;
+      this.flashLabel(def.name.toUpperCase());
+      g.fx.text(p.x, p.y - 64, def.name, p.skin.accent, 12, 0.6);
+    }
     if (["rise", "thrust", "twin", "backShot", "airSpin"].includes(name)) this.flashLabel(def.name.toUpperCase());
     if (j.rating === "perfect") g.sfx("perfect");
   }
@@ -9459,6 +9495,8 @@ class CombatSystem {
     const sloppy = j.rating === "early" || j.rating === "late" || j.rating === "miss";
     const nextSlash = () => {
       const recent = this.time - this.lastMeleeT < 0.75;
+      // четвёртый удар серии: после вихря нажатие в такт — «Крест»
+      if (recent && this.comboStep === 3 && good && !j.offbeat) return "cross";
       if (!recent || this.comboStep >= 3) return sloppy ? "thrust" : "slash1";
       return this.comboStep === 1 ? "slash2" : "slash3";
     };
@@ -9466,13 +9504,20 @@ class CombatSystem {
     const dx = Math.abs(target.x - p.x) - (target.w * target.scale) / 2 - p.w / 2;
     const dy = target.centerY - p.centerY;
     const away = Math.abs(g.input.moveX) > 0.4 && sign(g.input.moveX) !== sign(target.x - p.x);
+    // окно контрудара после идеального уклона: «Ответ», если враг рядом
+    if (p.counterT > 0 && dx < 60 && Math.abs(dy) < 50 && p.onGround) return "riposte";
     if (air) {
+      if (this.airChain >= 2 && good && Math.abs(target.x - p.x) < 110) return "meteor";
       if (dy > 22 && Math.abs(target.x - p.x) < 70) return "dive";
       if (dx < 40 && Math.abs(dy) < 45) return j.rating === "perfect" || this.airCount % 2 ? "airSpin" : "airSlash";
       return good && j.strong ? "twin" : "shot";
     }
     if (dx <= 34 && Math.abs(dy) < 40) {
       if (away) return "backShot";
+      // «и» после удара в долю — три быстрых укола
+      if (j.offbeat && this.time - this.lastMeleeT < 0.6) return "flurry";
+      // серия вихря в такт важнее подброса на сильной доле
+      if (this.comboStep === 3 && good && this.time - this.lastMeleeT < 0.75) return "cross";
       // сильная доля + точность: подброс (не чаще раза в 2 с, Молота не подбросить)
       if (j.strong && good && target.kind !== "brute" && this.time - this.lastRiseT > 2 && this.comboStep !== 2) return "rise";
       return nextSlash();
@@ -9480,8 +9525,11 @@ class CombatSystem {
     const dashRange = 170 + (good ? 40 : 0);
     if (dx <= dashRange && Math.abs(dy) < 45 && !away) {
       if (j.rating === "miss" && dx > 110) return "hip";
+      // сильная доля, точно, грув ≥ 2 — рывок насквозь (громилу не пробить)
+      if (j.strong && good && this.groove >= 2 && target.kind !== "brute") return "pierce";
       return "dash";
     }
+    if (this.shotChain >= 3 && good) return "fan";
     if (this.shotChain >= 2 && j.rating === "perfect") return "charged";
     if (good && j.strong) return "twin";
     if (sloppy) return "hip";
@@ -9504,7 +9552,19 @@ class CombatSystem {
         if (def.thrust) this._thrustFx(p, act); else this._slashFx(p, act);
         if (def.thrust || def.launch) g.addAfterimage(p);
       }
-      if (act.phase === "active") this._meleeHits(p, act, def.spin);
+      if (act.phase === "active") {
+        // многоударные приёмы: активная фаза делится на hits частей, в каждой цель можно задеть заново
+        if (def.hits) {
+          const n = Math.min(def.hits - 1, Math.floor((act.t - tA) / (act.active / def.hits)));
+          if (n > (act.sub || 0)) {
+            act.sub = n; act.hit.clear();
+            if (def.thrust) this._thrustFx(p, act); else this._slashFx(p, act, n);
+            if (def.turn) { act.dir = -act.dir; p.facing = act.dir; }
+            g.sfx("slash", 1.1 + 0.15 * n);
+          }
+        }
+        this._meleeHits(p, act, def.spin);
+      }
       if (act.phase === "recovery") p.vx = damp(p.vx, 0, 10, dt);
     } else if (def.kind === "dash") {
       if (act.phase === "startup") { p.vx = damp(p.vx, 0, 15, dt); }
@@ -9515,9 +9575,15 @@ class CombatSystem {
         const nx = lerp(act.startX, to, easeOut(k));
         p.vx = (nx - p.x) / Math.max(dt, 1e-4);
         g.addAfterimage(p);
+        if (def.through) this._passHits(p, act);
       }
       if (act.phase === "active") {
         act.iframes = false; act.noGravity = false;
+        if (def.through && !act.turned) {
+          // проскочили за спину — разворот и удар назад; задетые на пути получают и этот удар
+          act.turned = true; act.dir = -act.dir; p.facing = act.dir; act.hit.clear();
+          g.fx.cut(act.startX, p.y - 20, p.x, p.y - 20, p.skin.accent, 3, 0.35);
+        }
         if (!act.fired) { act.fired = true; p.vx = act.dir * 60; this._slashFx(p, act); }
         this._meleeHits(p, act, false);
       }
@@ -9534,11 +9600,16 @@ class CombatSystem {
       }
       if (def.backflip && act.phase === "active") g.addAfterimage(p);
     } else if (def.kind === "dive") {
+      // «Метеор» падает до земли: активная фаза держится, пока не приземлился (не дольше 1.5 с)
+      if (def.slam && !act.landed && !p.onGround && act.t > tA + act.active - 0.01 && act.t < 1.5) act.t = tA + act.active - 0.01;
       if (act.phase === "startup") { p.vy = Math.min(p.vy, -60); p.vx *= 0.5; }
       else if (act.phase === "active" || act.phase === "travel") {
         p.vy = 560; act.noGravity = true;
         this._meleeHits(p, act, false, true);
-        if (p.onGround) { act.t = tA + act.active; g.fx.dust(p.x, p.y, 6); g.camera.shake(0.15); }
+        if (p.onGround) {
+          act.t = tA + act.active; g.fx.dust(p.x, p.y, 6); g.camera.shake(0.15);
+          if (def.slam && !act.landed) { act.landed = true; this._slam(p, act); }
+        }
       }
     }
     if (act.t >= act.total) {
@@ -9558,9 +9629,12 @@ class CombatSystem {
       const tg = act.target, hy = p.y - 20;
       return tg ? Math.atan2(tg.centerY - hy, Math.abs(tg.x - p.x)) : 0;
     };
+    // ход внутри части многоударного приёма: sub — номер удара, u — 0..1 внутри него
+    const hits = def.hits || 1, sub = Math.min(hits - 1, Math.floor(kA * hits)), u = kA * hits - sub;
     if (def.thrust) {
-      // укол: оттянуть руку и выбросить клинок прямо вперёд
-      const arm = act.phase === "startup" ? lerp(0.3, -0.7, easeOut(kS)) : act.phase === "active" ? Math.PI / 2 : lerp(Math.PI / 2, 0.4, easeInOut(kR));
+      // укол: оттянуть руку и выбросить клинок прямо вперёд («Шквал» — три выброса подряд)
+      const jab = hits > 1 ? Math.PI / 2 - 0.65 * (1 - Math.sin(Math.PI * Math.min(1, u * 1.4))) : Math.PI / 2;
+      const arm = act.phase === "startup" ? lerp(0.3, -0.7, easeOut(kS)) : act.phase === "active" ? jab : lerp(Math.PI / 2, 0.4, easeInOut(kR));
       Object.assign(P, { armF: arm, elbowF: act.phase === "startup" ? 1.4 : 0, wBlend: act.phase === "startup" ? 0 : 1, wAngle: 0,
         lean: act.phase === "startup" ? -0.15 : act.phase === "active" ? 0.45 : 0.2 * (1 - kR), legSpread: 1.7, bodyY: act.phase === "active" ? 2.5 : 1, sx: act.phase === "active" ? 1.12 : 1, sy: act.phase === "active" ? 0.92 : 1, cloak: -0.6 });
     } else if (def.launch) {
@@ -9574,7 +9648,9 @@ class CombatSystem {
       let arm;
       if (act.phase === "startup") arm = lerp(0.3, back - 0.15, easeOut(kS));      // замах чуть дальше назад
       else if (act.phase === "travel") arm = back - 0.15;
-      else if (act.phase === "active") arm = lerp(back - 0.15, fwd + ov, easeOut(kA));
+      else if (act.phase === "active") arm = hits > 1 && !def.spin
+        ? (sub % 2 ? lerp(fwd + ov, back, easeOut(u)) : lerp(back - 0.15, fwd + ov, easeOut(u)))     // «Крест»: туда и обратно
+        : lerp(back - 0.15, fwd + ov, easeOut(kA));
       else arm = lerp(fwd + ov, 0.4, easeInOut(kR));
       Object.assign(P, { armF: arm, lean: act.phase === "startup" ? -0.12 : act.phase === "travel" ? 0.6 : act.phase === "active" ? 0.3 : 0.15 * (1 - kR) });
       // тело: присед перед ударом, выпад в ударе, пружинистая доводка
@@ -9582,6 +9658,9 @@ class CombatSystem {
       else if (act.phase === "recovery") Object.assign(P, { bodyY: 0.5 + 1.2 * (1 - easeOut(kR)) + Math.sin(kR * Math.PI) * 0.5, sy: 0.95 + 0.05 * easeOut(kR) });
       if (act.phase === "travel") Object.assign(P, { tuck: 0.4, sx: 1.15, sy: 0.88, cloak: -0.8, bodyY: 2 });
       if (def.spin && act.phase === "active") Object.assign(P, { sx: 1.1, sy: 0.92, bodyY: 2, cloak: -1 });
+      // «Ответ»: разворот на месте между ударами (силуэт сужается на развороте)
+      if (def.turn && act.phase === "active") Object.assign(P, { sx: 0.45 + 0.65 * Math.abs(Math.cos(Math.PI * u)), bodyY: 2.4, cloak: 1.1, armB: -1.5 });
+      if (act.name === "cross" && act.phase === "active") Object.assign(P, { lean: 0.38, bodyY: 1.8, legSpread: 1.8, armB: sub ? -1.2 : 0.4 });
       if (def.flip) P.spin = act.phase === "active" ? TAU * easeInOut(kA) : 0;   // сальто в воздухе
       if (!p.onGround) P.tuck = 0.4;
       // чередуем стойку: второй удар — с разворотом корпуса
@@ -9604,6 +9683,8 @@ class CombatSystem {
       if (!p.onGround && !def.backflip) Object.assign(P, { tuck: 0.35, lean: -0.15 });
     } else if (def.kind === "dive") {
       Object.assign(P, { armF: 0.15, elbowF: 0, wBlend: 1, wAngle: Math.PI / 2, lean: 0.25, tuck: 0.6, sx: 0.9, sy: 1.12 });
+      // «Метеор»: клинок над головой на замахе, вытянутый силуэт в падении
+      if (def.slam) Object.assign(P, act.phase === "startup" ? { armF: 3.0, wAngle: -1.4, tuck: 0.3, lean: -0.15, sy: 1.08 } : { sy: 1.2, sx: 0.85, cloak: 1 });
     }
     return P;
   }
@@ -9616,11 +9697,12 @@ class CombatSystem {
     g.fx.sparks(x1, y, 4, col, 160, act.dir > 0 ? 0 : Math.PI, 0.6, 0.2);
   }
 
-  _slashFx(p, act) {
+  _slashFx(p, act, sub = 0) {
     const g = this.game, def = act.def, col = p.skin.accent;
     const cx = p.x + act.dir * 6, cy = p.y - 20;
     const r = def.spin ? 34 : 26;
-    const [a0, a1] = def.arc;
+    // второй удар «Креста» — встречной дугой (крест-накрест)
+    const [a0, a1] = sub % 2 && !def.spin ? [def.arc[1] - 2.2, def.arc[0] + 2.2] : def.arc;
     // дуга в мировых углах: локальные углы руки → экранные
     const toWorld = a => (act.dir > 0 ? Math.PI / 2 - a : Math.PI / 2 + a);
     let w0 = toWorld(a0 - 0.4), w1 = toWorld(a1);
@@ -9649,6 +9731,36 @@ class CombatSystem {
     }
   }
 
+  /** Сквозной рывок: задевает всех, через кого проходит (полоса вокруг героя). */
+  _passHits(p, act) {
+    const g = this.game, box = { x: p.x - 16, y: p.y - 34, w: 32, h: 36 };
+    for (const e of g.enemies) {
+      if (!e.targetable || act.hit.has(e.id)) continue;
+      const eb = { x: e.x - e.w * e.scale / 2, y: e.y - e.h * e.scale, w: e.w * e.scale, h: e.h * e.scale };
+      if (!rectsOverlap(box, eb)) continue;
+      act.hit.add(e.id);
+      this._applyHit(e, act, act.dir, e.x, e.centerY);
+      g.fx.cut(e.x - act.dir * 14, e.centerY + 6, e.x + act.dir * 14, e.centerY - 6, "#ffffff", 2, 0.3);
+    }
+  }
+
+  /** «Метеор»: приземление — ударная волна по земле вокруг (радиус def.slam). */
+  _slam(p, act) {
+    const g = this.game, def = act.def, col = p.skin.accent;
+    g.fx.shockwave(p.x, p.y, col, def.slam * 2.2);
+    g.fx.ring(p.x, p.y - 4, 6, def.slam, "#ffffff", 0.3, 3);
+    g.fx.sparks(p.x, p.y, 14, col, 300, -Math.PI / 2, 2.6, 0.45);
+    g.fx.dust(p.x, p.y, 12);
+    g.camera.shake(0.3); g.camera.kick(0.02);
+    g.sfx("slam");
+    for (const e of g.enemies) {
+      if (!e.targetable || act.hit.has(e.id)) continue;
+      if (Math.abs(e.x - p.x) > def.slam || Math.abs(e.y - p.y) > 30) continue;
+      act.hit.add(e.id);
+      this._applyHit(e, act, sign(e.x - p.x) || act.dir, e.x, e.centerY);
+    }
+  }
+
   _fire(p, act, n = 0) {
     const g = this.game, def = act.def;
     const hand = CharacterRenderer.handWorld(p, 8);
@@ -9656,6 +9768,7 @@ class CombatSystem {
     let ang;
     if (act.target) ang = Math.atan2(act.target.centerY - hand.y, act.target.x - hand.x);
     else ang = act.dir > 0 ? 0 : Math.PI;
+    if (def.spread) ang += (n - ((def.shots || 1) - 1) / 2) * def.spread;   // веер: пули расходятся
     this.spawnProjectile({ x: hand.x, y: hand.y, vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed, owner: "player", act, r: def.pierce ? 6 : 3.5, color: p.skin.accent, life: 0.9, pierce: !!def.pierce });
     g.fx.sparks(hand.x, hand.y, act.empowered ? 9 : 5, p.skin.accent, 240, ang, 0.7, 0.2);
     g.fx.ring(hand.x, hand.y, 2, act.empowered ? 18 : 11, "#ffffff", 0.14, 2);
@@ -9682,7 +9795,9 @@ class CombatSystem {
       this.startTakedown(e, act, dirX);
       return true;
     }
-    const broke = e.damage(dmg, dirX, def.knock * (act.empowered ? 1.3 : 1), g, def.stun);
+    // многоударные: отбрасывает только последний удар, иначе следующие не достают
+    const knock = def.hits && (act.sub || 0) < def.hits - 1 ? def.knock * 0.2 : def.knock;
+    const broke = e.damage(dmg, dirX, knock * (act.empowered ? 1.3 : 1), g, def.stun);
     const killed = !e.alive;
     if (def.launch && !killed && e.kind !== "brute") { e.vy = -430; e.vx = dirX * 40; e.onGround = false; }
     const perfect = j.rating === "perfect";
@@ -10136,6 +10251,7 @@ class CombatSystem {
     this.time += dt;
     this.comboT -= dt;
     this.grooveT = Math.max(0, this.grooveT - dt * 2);
+    if (g.player.onGround && !(g.player.action && g.player.action.def.kind === "dive")) this.airChain = 0;
     if (this.comboT <= 0 && this.combo > 0) this.combo = 0;
     this.comboLabelT = Math.max(0, this.comboLabelT - dt);
     if (g.player.state !== "dodge") g.player.perfectDodgeUsed = false;
