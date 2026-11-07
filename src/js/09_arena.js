@@ -50,16 +50,120 @@ function archPath(c, x, y, w, hh) {
   c.quadraticCurveTo(x + w, y + w * 0.18, x + w, y + w * 0.8);
   c.lineTo(x + w, y + hh); c.closePath();
 }
+/** Периодический value-noise (период — целое число узлов, шов тайла бесшовный): lat — узлы, x в [0, n). */
+function pNoise(lat, n, x) {
+  const i = Math.floor(x), f = x - i, s = f * f * (3 - 2 * f);
+  return lerp(lat[((i % n) + n) % n], lat[(((i + 1) % n) + n) % n], s);
+}
+/** Хребет: «рваный» fBm (гребни 1−|2v−1|, три октавы), бесшовный по ширине. Высоты над основанием 0..1 с шагом dx. */
+function ridgeLine(w, rng, dx) {
+  const n = Math.max(2, Math.ceil(w / dx)), out = new Float32Array(n + 1), oct = [];
+  for (let o = 0; o < 3; o++) { const cnt = Math.max(3, Math.round(w / 260)) * (1 << o), lat = new Float32Array(cnt); for (let i = 0; i < cnt; i++) lat[i] = rng(); oct.push({ cnt, lat }); }
+  for (let i = 0; i < n; i++) {
+    const u = i / n; let v = 0, a = 0.58, tot = 0;
+    for (let o = 0; o < 3; o++, a *= 0.5) { const O = oct[o]; v += a * (1 - Math.abs(2 * pNoise(O.lat, O.cnt, u * O.cnt) - 1)); tot += a; }
+    out[i] = Math.min(1, 1.3 * Math.pow(v / tot, 1.15));
+  }
+  out[n] = out[0];
+  return out;
+}
+/**
+ * Горы: два хребта (дальний светлее и ниже — глубина); у ближнего склоны с тенью (затенённая сторона от вершины
+ * вниз по гребню до ложбины) и контровая кромка только на освещённых склонах. Бесшовно, один раз в тайл.
+ */
 function paintMountains(c, w, h, rng, color, amp, base, rim) {
-  const pts = 14, ys = []; for (let i = 0; i <= pts; i++) ys.push(h - base - rng() * amp);
-  ys[pts] = ys[0];
-  c.fillStyle = color; c.beginPath(); c.moveTo(0, h);
-  for (let i = 0; i <= pts; i++) c.lineTo((i / pts) * w, ys[i]);
+  const dx = 3, far = ridgeLine(w, rng, dx), near = ridgeLine(w, rng, dx), n = near.length - 1;
+  c.fillStyle = mixHex(color, "#8a94b8", 0.1); c.beginPath(); c.moveTo(0, h);      // дальний хребет: светлее и ниже
+  for (let i = 0; i <= n; i++) c.lineTo(Math.min(w, i * dx), h - base - amp * (0.55 + 0.45 * far[i]) * 0.8);
   c.lineTo(w, h); c.closePath(); c.fill();
-  if (rim) {      // контровой свет по гребню
-    c.strokeStyle = rim; c.lineWidth = 1.2; c.beginPath();
-    for (let i = 0; i <= pts; i++) c.lineTo((i / pts) * w, ys[i] + 0.6);
+  const ys = new Float32Array(n + 1); for (let i = 0; i <= n; i++) ys[i] = h - base - near[i] * amp;
+  c.fillStyle = color; c.beginPath(); c.moveTo(0, h);
+  for (let i = 0; i <= n; i++) c.lineTo(Math.min(w, i * dx), ys[i]);
+  c.lineTo(w, h); c.closePath(); c.fill();
+  // тени склонов: от заметной вершины вправо до ближайшей ложбины (свет слева)
+  const win = Math.round(14 / dx) + 2;
+  c.fillStyle = mixHex(color, "#000000", 0.4);
+  for (let i = 0; i < n; i++) {
+    let peak = ys[i] < h - base - amp * 0.25;
+    for (let k = -win; k <= win && peak; k++) if (k && ys[((i + k) % n + n) % n] < ys[i]) peak = false;
+    if (!peak) continue;
+    let j = i + 1; while (j < i + n / 3 && ys[(j + 1) % n] >= ys[j % n]) j++;
+    const px = i * dx, py = ys[i], vx = j * dx, spur = (h - py) * 0.12;
+    for (const o of [0, -w, w]) {
+      c.beginPath(); c.moveTo(px + o, py);
+      for (let k = i + 1; k <= j; k++) c.lineTo(k * dx + o, ys[k % n]);
+      c.lineTo(vx + o, h); c.lineTo(px + spur + o, h); c.closePath(); c.fill();
+    }
+  }
+  if (rim) {      // контровой свет только на склонах, обращённых к свету (подъём слева направо)
+    c.strokeStyle = rim; c.lineWidth = 1.3; c.beginPath();
+    for (let i = 0; i < n; i++) if (ys[i + 1] < ys[i] - 0.15) { c.moveTo(i * dx, ys[i] + 0.7); c.lineTo(Math.min(w, (i + 1) * dx), ys[i + 1] + 0.7); }
     c.stroke();
+  }
+}
+/* ---------- луна и перистые облака (небо, рисуются в `back` каждый кадр без аллокаций) ---------- */
+const moonGrads = new WeakMap();      // контекст → { ключ → единичный градиент } (после сброса GPU холст получает новый контекст)
+function moonGrad(c, key, mk) {
+  let M = moonGrads.get(c); if (!M) { M = {}; moonGrads.set(c, M); }
+  return M[key] || (M[key] = mk());
+}
+// кратеры и «моря» в долях радиуса: x, y, r (внутри диска, поэтому обрезка не нужна)
+const MOON_MARIA = [[-0.28, -0.22, 0.34, 0.5], [0.26, -0.3, 0.26, 0.42], [0.12, 0.2, 0.3, 0.46], [-0.4, 0.28, 0.2, 0.38], [0.45, 0.12, 0.17, 0.36]];
+const MOON_CRATERS = [[-0.55, -0.45, 0.09], [0.1, -0.62, 0.07], [0.52, -0.1, 0.1], [-0.15, 0.5, 0.08], [0.6, 0.45, 0.06], [-0.62, 0.05, 0.06], [0.28, 0.68, 0.05], [-0.1, 0.02, 0.05]];
+/**
+ * Луна: шаровое затенение (свет сверху-слева), тёмные «моря», кратеры с освещённой кромкой, мягкое гало.
+ * o: { col — цвет диска, dark — цвет морей/тени, a — прозрачность, halo — цвет гало, ha — его прозрачность,
+ *      cres — 0..1 (0 — полная, >0 — серп: диск минус сдвинутый круг; тёмная часть едва видна) }.
+ */
+function drawMoon(c, x, y, r, o) {
+  const k = o.col + o.halo;
+  const hg = moonGrad(c, "h" + k, () => {      // гало: единичный градиент (радиус 1 = 3,2 r)
+    const g = c.createRadialGradient(0, 0, 0.25, 0, 0, 1); g.addColorStop(0, rgba(o.halo, 1)); g.addColorStop(0.35, rgba(o.halo, 0.32)); g.addColorStop(1, rgba(o.halo, 0)); return g;
+  });
+  c.save(); c.translate(x, y); c.scale(r * 3.2, r * 3.2); c.globalAlpha = o.ha; c.fillStyle = hg; c.fillRect(-1, -1, 2, 2); c.restore();
+  const sg = moonGrad(c, "s" + k, () => {      // шар: светлее у верхнего левого края, темнее у терминатора
+    const g = c.createRadialGradient(-0.32, -0.34, 0.05, 0, 0, 1.05);
+    g.addColorStop(0, mixHex(o.col, "#ffffff", 0.35)); g.addColorStop(0.55, o.col); g.addColorStop(1, mixHex(o.col, o.dark, 0.6)); return g;
+  });
+  c.save(); c.translate(x, y); c.scale(r, r); c.globalAlpha = o.a;
+  c.beginPath(); c.arc(0, 0, 1, 0, TAU);
+  if (o.cres > 0) {      // серп: заливаем диск минус сдвинутый круг (evenodd внутри обрезки по диску)
+    c.save(); c.clip(); c.beginPath(); c.arc(0, 0, 1, 0, TAU); c.arc(o.cres * 0.9, -o.cres * 0.25, 1, 0, TAU);
+    c.fillStyle = sg; c.fill("evenodd"); c.restore();
+    c.globalAlpha = o.a * 0.07; c.fillStyle = o.col; c.beginPath(); c.arc(0, 0, 1, 0, TAU); c.fill();      // пепельный свет на тёмной стороне
+    c.restore(); return;
+  }
+  c.fillStyle = sg; c.fill();
+  c.fillStyle = o.dark;
+  for (const M of MOON_MARIA) { c.globalAlpha = o.a * 0.2 * M[3] * 2; c.beginPath(); c.ellipse(M[0], M[1], M[2], M[2] * 0.8, 0.5, 0, TAU); c.fill(); }
+  for (const K of MOON_CRATERS) {
+    c.globalAlpha = o.a * 0.2; c.beginPath(); c.arc(K[0], K[1], K[2], 0, TAU); c.fill();
+    c.globalAlpha = o.a * 0.3; c.strokeStyle = mixHex(o.col, "#ffffff", 0.5); c.lineWidth = 0.014;      // свет по верхней кромке кратера
+    c.beginPath(); c.arc(K[0], K[1], K[2], Math.PI * 1.05, Math.PI * 1.75); c.stroke();
+  }
+  c.restore();
+}
+/**
+ * Перистые облака: полосы из вытянутых клубов (объединённый путь), тёмное ядро, тонкая светлая кромка сверху
+ * (тот же путь выше на 2 px — подсветка луной) и мягкое гало. n полос плывут слева направо и закольцованы.
+ */
+function drawWisps(c, v, m, o) {
+  const P = v.w + 700;
+  for (let b = 0; b < o.n; b++) {
+    const sp = o.sp * (0.7 + 0.6 * hash1(b + 9)), par = 0.01 + 0.012 * b;
+    const cx = ((m.time * sp + hash1(b + 3) * P - v.camX * v.scale * par) % P + P) % P - 350;
+    const cy = v.floorY * (o.y0 + (o.y1 - o.y0) * hash1(b + 21)), len = 150 + 170 * hash1(b + 40);
+    for (let pass = 0; pass < 3; pass++) {
+      c.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const u = (i - 2.5) / 2.5, rx = len * (0.3 - 0.12 * Math.abs(u)) * (0.8 + 0.4 * hash1(b * 7 + i)), ry = rx * 0.17;
+        const px = cx + u * len * 0.55, py = cy + (hash1(b * 5 + i + 60) - 0.5) * 9 + (pass === 0 ? -2 : 0), k = pass === 2 ? 1.35 : 1;
+        c.moveTo(px + rx * k, py); c.ellipse(px, py, rx * k, ry * k * (pass === 2 ? 1.6 : 1), 0, 0, TAU);
+      }
+      c.fillStyle = pass === 0 ? rgba(o.lit, o.la) : pass === 1 ? rgba(o.col, o.a) : rgba(o.col, o.a * 0.18);
+      if (pass === 2 && o.low) continue;
+      c.fill();
+    }
   }
 }
 /** Водонапорный бак на опорах: стоит на крыше roofY. */
@@ -494,14 +598,11 @@ const THEMES = [
     ],
     back(c, v, m, pal) {
       const mx = v.w * 0.62 - v.camX * v.scale * 0.03, my = v.floorY * 0.4, r = Math.min(v.w, v.h) * 0.22;
-      const g = c.createRadialGradient(mx, my, r * 0.8, mx, my, r * 2.4);
-      g.addColorStop(0, rgba("#e8e2d6", 0.1 + 0.08 * m.low)); g.addColorStop(1, "rgba(232,226,214,0)");
-      c.fillStyle = g; c.fillRect(0, 0, v.w, v.floorY);
-      c.fillStyle = rgba("#e8e2d6", 0.78 + 0.12 * m.low); c.beginPath(); c.arc(mx, my, r, 0, TAU); c.fill();
-      c.fillStyle = "rgba(200,190,175,.25)";
-      c.beginPath(); c.arc(mx - r * 0.3, my - r * 0.2, r * 0.18, 0, TAU); c.arc(mx + r * 0.25, my + r * 0.3, r * 0.12, 0, TAU); c.fill();
+      drawMoon(c, mx, my, r, { col: "#e8e2d6", dark: "#6a6470", a: 0.82 + 0.1 * m.low, halo: "#e8e2d6", ha: 0.34 + 0.22 * m.low, cres: 0 });
       // звёзды мерцают от верхов
       for (let i = 0; i < 40; i++) { c.fillStyle = rgba("#e8e2d6", 0.2 + 0.5 * hash1(i + Math.floor(m.time * 2 + i)) * m.high); c.fillRect(hash1(i) * v.w, hash1(i + 50) * v.floorY * 0.6, 1.5, 1.5); }
+      // тонкие облака плывут через луну: тёмное ядро и светлая кромка сверху
+      drawWisps(c, v, m, { n: 4, sp: 5, y0: 0.18, y1: 0.55, col: "#0c0d16", a: 0.62, lit: "#e8e2d6", la: 0.22, low: false });
     },
     front(c, v, m, pal) {
       // туман густеет с энергией

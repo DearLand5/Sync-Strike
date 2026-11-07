@@ -341,11 +341,7 @@
     back(c, v, m, pal) {
       // луна, звёзды
       const mx = v.w * 0.78 - v.camX * v.scale * 0.01, my = v.floorY * 0.2, r = Math.min(v.w, v.h) * 0.045;
-      const g = c.createRadialGradient(mx, my, r * 0.6, mx, my, r * 6);
-      g.addColorStop(0, rgba("#bcd4ff", 0.14)); g.addColorStop(1, "rgba(188,212,255,0)");
-      c.fillStyle = g; c.fillRect(mx - r * 6, my - r * 6, r * 12, r * 12);
-      c.fillStyle = rgba("#d8e4ff", 0.85); c.beginPath(); c.arc(mx, my, r, 0, TAU); c.fill();
-      c.fillStyle = rgba(pal.sky[0], 0.9); c.beginPath(); c.arc(mx + r * 0.45, my - r * 0.2, r * 0.9, 0, TAU); c.fill();
+      drawMoon(c, mx, my, r, { col: "#d8e4ff", dark: "#5a6890", a: 0.9, halo: "#bcd4ff", ha: 0.4, cres: 0.55 });      // серп: диск минус сдвинутый круг, без заливки «цветом неба»
       stars(c, v, m, 46, "#cfe0ff", 0.6);
     },
     // крыша вагона: люки на кровле (едут с камерой), в туннеле — тёмный свод и бегущие лампы на стене
