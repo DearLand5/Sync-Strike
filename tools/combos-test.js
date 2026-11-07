@@ -130,6 +130,10 @@ fs.mkdirSync(shots, { recursive: true });
   r = await res();
   check(!r.names.some(n => ["cross", "flurry", "riposte"].includes(n)), `неточные нажатия без комбинаций: ${r.names.join(" → ")}`);
 
+  // визуальные стили приёмов (12c_styles): выпадают на точных ударах и не меняют выбор приёма (проверено выше)
+  const st = await page.evaluate(() => window.__game.combat.styles);
+  const nst = Object.values(st).reduce((a, b) => a + b, 0);
+  check(nst > 0, `визуальные стили приёмов за прогон: ${nst} ${JSON.stringify(st)}`);
   const total = await page.evaluate(() => window.__game.combat.combos);
   console.log("комбинации за прогон:", JSON.stringify(total));
   await browser.close();

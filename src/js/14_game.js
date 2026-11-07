@@ -1016,4 +1016,4 @@ window.addEventListener("load", () => {
   }
 });
 window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS;
-window.SKINS_REF = SKINS; window.AnimStateRef = AnimState; window.CharacterRendererRef = CharacterRenderer; window.POSES_REF = POSES; window.BASE_POSE_REF = BASE_POSE;
+window.SKINS_REF = SKINS; window.AnimStateRef = AnimState; window.CharacterRendererRef = CharacterRenderer; window.POSES_REF = POSES; window.BASE_POSE_REF = BASE_POSE; window.STYLES_REF = ATTACK_STYLES;

@@ -70,6 +70,7 @@ class CombatSystem {
     this.airChain = 0;         // воздушных ударов с отрыва от земли (для «Метеора»)
     this.lastPress = null;     // прошлое нажатие атаки {song, beat, period, good} — для «Шквала» на полдоли
     this.combos = {};          // сколько раз сработала каждая комбинация (итоги, тесты)
+    this.styles = {}; this.lastStyle = null;   // визуальные стили приёмов (12c_styles)
   }
 
   /* ---------- ввод ---------- */
@@ -164,6 +165,8 @@ class CombatSystem {
     act.cancel = Math.min(def.cancel + (act.startup - def.startup) + act.travel, act.total);
     p.action = act;
     p.setState("attack");
+    act.style = pickAttackStyle(this, name, j);        // визуальный вариант приёма (12c_styles), на урон не влияет
+    if (act.style) g.fx.text(p.x, p.y - 60, ATTACK_STYLES[act.style].name, rgba("#e8e2d6", 0.75), 10, 0.5);
     p.eyeBoost = j.rating === "perfect" ? 1 : 0.4;
 
     // связки
@@ -372,6 +375,8 @@ class CombatSystem {
         }
       }
     }
+    // эффекты визуального стиля — один раз, в момент удара
+    if (act.style && !act.styleFx && (act.phase === "active" || act.phase === "recovery")) { act.styleFx = true; ATTACK_STYLES[act.style].fx(g, p, act); }
     if (act.t >= act.total) {
       p.action = null;
       p.setState(p.onGround ? "idle" : "fall");
@@ -446,6 +451,7 @@ class CombatSystem {
       // «Метеор»: клинок над головой на замахе, вытянутый силуэт в падении
       if (def.slam) Object.assign(P, act.phase === "startup" ? { armF: 3.0, wAngle: -1.4, tuck: 0.3, lean: -0.15, sy: 1.08 } : { sy: 1.2, sx: 0.85, cloak: 1 });
     }
+    if (act.style) ATTACK_STYLES[act.style].pose(P, act, p, { s: kS, a: kA, r: kR });
     return P;
   }
 
