@@ -151,6 +151,19 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 #skin-cats button i{font-style:normal;opacity:.55;margin-left:5px;font-size:.85em}
 .skin[aria-pressed="true"]{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan)}
 
+/* arsenal */
+.wpns{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.wpn{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:6px;background:#0f1016;display:grid;grid-template-columns:96px 1fr;gap:0 10px;align-items:center;padding:8px 10px 8px 6px}
+.wpn img{width:96px;height:96px;display:block;grid-row:1/3}
+.wpn b{font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;align-self:end}
+.wpn small{color:var(--muted);font-size:11px;line-height:1.25;align-self:start;padding-top:2px}
+.wpn .ws{grid-column:1/3;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;padding:6px 2px 0}
+.wpn .ws i{display:block;height:5px;margin:auto 0;border-radius:2px;background:linear-gradient(90deg,var(--cyan) var(--v),#23252f var(--v))}
+.wpn[hidden]{display:none!important}
+.wpn[aria-pressed="true"]{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan)}
+#wpn-tabs button{white-space:nowrap;padding:8px 14px}
+#wpn-tabs button i{font-style:normal;opacity:.55;margin-left:5px;font-size:.85em}
+
 /* tutorial */
 .tut{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
 .tut .card p{margin:0;font-size:14px;line-height:1.5;color:#d2cdc4}
@@ -219,6 +232,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   .skin img{width:auto;height:78px;margin:0 auto}
   .skin small{font-size:10px;padding-top:0}
   #skin-cats button{padding:6px 10px}
+  #scr-arsenal .panel{gap:6px}
+  #wpn-hint{display:none}
+  #wpn-tabs button{padding:6px 12px}
+  .wpns{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px}
+  .wpn{grid-template-columns:72px 1fr;padding:4px 8px 4px 4px}
+  .wpn img{width:72px;height:72px}
+  .wpn small{font-size:10px}
+  .wpn .ws{padding-top:2px;gap:1px 6px;font-size:9px}
   .menu-list{display:grid;grid-template-columns:repeat(2,max-content);column-gap:34px;row-gap:0;max-width:none}
   .menu-item{min-height:40px}
   .menu-wrap{gap:8px}
@@ -295,6 +316,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <button class="menu-item" data-go="library">Библиотека треков</button>
         <button class="menu-item" data-go="director">Режиссёр</button>
         <button class="menu-item" data-go="skins">Облик</button>
+        <button class="menu-item" data-go="arsenal">Арсенал</button>
         <button class="menu-item" data-go="settings">Настройки</button>
         <button class="menu-item" data-go="tutorial">Обучение</button>
       </nav>
@@ -551,7 +573,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <h2 class="title h2">Обучение</h2>
       <div class="tut">
         <div class="card"><span class="h3">1 · Движение</span><p>Джойстик слева: лёгкий наклон даёт шаг, полный наклон бег. «Прыжок» можно нажать дважды в воздухе. Чем дольше держите кнопку, тем выше прыжок.</p></div>
-        <div class="card"><span class="h3">2 · Одна кнопка атаки</span><p>Игра сама выбирает приём: рядом с врагом бьёт «Нокс-9», на средней дистанции рывок с ударом, издалека выстрел «Импульс-7». Направление, дистанция и такт решают, какой приём выйдет.</p></div>
+        <div class="card"><span class="h3">2 · Одна кнопка атаки</span><p>Игра сама выбирает приём: рядом с врагом бьёт «Теневой кинжал», на средней дистанции рывок с ударом, издалека выстрел из «Неонового пистолета». Направление, дистанция и такт решают, какой приём выйдет. Другое оружие — копьё, глефу, катану, обрез и прочее — выбирается в «Арсенале».</p></div>
         <div class="card"><span class="h3">3 · Ритм</span><p>Кольцо внизу сжимается к доле. Нажатие точно в долю даёт Perfect: сильнее удар, ярче вспышка, больше очков. Чуть ранние нажатия игра придерживает, и удар приходится на долю.</p></div>
         <div class="card"><span class="h3">4 · Комбо</span><p>Три удара кинжалом подряд дают вихрь, четвёртый в такт — «Крест». Нажатие на «и» (полдоли) сразу после удара — «Шквал» из трёх уколов. Выстрел после вихря — «Эхо», рывок после выстрела — «Дуэт», третий выстрел подряд в такт — «Веер».</p></div>
         <div class="card"><span class="h3">5 · Связки</span><p>Сильная доля и грув II+ превращают рывок в «Сквозной»: насквозь через врага и удар за спиной. Атака сразу после идеального уклона — «Ответ», вращение с двумя ударами. Два удара в воздухе и третий в такт — «Метеор» с ударной волной.</p></div>
@@ -568,6 +590,16 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <div class="topbar"><h2 class="title h2">Облик</h2><span class="hint" id="skin-hint">Скин меняет маску, плащ, шарф и цвет неона</span></div>
       <div class="tabs" role="tablist" id="skin-cats"></div>
       <div class="skins" id="skin-list"></div>
+      <div class="row"><button class="btn" data-go="menu">Назад</button></div>
+    </div>
+  </section>
+
+  <!-- ============ АРСЕНАЛ ============ -->
+  <section class="screen" id="scr-arsenal" hidden>
+    <div class="panel">
+      <div class="topbar"><h2 class="title h2">Арсенал</h2><span class="hint" id="wpn-hint">Оружие меняет характер атак, но не набор приёмов: кнопка та же</span></div>
+      <div class="tabs" role="tablist" id="wpn-tabs"></div>
+      <div class="wpns" id="wpn-list"></div>
       <div class="row"><button class="btn" data-go="menu">Назад</button></div>
     </div>
   </section>

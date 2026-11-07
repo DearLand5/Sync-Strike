@@ -1015,5 +1015,5 @@ window.addEventListener("load", () => {
     document.body.insertAdjacentHTML("beforeend", '<p style="position:fixed;inset:auto 16px 16px;color:#ff2d4a;font-family:monospace">Не удалось запустить игру: ' + String(e.message).replace(/</g, "&lt;") + "</p>");
   }
 });
-window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS;
+window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS; window.WEAPONS_REF = WEAPONS; window.weaponDefRef = weaponDef; window.drawWeaponPreviewRef = drawWeaponPreview;
 window.SKINS_REF = SKINS; window.AnimStateRef = AnimState; window.CharacterRendererRef = CharacterRenderer; window.POSES_REF = POSES; window.BASE_POSE_REF = BASE_POSE;

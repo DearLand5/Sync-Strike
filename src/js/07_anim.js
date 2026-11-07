@@ -784,6 +784,11 @@ const CharacterRenderer = {
       ctx.fill();
       ctx.strokeStyle = accent; ctx.lineWidth = 0.7; ctx.strokeRect(10, -4.5, 5.4, 9);
       ctx.fillStyle = rgba(accent, 0.55); ctx.fillRect(14.2, -3.4, 1.2, 6.8);
+    } else if (WEAPON_DRAW[w]) {
+      // оружие игрока из арсенала (12b_weapons): длинное держится под углом, пока рука не целится
+      const wd = WEAPON_DRAW[w];
+      if (wd.off) ctx.rotate(wd.off * (1 - p.wBlend));
+      wd.draw(ctx, ch, p, accent, hq);
     }
     ctx.restore();
   },

@@ -151,6 +151,19 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 #skin-cats button i{font-style:normal;opacity:.55;margin-left:5px;font-size:.85em}
 .skin[aria-pressed="true"]{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan)}
 
+/* arsenal */
+.wpns{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.wpn{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:6px;background:#0f1016;display:grid;grid-template-columns:96px 1fr;gap:0 10px;align-items:center;padding:8px 10px 8px 6px}
+.wpn img{width:96px;height:96px;display:block;grid-row:1/3}
+.wpn b{font-family:var(--f-display);font-weight:500;letter-spacing:.06em;text-transform:uppercase;align-self:end}
+.wpn small{color:var(--muted);font-size:11px;line-height:1.25;align-self:start;padding-top:2px}
+.wpn .ws{grid-column:1/3;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;padding:6px 2px 0}
+.wpn .ws i{display:block;height:5px;margin:auto 0;border-radius:2px;background:linear-gradient(90deg,var(--cyan) var(--v),#23252f var(--v))}
+.wpn[hidden]{display:none!important}
+.wpn[aria-pressed="true"]{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan)}
+#wpn-tabs button{white-space:nowrap;padding:8px 14px}
+#wpn-tabs button i{font-style:normal;opacity:.55;margin-left:5px;font-size:.85em}
+
 /* tutorial */
 .tut{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
 .tut .card p{margin:0;font-size:14px;line-height:1.5;color:#d2cdc4}
@@ -219,6 +232,14 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
   .skin img{width:auto;height:78px;margin:0 auto}
   .skin small{font-size:10px;padding-top:0}
   #skin-cats button{padding:6px 10px}
+  #scr-arsenal .panel{gap:6px}
+  #wpn-hint{display:none}
+  #wpn-tabs button{padding:6px 12px}
+  .wpns{grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px}
+  .wpn{grid-template-columns:72px 1fr;padding:4px 8px 4px 4px}
+  .wpn img{width:72px;height:72px}
+  .wpn small{font-size:10px}
+  .wpn .ws{padding-top:2px;gap:1px 6px;font-size:9px}
   .menu-list{display:grid;grid-template-columns:repeat(2,max-content);column-gap:34px;row-gap:0;max-width:none}
   .menu-item{min-height:40px}
   .menu-wrap{gap:8px}
@@ -295,6 +316,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
         <button class="menu-item" data-go="library">Библиотека треков</button>
         <button class="menu-item" data-go="director">Режиссёр</button>
         <button class="menu-item" data-go="skins">Облик</button>
+        <button class="menu-item" data-go="arsenal">Арсенал</button>
         <button class="menu-item" data-go="settings">Настройки</button>
         <button class="menu-item" data-go="tutorial">Обучение</button>
       </nav>
@@ -551,7 +573,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <h2 class="title h2">Обучение</h2>
       <div class="tut">
         <div class="card"><span class="h3">1 · Движение</span><p>Джойстик слева: лёгкий наклон даёт шаг, полный наклон бег. «Прыжок» можно нажать дважды в воздухе. Чем дольше держите кнопку, тем выше прыжок.</p></div>
-        <div class="card"><span class="h3">2 · Одна кнопка атаки</span><p>Игра сама выбирает приём: рядом с врагом бьёт «Нокс-9», на средней дистанции рывок с ударом, издалека выстрел «Импульс-7». Направление, дистанция и такт решают, какой приём выйдет.</p></div>
+        <div class="card"><span class="h3">2 · Одна кнопка атаки</span><p>Игра сама выбирает приём: рядом с врагом бьёт «Теневой кинжал», на средней дистанции рывок с ударом, издалека выстрел из «Неонового пистолета». Направление, дистанция и такт решают, какой приём выйдет. Другое оружие — копьё, глефу, катану, обрез и прочее — выбирается в «Арсенале».</p></div>
         <div class="card"><span class="h3">3 · Ритм</span><p>Кольцо внизу сжимается к доле. Нажатие точно в долю даёт Perfect: сильнее удар, ярче вспышка, больше очков. Чуть ранние нажатия игра придерживает, и удар приходится на долю.</p></div>
         <div class="card"><span class="h3">4 · Комбо</span><p>Три удара кинжалом подряд дают вихрь, четвёртый в такт — «Крест». Нажатие на «и» (полдоли) сразу после удара — «Шквал» из трёх уколов. Выстрел после вихря — «Эхо», рывок после выстрела — «Дуэт», третий выстрел подряд в такт — «Веер».</p></div>
         <div class="card"><span class="h3">5 · Связки</span><p>Сильная доля и грув II+ превращают рывок в «Сквозной»: насквозь через врага и удар за спиной. Атака сразу после идеального уклона — «Ответ», вращение с двумя ударами. Два удара в воздухе и третий в такт — «Метеор» с ударной волной.</p></div>
@@ -568,6 +590,16 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
       <div class="topbar"><h2 class="title h2">Облик</h2><span class="hint" id="skin-hint">Скин меняет маску, плащ, шарф и цвет неона</span></div>
       <div class="tabs" role="tablist" id="skin-cats"></div>
       <div class="skins" id="skin-list"></div>
+      <div class="row"><button class="btn" data-go="menu">Назад</button></div>
+    </div>
+  </section>
+
+  <!-- ============ АРСЕНАЛ ============ -->
+  <section class="screen" id="scr-arsenal" hidden>
+    <div class="panel">
+      <div class="topbar"><h2 class="title h2">Арсенал</h2><span class="hint" id="wpn-hint">Оружие меняет характер атак, но не набор приёмов: кнопка та же</span></div>
+      <div class="tabs" role="tablist" id="wpn-tabs"></div>
+      <div class="wpns" id="wpn-list"></div>
       <div class="row"><button class="btn" data-go="menu">Назад</button></div>
     </div>
   </section>
@@ -839,6 +871,8 @@ const DEFAULT_SETTINGS = {
   touchForce: false,
   layout: JSON.parse(JSON.stringify(DEFAULT_LAYOUT)),
   skin: "shade",
+  meleeWeapon: "dagger",    // оружие ближнего боя из «Арсенала» (WEAPONS в 12b_weapons)
+  gunWeapon: "pistol",      // огнестрельное оружие
   mode: "waves",
   difficulty: "normal",
   spawnAmount: "normal",    // количество врагов в группе: few | normal | many (SPAWN_AMOUNTS в 14_game)
@@ -4355,6 +4389,11 @@ const CharacterRenderer = {
       ctx.fill();
       ctx.strokeStyle = accent; ctx.lineWidth = 0.7; ctx.strokeRect(10, -4.5, 5.4, 9);
       ctx.fillStyle = rgba(accent, 0.55); ctx.fillRect(14.2, -3.4, 1.2, 6.8);
+    } else if (WEAPON_DRAW[w]) {
+      // оружие игрока из арсенала (12b_weapons): длинное держится под углом, пока рука не целится
+      const wd = WEAPON_DRAW[w];
+      if (wd.off) ctx.rotate(wd.off * (1 - p.wBlend));
+      wd.draw(ctx, ch, p, accent, hq);
     }
     ctx.restore();
   },
@@ -8439,7 +8478,9 @@ class Player {
       if (Math.floor(prevPh / Math.PI) !== Math.floor(this.runPhase / Math.PI)) game.sfx("step");
     }
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
-    this.weapon = this.pistolT > 0 ? "pistol" : "dagger";
+    const wset = game.settings.v;       // оружие из «Арсенала» (id совпадает с ключом WEAPON_DRAW / базовым рисунком)
+    this.weapon = this.pistolT > 0 ? weaponOf("gun", wset).id : weaponOf("melee", wset).id;
+    if (!this.action) this.wExt = 0;     // длина выброса цепи у кусаригамы
     // ускорение → наклон корпуса: разгон вперёд, торможение назад (плавно, независимо от кадра)
     const ax = (this.vx - this.prevVx) / Math.max(dt, 1e-4) * this.facing; this.prevVx = this.vx;
     this.accLean = damp(this.accLean, clamp(ax / 1600 * 0.1, -0.16, 0.1), 14, dt);
@@ -9251,24 +9292,24 @@ class Enemy {
 
 /* Атаки игрока. impact — время от старта до удара (для подгонки к доле). */
 const ATTACKS = {
-  slash1:   { kind: "melee",  startup: 0.06, active: 0.08, recovery: 0.17, cancel: 0.11, dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 120, arc: [-2.3, 0.7], name: "Нокс-9" },
-  slash2:   { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.17, cancel: 0.1,  dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 140, arc: [0.9, -2.0], name: "Нокс-9" },
-  slash3:   { kind: "melee",  startup: 0.08, active: 0.1,  recovery: 0.26, cancel: 0.2,  dmg: 22, reach: 40, knock: 330, stun: 0.45, lunge: 170, arc: [-2.8, 2.6], spin: true, name: "Нокс-вихрь" },
+  slash1:   { kind: "melee",  startup: 0.06, active: 0.08, recovery: 0.17, cancel: 0.11, dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 120, arc: [-2.3, 0.7], name: "Теневой кинжал" },
+  slash2:   { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.17, cancel: 0.1,  dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 140, arc: [0.9, -2.0], name: "Теневой кинжал" },
+  slash3:   { kind: "melee",  startup: 0.08, active: 0.1,  recovery: 0.26, cancel: 0.2,  dmg: 22, reach: 40, knock: 330, stun: 0.45, lunge: 170, arc: [-2.8, 2.6], spin: true, name: "Вихрь клинка" },
   // восходящий разрез — на сильной доле: подбрасывает врага и игрока
   rise:     { kind: "melee",  startup: 0.06, active: 0.1,  recovery: 0.22, cancel: 0.14, dmg: 15, reach: 32, knock: 60,  stun: 0.6,  lunge: 60,  arc: [-0.3, 3.1], launch: true, name: "Восходящий разрез" },
   // укол — для нажатий мимо доли: быстрый прямой выпад
   thrust:   { kind: "melee",  startup: 0.05, active: 0.07, recovery: 0.15, cancel: 0.1,  dmg: 13, reach: 42, knock: 200, stun: 0.25, lunge: 230, thrust: true, name: "Укол" },
-  airSlash: { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.14, cancel: 0.1,  dmg: 11, reach: 30, knock: 160, stun: 0.25, lunge: 0, arc: [-2.0, 1.4], moveControl: 0.6, name: "Нокс-9" },
+  airSlash: { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.14, cancel: 0.1,  dmg: 11, reach: 30, knock: 160, stun: 0.25, lunge: 0, arc: [-2.0, 1.4], moveControl: 0.6, name: "Теневой кинжал" },
   airSpin:  { kind: "melee",  startup: 0.04, active: 0.14, recovery: 0.12, cancel: 0.1,  dmg: 13, reach: 34, knock: 170, stun: 0.3,  lunge: 0, arc: [-2.8, 2.6], spin: true, flip: true, moveControl: 0.6, name: "Сальто-вихрь" },
   dash:     { kind: "dash",   startup: 0.05, active: 0.09, recovery: 0.17, cancel: 0.12, dmg: 16, reach: 30, knock: 220, stun: 0.35, speed: 1050, maxTravel: 0.17, arc: [-2.4, 1.2], name: "Рывок" },
-  shot:     { kind: "ranged", startup: 0.05, active: 0.02, recovery: 0.16, cancel: 0.09, dmg: 8,  speed: 900, knock: 90, stun: 0.15, moveControl: 0.35, name: "Импульс-7" },
+  shot:     { kind: "ranged", startup: 0.05, active: 0.02, recovery: 0.16, cancel: 0.09, dmg: 8,  speed: 900, knock: 90, stun: 0.15, moveControl: 0.35, name: "Неоновый пистолет" },
   // двойной выстрел двумя руками — на сильной доле
-  twin:     { kind: "ranged", startup: 0.05, active: 0.09, recovery: 0.18, cancel: 0.13, dmg: 8,  speed: 950, knock: 110, stun: 0.2, shots: 2, gap: 0.07, twoHand: true, name: "Двойной импульс" },
+  twin:     { kind: "ranged", startup: 0.05, active: 0.09, recovery: 0.18, cancel: 0.13, dmg: 8,  speed: 950, knock: 110, stun: 0.2, shots: 2, gap: 0.07, twoHand: true, name: "Двойной выстрел" },
   // от бедра — быстрый выстрел для неточных нажатий
   hip:      { kind: "ranged", startup: 0.03, active: 0.02, recovery: 0.13, cancel: 0.08, dmg: 7,  speed: 880, knock: 80, stun: 0.12, hip: true, moveControl: 0.5, name: "От бедра" },
   // сальто назад с выстрелом — когда игрок отходит от врага
   backShot: { kind: "ranged", startup: 0.04, active: 0.18, recovery: 0.2,  cancel: 0.3,  dmg: 11, speed: 950, knock: 140, stun: 0.2, backflip: true, fireAt: 0.12, name: "Отскок-выстрел" },
-  charged:  { kind: "ranged", startup: 0.09, active: 0.02, recovery: 0.24, cancel: 0.16, dmg: 20, speed: 1150, knock: 240, stun: 0.35, pierce: true, name: "Импульс-заряд" },
+  charged:  { kind: "ranged", startup: 0.09, active: 0.02, recovery: 0.24, cancel: 0.16, dmg: 20, speed: 1150, knock: 240, stun: 0.35, pierce: true, name: "Заряженный выстрел" },
   dive:     { kind: "dive",   startup: 0.04, active: 0.35, recovery: 0.1,  cancel: 0.1,  dmg: 14, reach: 22, knock: 120, stun: 0.3, name: "Пике" },
   // ---- комбинации (выбираются по прошлым действиям и такту, см. chooseAttack) ----
   // 4-й удар серии в такт после вихря: два крестом, второй отбрасывает
@@ -9355,7 +9396,7 @@ class CombatSystem {
     this.lastPress = { song: pressSong, beat: j.beatTime, period: j.period || clock.period, good: (j.rating === "perfect" || j.rating === "good") && !j.offbeat };
     const target = this.selectTarget();
     const name = this.chooseAttack(target, j);
-    const def = ATTACKS[name];
+    const def = weaponDef(name, g.settings.v);        // приём с поправкой на выбранное оружие (12b_weapons)
     this.registerRating(j);
     g.sync.add(j);
 
@@ -9512,7 +9553,7 @@ class CombatSystem {
       if (dx < 40 && Math.abs(dy) < 45) return j.rating === "perfect" || this.airCount % 2 ? "airSpin" : "airSlash";
       return good && j.strong ? "twin" : "shot";
     }
-    if (dx <= 34 && Math.abs(dy) < 40) {
+    if (dx <= 34 * (weaponOf("melee", g.settings.v).rangeK || 1) && Math.abs(dy) < 40) {
       if (away) return "backShot";
       // «и» после удара в долю — три быстрых укола
       if (j.offbeat && this.time - this.lastMeleeT < 0.6) return "flurry";
@@ -9686,6 +9727,7 @@ class CombatSystem {
       // «Метеор»: клинок над головой на замахе, вытянутый силуэт в падении
       if (def.slam) Object.assign(P, act.phase === "startup" ? { armF: 3.0, wAngle: -1.4, tuck: 0.3, lean: -0.15, sy: 1.08 } : { sy: 1.2, sx: 0.85, cloak: 1 });
     }
+    weaponPose(P, act, p);       // поправка позы под оружие (12b_weapons)
     return P;
   }
 
@@ -9700,7 +9742,7 @@ class CombatSystem {
   _slashFx(p, act, sub = 0) {
     const g = this.game, def = act.def, col = p.skin.accent;
     const cx = p.x + act.dir * 6, cy = p.y - 20;
-    const r = def.spin ? 34 : 26;
+    const r = (def.spin ? 34 : 26) * (def.fxR || 1), fw = def.fxW || 1;
     // второй удар «Креста» — встречной дугой (крест-накрест)
     const [a0, a1] = sub % 2 && !def.spin ? [def.arc[1] - 2.2, def.arc[0] + 2.2] : def.arc;
     // дуга в мировых углах: локальные углы руки → экранные
@@ -9708,8 +9750,10 @@ class CombatSystem {
     let w0 = toWorld(a0 - 0.4), w1 = toWorld(a1);
     if (act.dir < 0) { const t = w0; w0 = w1; w1 = t; }
     if (w1 < w0) w1 += TAU;
-    g.fx.slashArc(cx, cy, r, w0, w1, col, act.empowered ? 9 : 6, 0.2);
-    g.fx.slashArc(cx, cy, r - 5, w0, w1, "#ffffff", 2, 0.12);
+    g.fx.slashArc(cx, cy, r, w0, w1, col, (act.empowered ? 9 : 6) * fw, 0.2);
+    g.fx.slashArc(cx, cy, r - 5, w0, w1, "#ffffff", 2 * Math.min(fw, 1.2), 0.12);
+    // цепной серп: росчерк цепи от кисти до острия
+    if (def.lash) g.fx.cut(cx, cy + 2, cx + act.dir * (def.reach + 10), cy - 8, "#ffffff", 2, 0.22);
     if (def.spin) g.fx.ring(cx, cy, 10, 48, col, 0.3, 3);
   }
 
@@ -9763,13 +9807,16 @@ class CombatSystem {
 
   _fire(p, act, n = 0) {
     const g = this.game, def = act.def;
-    const hand = CharacterRenderer.handWorld(p, 8);
+    const hand = CharacterRenderer.handWorld(p, def.muzzle || 8);
     if (n === 1) hand.y += 3;
     let ang;
     if (act.target) ang = Math.atan2(act.target.centerY - hand.y, act.target.x - hand.x);
     else ang = act.dir > 0 ? 0 : Math.PI;
     if (def.spread) ang += (n - ((def.shots || 1) - 1) / 2) * def.spread;   // веер: пули расходятся
-    this.spawnProjectile({ x: hand.x, y: hand.y, vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed, owner: "player", act, r: def.pierce ? 6 : 3.5, color: p.skin.accent, life: 0.9, pierce: !!def.pierce });
+    if (def.burst) ang += (n % 2 ? 1 : -1) * 0.022 * (1 + (n >> 1) * 0.5);     // очередь: пули слегка рассеиваются
+    if (def.pellets) this._volley(p, act, hand, ang);
+    else this.spawnProjectile({ x: hand.x, y: hand.y, vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed, owner: "player", act, r: def.pr || (def.pierce ? 6 : 3.5), color: p.skin.accent, life: def.life || 0.9, pierce: !!def.pierce });
+    if (def.recoil && n === 0 && p.onGround) p.vx -= act.dir * def.recoil;
     g.fx.sparks(hand.x, hand.y, act.empowered ? 9 : 5, p.skin.accent, 240, ang, 0.7, 0.2);
     g.fx.ring(hand.x, hand.y, 2, act.empowered ? 18 : 11, "#ffffff", 0.14, 2);
     if (act.shotSound && n === 0) act.shotSound = false;   // первый выстрел уже поставлен на долю в execute
@@ -9782,31 +9829,59 @@ class CombatSystem {
     }
   }
 
+  /** Дробь: залп веером считается мгновенно (луч на каждую дробину до def.range). Цель получает один удар с уроном
+   *  пропорционально числу попавших дробин с поправкой на дальность (act.dmgK): вблизи попадают все, вдали — только середина веера, да и слабее. */
+  _volley(p, act, hand, ang) {
+    const g = this.game, def = act.def, n = def.pellets, hits = new Map();
+    for (let i = 0; i < n; i++) {
+      const a = ang + (n > 1 ? i / (n - 1) - 0.5 : 0) * def.pspread, dx = Math.cos(a), dy = Math.sin(a);
+      let best = def.range, who = null;
+      for (const e of g.enemies) {
+        if (!e.targetable) continue;
+        const t = rayBox(hand.x, hand.y, dx, dy, { x: e.x - e.w * e.scale / 2 - 2, y: e.y - e.h * e.scale - 2, w: e.w * e.scale + 4, h: e.h * e.scale + 4 });
+        if (t >= 0 && t < best) { best = t; who = e; }
+      }
+      // дробинка слабеет с дистанцией: полная до ~120 ед., на 420 и дальше — 55%
+      if (who) { const h = hits.get(who) || { c: 0, x: hand.x + dx * best, y: hand.y + dy * best }; h.c += 1 - 0.45 * clamp((best - 120) / 300, 0, 1); hits.set(who, h); }
+      this.spawnProjectile({ x: hand.x, y: hand.y, vx: dx * 1500, vy: dy * 1500, owner: "pellet", act, r: 2.2, color: p.skin.accent, life: Math.max(0.02, best / 1500) });
+    }
+    hits.forEach((h, e) => {
+      act.dmgK = h.c / n;
+      this._applyHit(e, act, sign(e.x - p.x) || act.dir, h.x, h.y);
+      g.sfx("bulletHit");
+    });
+    act.dmgK = 1;
+  }
+
   spawnProjectile(o) { o.hit = new Set(); this.projectiles.push(o); }
 
   /** Попадание по врагу: урон, отбрасывание, комбо, эффекты. */
   _applyHit(e, act, dirX, hx, hy) {
     const g = this.game, def = act.def, j = act.judge;
-    const dmg = def.dmg * act.power * g.diff.playerDmg;
+    const dmg = def.dmg * (act.dmgK || 1) * act.power * g.diff.playerDmg;
+    const extra = def.burst && act.comboCounted;      // очередь: комбо растёт один раз за нажатие
+    act.comboCounted = true;
     // смертельный точный удар — кинематографичное добивание
     if (e.hp - dmg <= 0 && this.canTakedown(e, act)) {
-      this.combo++; this.comboT = 3; this.hits++;
+      if (!extra) this.combo++;
+      this.comboT = 3; this.hits++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       this.startTakedown(e, act, dirX);
       return true;
     }
     // многоударные: отбрасывает только последний удар, иначе следующие не достают
-    const knock = def.hits && (act.sub || 0) < def.hits - 1 ? def.knock * 0.2 : def.knock;
+    const knock = (def.hits && (act.sub || 0) < def.hits - 1 ? def.knock * 0.2 : def.knock) * (act.dmgK ? 0.4 + 0.6 * act.dmgK : 1);
     const broke = e.damage(dmg, dirX, knock * (act.empowered ? 1.3 : 1), g, def.stun);
     const killed = !e.alive;
     if (def.launch && !killed && e.kind !== "brute") { e.vy = -430; e.vx = dirX * 40; e.onGround = false; }
     const perfect = j.rating === "perfect";
     // комбо и очки
-    this.combo++; this.comboT = 3; this.hits++;
+    if (!extra) this.combo++;
+    this.comboT = 3; this.hits++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     const comboMult = 1 + Math.min(this.combo, 40) / 20;
     const chainMult = 1 + Math.min(this.chain, 10) * 0.1;
-    this.score += Math.round(50 * RATING[j.rating].score * comboMult * chainMult * (act.empowered ? 1.5 : 1));
+    this.score += Math.round(50 * RATING[j.rating].score * comboMult * chainMult * (act.empowered ? 1.5 : 1) * (def.scoreK || 1));
     if ([10, 25, 50, 100].includes(this.combo)) { g.sfx("combo", this.combo / 10); this.flashLabel(this.combo + " КОМБО"); }
     if (act.name === "slash3") this.lastSlash3HitT = this.time;
     // эффекты по силе
@@ -9831,9 +9906,9 @@ class CombatSystem {
     const peak = g.clock.kind === "drop" || g.clock.kind === "climax";
     if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered) || (killed && perfect && j.strong && peak)) {
       g.slowmo(0.4, 0.3, "flair");
-      this.flashLabel(act.name === "slash3" ? "НОКС-ВИХРЬ" : "ФИНАЛ");
-    } else if (act.name === "slash3") this.flashLabel("НОКС-ВИХРЬ");
-    if (def.kind === "ranged" && act.def.pierce) this.flashLabel("ЗАРЯД");
+      this.flashLabel(act.name === "slash3" ? "ВИХРЬ" : "ФИНАЛ");
+    } else if (act.name === "slash3") this.flashLabel("ВИХРЬ");
+    if (act.name === "charged") this.flashLabel("ЗАРЯД");
     return broke;
   }
 
@@ -10298,7 +10373,7 @@ class CombatSystem {
   drawProjectiles(ctx, hq) {
     for (const b of this.projectiles) {
       const sp = Math.hypot(b.vx, b.vy) || 1;
-      const len = b.wave ? 0 : b.owner === "player" ? 22 : 12;
+      const mine = b.owner !== "enemy", len = b.wave ? 0 : b.owner === "pellet" ? 14 : mine ? 22 : 12;
       if (b.wave) {
         ctx.fillStyle = rgba(b.color, 0.8);
         ctx.beginPath(); ctx.moveTo(b.x - 10, 0); ctx.quadraticCurveTo(b.x, -16, b.x + 10, 0); ctx.fill();
@@ -10307,8 +10382,8 @@ class CombatSystem {
       ctx.lineCap = "round";
       ctx.beginPath(); ctx.moveTo(b.x - b.vx / sp * len, b.y - b.vy / sp * len); ctx.lineTo(b.x, b.y);
       if (hq) { ctx.strokeStyle = rgba(b.color, 0.3); ctx.lineWidth = b.r * 1.4; ctx.stroke(); }
-      ctx.strokeStyle = b.owner === "player" ? "#ffffff" : b.color; ctx.lineWidth = b.r * 0.45; ctx.stroke();
-      ctx.fillStyle = b.owner === "player" ? "#ffffff" : b.color; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.5, 0, TAU); ctx.fill();
+      ctx.strokeStyle = mine ? "#ffffff" : b.color; ctx.lineWidth = b.r * 0.45; ctx.stroke();
+      ctx.fillStyle = mine ? "#ffffff" : b.color; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.5, 0, TAU); ctx.fill();
     }
   }
 }
@@ -10541,6 +10616,335 @@ class WaveDirector {
     }
   }
   get practiceText() { const st = PRACTICE_STEPS[this.step]; return st ? st.text : ""; }
+}
+
+/* ==== 12b_weapons.js ==== */
+/* =====================================================================
+   Арсенал — оружие игрока: ближний бой и огнестрел.
+   Оружие меняет характер атак (дальность, скорость, урон, форму удара и выстрела), но не набор приёмов:
+   одна кнопка, те же ATTACKS и комбинации. Модификаторы применяются к копии приёма (weaponDef, кэш по оружию),
+   поэтому «удар в бит», многоударные приёмы и комбинации работают одинаково с любым оружием.
+   Ориентир баланса: урон за нажатие × скорость ≈ как у базового оружия (±10%), сильные стороны компенсируются слабыми.
+   Отрисовка силуэтов — WEAPON_DRAW (вызывается из CharacterRenderer._weapon).
+   ===================================================================== */
+
+/* Поля mod ближнего боя: reach, st/rc/ac (множители подготовки/восстановления/активной фазы), dmg, knock, stun, lunge,
+   jab — обычные удары становятся уколом, fxR/fxW — размер и толщина дуги, lash — росчерк цепи.
+   Поля mod огнестрела: dmg, st, rc, speed, knock, stun, pierce, pr (радиус пули), life, muzzle (вынос дула от кисти),
+   pellets/range/pspread — дробь (мгновенный залп веером), burst/gap/burstK — очередь, recoil — отдача героя.
+   stats — три шкалы карточки 1..5: дальность, скорость, урон. */
+const WEAPONS = {
+  /* ---------- ближний бой ---------- */
+  dagger: { slot: "melee", name: "Теневой кинжал", info: "Быстрый и лёгкий: ровный баланс.", stats: [2, 4, 3], base: true },
+  spear: {
+    slot: "melee", name: "Ночное копьё", info: "Длинный укол: достаёт издалека, бьёт чуть медленнее.", stats: [5, 3, 3], rangeK: 1.3,
+    mod: { reach: 1.5, st: 1.12, rc: 1.1, dmg: 1, knock: 1.05, stun: 1, lunge: 1.1, jab: true },
+  },
+  glaive: {
+    slot: "melee", name: "Лунная глефа", info: "Широкая дуга и тяжёлый удар по группе.", stats: [4, 2, 4], rangeK: 1.18,
+    mod: { reach: 1.3, st: 1.22, rc: 1.18, ac: 1.2, dmg: 1, knock: 1.2, stun: 1.1, lunge: 1, fxR: 1.4, fxW: 1.25 },
+  },
+  kusari: {
+    slot: "melee", name: "Цепной серп", info: "Дальний хлёст цепью, но слабее по силе.", stats: [5, 3, 2], rangeK: 1.36,
+    mod: { reach: 1.6, st: 0.96, rc: 1.1, dmg: 0.95, knock: 0.8, stun: 1, lunge: 0.9, fxR: 1.35, fxW: 0.7, lash: true },
+  },
+  katana: {
+    slot: "melee", name: "Багровая катана", info: "Быстрые чистые разрезы с коротким восстановлением.", stats: [3, 5, 3], rangeK: 1.08,
+    mod: { reach: 1.12, st: 0.8, rc: 0.84, dmg: 0.97, knock: 0.8, stun: 0.9, lunge: 1.1, fxR: 1.15, fxW: 0.65 },
+  },
+  axe: {
+    slot: "melee", name: "Боевой топор", info: "Медленный и очень тяжёлый: сильное отбрасывание.", stats: [2, 1, 5], rangeK: 0.94,
+    mod: { reach: 0.92, st: 1.3, rc: 1.28, dmg: 1.15, knock: 1.5, stun: 1.25, lunge: 0.85, fxR: 1.1, fxW: 1.5 },
+  },
+  /* ---------- огнестрел ---------- */
+  pistol: { slot: "gun", name: "Неоновый пистолет", info: "Точный и быстрый: ровный баланс.", stats: [4, 4, 2], base: true },
+  sawed: {
+    slot: "gun", name: "Ржавый обрез", info: "Залп дроби веером: страшен вблизи, на дали слабеет.", stats: [2, 2, 5],
+    mod: { dmg: 1.85, st: 1.2, rc: 1.35, speed: 1, knock: 1.5, stun: 1.2, pellets: 5, range: 520, pspread: 0.18, muzzle: 13, recoil: 70 },
+  },
+  revolver: {
+    slot: "gun", name: "Тяжёлый револьвер", info: "Медленный, но каждый выстрел бьёт сильно.", stats: [4, 2, 4],
+    mod: { dmg: 1.45, st: 1.25, rc: 1.7, speed: 1.1, knock: 1.7, stun: 1.4, pr: 4.2, muzzle: 11, recoil: 25 },
+  },
+  smg: {
+    slot: "gun", name: "Парные автоматы", info: "Очередь из слабых пуль двумя стволами.", stats: [3, 5, 2],
+    mod: { dmg: 1, st: 0.95, rc: 1.12, speed: 1.1, knock: 0.7, stun: 0.8, burst: 3, gap: 0.05, burstK: 1.25, pr: 2.7, muzzle: 9 },
+  },
+  rail: {
+    slot: "gun", name: "Рельсовый карабин", info: "Быстрая пуля навылет: пробивает всех на линии.", stats: [5, 2, 4],
+    mod: { dmg: 1.2, st: 1.5, rc: 1.4, speed: 1.55, knock: 1.3, stun: 1.1, pierce: true, pr: 5, life: 1.2, muzzle: 19 },
+  },
+};
+for (const id in WEAPONS) { WEAPONS[id].id = id; WEAPONS[id]._defs = {}; }
+const WEAPON_BASE = { melee: "dagger", gun: "pistol" };
+const WEAPON_KEY = { melee: "meleeWeapon", gun: "gunWeapon" };
+const WEAPON_SLOTS = [{ id: "melee", name: "Ближний бой" }, { id: "gun", name: "Огнестрел" }];
+
+/** Выбранное оружие слота; неизвестный id → базовое. */
+function weaponOf(slot, set) {
+  const w = WEAPONS[set && set[WEAPON_KEY[slot]]];
+  return w && w.slot === slot ? w : WEAPONS[WEAPON_BASE[slot]];
+}
+
+/** Приём с поправкой на оружие: копия ATTACKS[name] (создаётся один раз и кэшируется). Базовое оружие — исходный объект. */
+function weaponDef(name, set) {
+  const base = ATTACKS[name];
+  const w = base.kind === "ranged" ? weaponOf("gun", set) : base.kind === "melee" || base.kind === "dash" ? weaponOf("melee", set) : null;
+  if (!w || !w.mod) return base;
+  return w._defs[name] || (w._defs[name] = buildWeaponDef(base, w));
+}
+
+function buildWeaponDef(base, w) {
+  const m = w.mod, d = Object.assign({}, base);
+  d.w = w;
+  d.startup = base.startup * (m.st || 1);
+  d.recovery = base.recovery * (m.rc || 1);
+  d.cancel = base.cancel * ((m.st || 1) + (m.rc || 1)) / 2;
+  d.dmg = base.dmg * (m.dmg || 1);
+  d.knock = base.knock * (m.knock || 1);
+  d.stun = base.stun * (m.stun || 1);
+  if (w.slot === "melee") {
+    d.active = base.active * (m.ac || 1);
+    if (base.reach) d.reach = base.reach * (base.spin ? 1 + (m.reach - 1) * 0.5 : m.reach);
+    if (base.lunge) d.lunge = base.lunge * (m.lunge || 1);
+    if (m.jab && !base.spin && !base.launch && base.kind === "melee") d.thrust = true;   // копьё: обычные удары — уколы
+    if (m.fxR) d.fxR = m.fxR;
+    if (m.fxW) d.fxW = m.fxW;
+    if (m.lash) d.lash = true;
+    if (base.name === "Теневой кинжал") d.name = w.name;
+  } else {
+    if (m.speed) d.speed = base.speed * m.speed;
+    if (m.pierce) d.pierce = true;
+    if (m.pr) d.pr = m.pr;
+    if (m.life) d.life = m.life;
+    if (m.muzzle) d.muzzle = m.muzzle;
+    if (m.recoil) d.recoil = m.recoil;
+    if (m.pellets) {
+      // дробь: залп веером считается сразу (мгновенно), dmg — урон всего залпа при попадании всех дробин
+      d.pellets = m.pellets; d.range = m.range; d.pspread = m.pspread;
+      if (base.spread) d.spread = base.spread * 0.5;      // «Веер»: залпы расходятся меньше обычного
+    }
+    if (m.burst) {
+      // очередь: суммарный урон ≈ burstK × базового, делится на пули; пока не вышли все пули, приём не прерывается
+      const sh = base.shots || 1, n = Math.min(6, sh === 1 ? m.burst : sh * 2);
+      d.shots = n; d.gap = m.gap; d.burst = true; d.scoreK = 0.45;
+      d.dmg = base.dmg * (m.dmg || 1) * m.burstK * sh / n;
+      d.active = Math.max(base.active, m.gap * (n - 1) + 0.03);
+      d.cancel = Math.max(d.cancel, d.startup + m.gap * (n - 1) + 0.04);
+    }
+  }
+  d.cancel = Math.min(d.cancel, d.startup + d.active + d.recovery);
+  return d;
+}
+
+/** Пересечение луча с прямоугольником: расстояние до входа или -1 (метод плит). */
+function rayBox(x0, y0, dx, dy, b) {
+  let t0 = 0, t1 = 1e9;
+  if (Math.abs(dx) < 1e-6) { if (x0 < b.x || x0 > b.x + b.w) return -1; }
+  else { let a = (b.x - x0) / dx, c = (b.x + b.w - x0) / dx; if (a > c) { const t = a; a = c; c = t; } t0 = Math.max(t0, a); t1 = Math.min(t1, c); }
+  if (Math.abs(dy) < 1e-6) { if (y0 < b.y || y0 > b.y + b.h) return -1; }
+  else { let a = (b.y - y0) / dy, c = (b.y + b.h - y0) / dy; if (a > c) { const t = a; a = c; c = t; } t0 = Math.max(t0, a); t1 = Math.min(t1, c); }
+  return t0 <= t1 ? t0 : -1;
+}
+
+/** Поправка позы атаки под оружие (вызывается в конце CombatSystem.actionPose). */
+function weaponPose(P, act, p) {
+  const w = act.def.w;
+  if (!w) return;
+  const tA = act.startup + act.travel;
+  if (w.id === "kusari") {
+    // цепь выбрасывается к удару и втягивается на восстановлении
+    const kS = clamp(act.t / Math.max(0.01, act.startup), 0, 1), kR = clamp((act.t - tA - act.active) / Math.max(0.01, act.recovery), 0, 1);
+    p.wExt = act.phase === "startup" ? 0.25 * kS : act.phase === "recovery" ? 1 - easeInOut(kR) : 1;
+  } else if (w.id === "glaive" || w.id === "axe") {
+    if (act.phase === "active" && !act.def.thrust) { P.bodyY = (P.bodyY || 0) + 0.6; P.legSpread = Math.max(P.legSpread || 1, 1.6); }
+  } else if (w.id === "katana") {
+    if (act.phase === "active") P.lean = (P.lean || 0) + 0.06;
+  } else if (w.id === "smg") {
+    if (act.def.kind === "ranged") { P.armB = P.armF; P.legSpread = Math.max(P.legSpread || 1, 1.5); }
+  } else if (w.id === "sawed" || w.id === "rail") {
+    if (act.def.kind === "ranged") P.lean = (P.lean || 0) - 0.05;
+  }
+}
+
+/* ---------- отрисовка в руке ---------- */
+/* Координаты: ось X — вдоль предплечья/направления оружия, начало — в кисти. off — поворот хвата в покое
+   (длинное оружие держат под углом; при прицеливании/уколе wBlend гасит поворот). */
+// константы для цикла отрисовки (без аллокаций в кадре)
+const WD_SPEAR = [-1, 1, 3], WD_GLAIVE = [-2, 0, 2], WD_KATANA = [-3.8, -2.4, -1], WD_AXE = [-3, -1, 1], WD_RAIL = [8.5, 12, 15.5];
+const WD_DASH = [1.1, 0.9], WD_NODASH = [];
+const WD_SMG = [[-3.1, -0.8, "#0d0e12"], [0, 0, "#14151b"]];
+const wGlow = (ctx, hq, w, col, a) => { if (!hq) return; ctx.globalAlpha *= a; ctx.lineWidth = w; ctx.strokeStyle = col; ctx.stroke(); ctx.globalAlpha /= a; };
+const WEAPON_DRAW = {
+  spear: {
+    off: -0.95,
+    draw(ctx, ch, p, accent, hq) {
+      ctx.strokeStyle = "#14151b"; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(24, 0); ctx.stroke();
+      ctx.strokeStyle = rgba(accent, 0.55); ctx.lineWidth = 0.5;
+      ctx.beginPath(); for (const x of WD_SPEAR) { ctx.moveTo(x, -0.9); ctx.lineTo(x + 0.7, 0.9); } ctx.stroke();
+      // кисточка под наконечником и листовидный наконечник
+      ctx.fillStyle = rgba(accent, 0.7); ctx.beginPath(); ctx.moveTo(22.5, 0); ctx.lineTo(19, 2.6); ctx.lineTo(21, 0.2); ctx.fill();
+      ctx.fillStyle = "#1c1d25"; ctx.fillRect(21.6, -1.5, 1, 3);
+      ctx.beginPath(); ctx.moveTo(22.4, 0); ctx.quadraticCurveTo(26, -2.9, 33, 0); ctx.quadraticCurveTo(26, 2.9, 22.4, 0); ctx.closePath();
+      ctx.fillStyle = "#171820"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(22.4, 0); ctx.quadraticCurveTo(26, -2.9, 33, 0);
+      wGlow(ctx, hq, 3, accent, 0.35);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.7; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(23.5, 0); ctx.lineTo(30, 0); ctx.strokeStyle = rgba("#ffffff", 0.18); ctx.lineWidth = 0.35; ctx.stroke();
+    },
+  },
+  glaive: {
+    off: -0.85,
+    draw(ctx, ch, p, accent, hq) {
+      ctx.strokeStyle = "#14151b"; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(19, 0); ctx.stroke();
+      ctx.strokeStyle = rgba(accent, 0.55); ctx.lineWidth = 0.5;
+      ctx.beginPath(); for (const x of WD_GLAIVE) { ctx.moveTo(x, -1); ctx.lineTo(x + 0.7, 1); } ctx.stroke();
+      ctx.fillStyle = "#1c1d25"; ctx.fillRect(17.5, -1.8, 1.4, 3.6);
+      // широкий изогнутый клинок («лунный серп» вперёд и вверх)
+      ctx.beginPath(); ctx.moveTo(18.5, 0.9); ctx.lineTo(19.5, -1.1); ctx.quadraticCurveTo(27, -3, 33, -9.5); ctx.quadraticCurveTo(32, -2.5, 26, 1.6); ctx.quadraticCurveTo(22, 2.2, 18.5, 0.9); ctx.closePath();
+      ctx.fillStyle = "#171820"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(19.5, -1.1); ctx.quadraticCurveTo(27, -3, 33, -9.5);
+      wGlow(ctx, hq, 3.4, accent, 0.35);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(21, 0.2); ctx.quadraticCurveTo(26, -0.3, 30, -5); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.35; ctx.stroke();
+    },
+  },
+  kusari: {
+    off: -0.6,
+    draw(ctx, ch, p, accent, hq) {
+      const ext = ch.wExt || 0;
+      // рукоять
+      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-3, -0.9, 5, 1.8);
+      ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(-2.2, -0.9, 0.4, 1.8); ctx.fillRect(-0.8, -0.9, 0.4, 1.8);
+      const hx = 4 + 17 * ext, hy = -1 * ext;        // положение серпа: в руке или на конце цепи
+      // цепь: звенья по провисающей кривой от рукояти к серпу; в покое — короткая петля вниз с гирькой
+      const sag = 7 * (1 - ext);
+      ctx.strokeStyle = "#2a2c36"; ctx.lineWidth = 1; ctx.setLineDash(WD_DASH);
+      ctx.beginPath(); ctx.moveTo(2, 0); ctx.quadraticCurveTo((2 + hx) / 2, sag + 0.5, hx, hy); ctx.stroke();
+      ctx.setLineDash(WD_NODASH);
+      if (ext < 0.5) {      // гирька на втором конце цепи
+        ctx.beginPath(); ctx.moveTo(-3, 0.4); ctx.quadraticCurveTo(-7, 3, -5.5, 8); ctx.strokeStyle = "#2a2c36"; ctx.lineWidth = 1; ctx.setLineDash(WD_DASH); ctx.stroke(); ctx.setLineDash(WD_NODASH);
+        ctx.fillStyle = "#1c1d25"; ctx.beginPath(); ctx.arc(-5.5, 8.6, 1.5, 0, TAU); ctx.fill();
+        ctx.strokeStyle = accent; ctx.lineWidth = 0.5; ctx.stroke();
+      }
+      // серп: короткая рукоять и загнутый клинок
+      ctx.save(); ctx.translate(hx, hy);
+      ctx.fillStyle = "#14151b"; ctx.fillRect(-0.5, -0.7, 4, 1.4);
+      ctx.beginPath(); ctx.moveTo(3, -0.8); ctx.quadraticCurveTo(9, -1.4, 9.5, -7); ctx.quadraticCurveTo(6.5, -3.6, 3, 1); ctx.closePath();
+      ctx.fillStyle = "#171820"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(3, -0.8); ctx.quadraticCurveTo(9, -1.4, 9.5, -7);
+      wGlow(ctx, hq, 3, accent, 0.35);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.75; ctx.stroke();
+      ctx.restore();
+    },
+  },
+  katana: {
+    off: -0.55,
+    draw(ctx, ch, p, accent, hq) {
+      // рукоять с оплёткой (ромбы), круглая цуба, слегка изогнутый клинок с хамоном
+      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-4.6, -0.95, 5.6, 1.9);
+      ctx.fillStyle = rgba(accent, 0.65);
+      for (const x of WD_KATANA) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 0.6, -0.9); ctx.lineTo(x + 1.2, 0); ctx.lineTo(x + 0.6, 0.9); ctx.fill(); }
+      ctx.fillStyle = "#1c1d25"; ctx.beginPath(); ctx.ellipse(1.4, 0, 0.7, 2.5, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = rgba(accent, 0.7); ctx.lineWidth = 0.4; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(1.8, -0.9); ctx.quadraticCurveTo(15, -1.7, 27, -3.6); ctx.lineTo(27.6, -2.6); ctx.quadraticCurveTo(15, 0.2, 1.8, 1); ctx.closePath();
+      ctx.fillStyle = "#1a1b23"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(2.5, 0.1); ctx.quadraticCurveTo(15, -0.5, 26, -2.8); ctx.strokeStyle = rgba("#ffffff", 0.2); ctx.lineWidth = 0.35; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(1.8, -0.9); ctx.quadraticCurveTo(15, -1.7, 27, -3.6); ctx.lineTo(27.6, -2.6);
+      wGlow(ctx, hq, 3, accent, 0.35);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.7; ctx.stroke();
+    },
+  },
+  axe: {
+    off: -0.7,
+    draw(ctx, ch, p, accent, hq) {
+      ctx.strokeStyle = "#17181f"; ctx.lineWidth = 1.7;
+      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(18, 0); ctx.stroke();
+      ctx.strokeStyle = rgba(accent, 0.5); ctx.lineWidth = 0.5;
+      ctx.beginPath(); for (const x of WD_AXE) { ctx.moveTo(x, -1); ctx.lineTo(x + 0.7, 1); } ctx.stroke();
+      // широкое лезвие-полумесяц и обух
+      ctx.beginPath(); ctx.moveTo(13.5, -1); ctx.lineTo(14, -6.5); ctx.quadraticCurveTo(22.5, -8, 23, 0); ctx.quadraticCurveTo(22.5, 8, 14, 6.5); ctx.lineTo(13.5, 1); ctx.closePath();
+      ctx.fillStyle = "#1a1b22"; ctx.fill();
+      ctx.fillStyle = "#101117"; ctx.fillRect(10.5, -2.2, 3.4, 4.4);
+      ctx.beginPath(); ctx.moveTo(14, -6.5); ctx.quadraticCurveTo(22.5, -8, 23, 0); ctx.quadraticCurveTo(22.5, 8, 14, 6.5);
+      wGlow(ctx, hq, 3.4, accent, 0.35);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(17, -4.2); ctx.quadraticCurveTo(20.4, 0, 17, 4.2); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.4; ctx.stroke();
+    },
+  },
+  sawed: {
+    off: 0,
+    draw(ctx, ch, p, accent, hq) {
+      // два коротких ствола, обрезанный приклад-рукоять
+      ctx.fillStyle = "#2a1d17"; ctx.beginPath(); ctx.moveTo(-5, -0.8); ctx.lineTo(-0.5, -1.8); ctx.lineTo(1.5, 0.2); ctx.lineTo(-0.5, 1.4); ctx.lineTo(-4, 4.4); ctx.lineTo(-5.4, 3.4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#121318";
+      ctx.fillRect(-0.5, -1.9, 4, 3.2);
+      ctx.fillStyle = "#1b1c23"; ctx.fillRect(3, -1.7, 11, 1.5); ctx.fillRect(3, -0.05, 11, 1.5);
+      ctx.fillStyle = "#3a2a1e"; ctx.fillRect(3.5, 1.4, 4.5, 1.2);          // цевьё
+      ctx.fillStyle = accent; ctx.fillRect(13.2, -1.7, 0.8, 1.5); ctx.fillRect(13.2, -0.05, 0.8, 1.5);
+      ctx.fillStyle = rgba(accent, 0.55); ctx.fillRect(0.6, -2.3, 2.4, 0.5);
+    },
+  },
+  revolver: {
+    off: 0,
+    draw(ctx, ch, p, accent, hq) {
+      ctx.fillStyle = "#101117";
+      ctx.beginPath(); ctx.moveTo(-1.5, -1.5); ctx.lineTo(4, -1.7); ctx.lineTo(4, 1.2); ctx.lineTo(1.2, 1.4); ctx.lineTo(-0.2, 4.6); ctx.lineTo(-2.4, 4.4); ctx.lineTo(-1.4, 1.3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#1a1b22"; ctx.fillRect(4, -1.6, 7.6, 1.5);          // ствол
+      ctx.fillRect(4, -0.2, 6.5, 0.8);                                      // подствольная тяга
+      ctx.fillStyle = "#16171d"; ctx.beginPath(); ctx.ellipse(3.3, -0.4, 1.9, 2.2, 0, 0, TAU); ctx.fill();   // барабан
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.5; ctx.stroke();
+      ctx.fillStyle = "#2b1f18"; ctx.fillRect(-2.2, 1.6, 1.8, 2.8);        // накладка рукояти
+      ctx.fillStyle = accent; ctx.fillRect(11, -1.7, 0.8, 1.5); ctx.fillRect(-1.3, -2.3, 1.2, 0.9);
+    },
+  },
+  smg: {
+    off: 0,
+    draw(ctx, ch, p, accent, hq) {
+      // два компактных автомата: дальний (выше, темнее) и ближний
+      for (const [oy, ox, c] of WD_SMG) {
+        ctx.fillStyle = c;
+        ctx.fillRect(ox - 1.5, oy - 1.3, 8.5, 2.5);                          // кожух
+        ctx.fillRect(ox + 7, oy - 0.9, 3, 0.8);                              // ствол
+        ctx.fillRect(ox - 0.4, oy + 1.1, 1.7, 2.8);                          // рукоять
+        ctx.fillRect(ox + 3.2, oy + 1.1, 1.4, 3.4);                          // магазин
+        ctx.fillStyle = accent; ctx.fillRect(ox + 1, oy - 0.7, 4, 0.5);
+        ctx.fillRect(ox + 9.6, oy - 1, 0.7, 1);
+      }
+    },
+  },
+  rail: {
+    off: 0,
+    draw(ctx, ch, p, accent, hq) {
+      // приклад, корпус с накопителем, две светящиеся направляющие
+      ctx.fillStyle = "#101117"; ctx.fillRect(-6, -1.2, 3.2, 2.6); ctx.fillRect(-3, -1.6, 9.5, 3);
+      ctx.fillRect(0.4, 1.3, 1.8, 3.2);                                      // рукоять
+      ctx.fillStyle = "#1a1b22"; ctx.fillRect(6.5, -1.6, 13, 0.9); ctx.fillRect(6.5, 0.1, 13, 0.9);
+      ctx.fillStyle = accent; ctx.fillRect(7, -1.4, 12, 0.35); ctx.fillRect(7, 0.3, 12, 0.35);
+      ctx.fillStyle = "#1c1d25"; for (const x of WD_RAIL) ctx.fillRect(x, -2.1, 0.9, 3.7);   // катушки
+      ctx.fillStyle = rgba(accent, 0.55); ctx.fillRect(-1.5, -2.5, 4, 0.7);
+      if (hq) { ctx.globalAlpha *= 0.4; ctx.fillStyle = accent; ctx.fillRect(7, -1.9, 12, 0.5); ctx.fillRect(7, 0, 12, 0.5); ctx.globalAlpha /= 0.4; }
+    },
+  },
+};
+
+/** Кадр героя с оружием на канвасе size×size (для карточек «Арсенала» и контактного листа). act — "idle" | "strike". */
+function drawWeaponPreview(c, id, skin, size, act = "idle") {
+  const w = WEAPONS[id], gun = w.slot === "gun";
+  const gr = c.createLinearGradient(0, 0, 0, size);
+  gr.addColorStop(0, "#0d0e14"); gr.addColorStop(1, mixHex("#0d0e14", skin.accent, 0.15));
+  c.fillStyle = gr; c.fillRect(0, 0, size, size);
+  c.fillStyle = rgba(skin.accent, 0.6); c.fillRect(0, size * 0.9, size, 1.5);
+  const ch = { kind: "player", skin, x: size * 0.3, y: size * 0.9, facing: 1, scale: size / 62, anim: new AnimState(), scarfColor: skin.scarf, weapon: id, eyeBoost: 0.3, flash: 0, groundY: size * 0.9, vx: 0, vy: 0, wExt: 0 };
+  const P = ch.anim.pose;
+  if (gun) Object.assign(P, { armF: 1.45, elbowF: 0.05, lean: -0.04, armB: 0.3, wAngle: 0, wBlend: 0 });
+  else if (act === "strike") Object.assign(P, id === "spear" ? { armF: Math.PI / 2, elbowF: 0, wBlend: 1, wAngle: 0, lean: 0.4, legSpread: 1.7 } : { armF: 1.9, elbowF: 0.1, lean: 0.25, legSpread: 1.6 });
+  else Object.assign(P, { armF: 0.55, elbowF: 0.5, lean: 0.05 });
+  if (id === "kusari") ch.wExt = act === "strike" ? 1 : 0;
+  if (id === "smg") P.armB = 1.45;
+  CharacterRenderer.draw(c, ch);
 }
 
 /* ==== 13_ui.js ==== */
@@ -10833,6 +11237,7 @@ class UIManager {
     if (name === "settings") this.refreshSettings();
     if (name === "sync") this.refreshSync();
     if (name === "skins") this.buildSkins();
+    if (name === "arsenal") this.buildArsenal();
     if (name === "director") { if (this.prevScreen !== "director") this.dirReturn = this.prevScreen || "menu"; this.refreshDirector(); }
     if (name === "menu") this.refreshMenu();
     const first = document.querySelector("#scr-" + name + " .menu-item, #scr-" + name + " .btn.primary");
@@ -11892,6 +12297,64 @@ class UIManager {
     const ch = { kind: "player", skin: sk, x: cv.width / 2, y: cv.height * 0.82, facing: 1, scale: 3.4, anim: new AnimState(), scarfColor: null, weapon: "dagger", eyeBoost: 0.3, flash: 0, groundY: cv.height * 0.82, vx: 0, vy: 0 };
     Object.assign(ch.anim.pose, { armF: 0.5, elbowF: 0.5, lean: 0.05 });
     CharacterRenderer.draw(c, ch);
+    try { img.src = cv.toDataURL("image/png"); } catch (e) { img.removeAttribute("src"); }
+  }
+
+  /** Экран «Арсенал»: вкладки «Ближний бой» / «Огнестрел», карточки строятся и рисуются один раз (превью — <img>, не canvas). */
+  buildArsenal() {
+    const g = this.game, list = $("wpn-list"), tabs = $("wpn-tabs");
+    if (!this._wpnCards) {
+      this._wpnCards = {};
+      const stat = ["Дальность", "Скорость", "Урон"];
+      for (const id in WEAPONS) {
+        const w = WEAPONS[id];
+        const b = document.createElement("button");
+        b.className = "wpn"; b.type = "button"; b.dataset.id = id; b.dataset.slot = w.slot;
+        const img = document.createElement("img"); img.alt = ""; img.width = 200; img.height = 200; img.decoding = "async";
+        const label = document.createElement("b"); label.textContent = w.name;
+        const sub = document.createElement("small"); sub.textContent = w.info;
+        const ws = document.createElement("div"); ws.className = "ws";
+        w.stats.forEach((v, i) => { const t = document.createElement("span"); t.textContent = stat[i]; const bar = document.createElement("i"); bar.style.setProperty("--v", v * 20 + "%"); ws.append(t, bar); });
+        b.append(img, label, sub, ws);
+        b._img = img;
+        b.addEventListener("click", () => {
+          g.settings.set(WEAPON_KEY[w.slot], id);
+          this._wpnMark();
+          this.sfx("uiClick");
+        });
+        b.addEventListener("pointerenter", () => this.sfx("uiMove"));
+        list.appendChild(b);
+        this._wpnCards[id] = b;
+      }
+      for (const s of WEAPON_SLOTS) {
+        const t = document.createElement("button");
+        t.type = "button"; t.setAttribute("role", "tab"); t.dataset.slot = s.id;
+        t.append(s.name); const cnt = document.createElement("i"); cnt.textContent = Object.values(WEAPONS).filter(w => w.slot === s.id).length; t.append(cnt);
+        t.addEventListener("click", () => { this._wpnTab(s.id); this.sfx("uiMove"); });
+        tabs.appendChild(t);
+      }
+    }
+    // превью рисуются в цвете выбранного облика — перерисовываем только при его смене
+    if (this._wpnSkin !== g.settings.v.skin) {
+      this._wpnSkin = g.settings.v.skin;
+      for (const id in this._wpnCards) this._drawWeaponCard(this._wpnCards[id]._img, id);
+    }
+    this._wpnTab(this.wpnSlot || "melee");
+    this._wpnMark();
+  }
+  _wpnTab(slot) {
+    this.wpnSlot = slot;
+    for (const id in this._wpnCards) { const b = this._wpnCards[id]; b.hidden = b.dataset.slot !== slot; }
+    $("wpn-tabs").querySelectorAll("button").forEach(t => t.setAttribute("aria-selected", String(t.dataset.slot === slot)));
+  }
+  _wpnMark() {
+    const sv = this.game.settings.v;
+    for (const id in this._wpnCards) this._wpnCards[id].setAttribute("aria-pressed", String(weaponOf(WEAPONS[id].slot, sv).id === id));
+  }
+  _drawWeaponCard(img, id) {
+    const cv = this._wpnCv || (this._wpnCv = document.createElement("canvas"));
+    cv.width = 200; cv.height = 200;
+    drawWeaponPreview(cv.getContext("2d"), id, SKINS[this.game.settings.v.skin] || SKINS.shade, 200, "idle");
     try { img.src = cv.toDataURL("image/png"); } catch (e) { img.removeAttribute("src"); }
   }
 
@@ -13004,7 +13467,7 @@ window.addEventListener("load", () => {
     document.body.insertAdjacentHTML("beforeend", '<p style="position:fixed;inset:auto 16px 16px;color:#ff2d4a;font-family:monospace">Не удалось запустить игру: ' + String(e.message).replace(/</g, "&lt;") + "</p>");
   }
 });
-window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS;
+window.DIFFS_REF = DIFFS; window.ATTACKS_REF = ATTACKS; window.WEAPONS_REF = WEAPONS; window.weaponDefRef = weaponDef; window.drawWeaponPreviewRef = drawWeaponPreview;
 window.SKINS_REF = SKINS; window.AnimStateRef = AnimState; window.CharacterRendererRef = CharacterRenderer; window.POSES_REF = POSES; window.BASE_POSE_REF = BASE_POSE;
 
 })();

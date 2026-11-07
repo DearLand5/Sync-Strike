@@ -35,6 +35,8 @@ const DEFAULT_SETTINGS = {
   touchForce: false,
   layout: JSON.parse(JSON.stringify(DEFAULT_LAYOUT)),
   skin: "shade",
+  meleeWeapon: "dagger",    // оружие ближнего боя из «Арсенала» (WEAPONS в 12b_weapons)
+  gunWeapon: "pistol",      // огнестрельное оружие
   mode: "waves",
   difficulty: "normal",
   spawnAmount: "normal",    // количество врагов в группе: few | normal | many (SPAWN_AMOUNTS в 14_game)

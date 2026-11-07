@@ -6,24 +6,24 @@
 
 /* Атаки игрока. impact — время от старта до удара (для подгонки к доле). */
 const ATTACKS = {
-  slash1:   { kind: "melee",  startup: 0.06, active: 0.08, recovery: 0.17, cancel: 0.11, dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 120, arc: [-2.3, 0.7], name: "Нокс-9" },
-  slash2:   { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.17, cancel: 0.1,  dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 140, arc: [0.9, -2.0], name: "Нокс-9" },
-  slash3:   { kind: "melee",  startup: 0.08, active: 0.1,  recovery: 0.26, cancel: 0.2,  dmg: 22, reach: 40, knock: 330, stun: 0.45, lunge: 170, arc: [-2.8, 2.6], spin: true, name: "Нокс-вихрь" },
+  slash1:   { kind: "melee",  startup: 0.06, active: 0.08, recovery: 0.17, cancel: 0.11, dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 120, arc: [-2.3, 0.7], name: "Теневой кинжал" },
+  slash2:   { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.17, cancel: 0.1,  dmg: 12, reach: 30, knock: 150, stun: 0.25, lunge: 140, arc: [0.9, -2.0], name: "Теневой кинжал" },
+  slash3:   { kind: "melee",  startup: 0.08, active: 0.1,  recovery: 0.26, cancel: 0.2,  dmg: 22, reach: 40, knock: 330, stun: 0.45, lunge: 170, arc: [-2.8, 2.6], spin: true, name: "Вихрь клинка" },
   // восходящий разрез — на сильной доле: подбрасывает врага и игрока
   rise:     { kind: "melee",  startup: 0.06, active: 0.1,  recovery: 0.22, cancel: 0.14, dmg: 15, reach: 32, knock: 60,  stun: 0.6,  lunge: 60,  arc: [-0.3, 3.1], launch: true, name: "Восходящий разрез" },
   // укол — для нажатий мимо доли: быстрый прямой выпад
   thrust:   { kind: "melee",  startup: 0.05, active: 0.07, recovery: 0.15, cancel: 0.1,  dmg: 13, reach: 42, knock: 200, stun: 0.25, lunge: 230, thrust: true, name: "Укол" },
-  airSlash: { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.14, cancel: 0.1,  dmg: 11, reach: 30, knock: 160, stun: 0.25, lunge: 0, arc: [-2.0, 1.4], moveControl: 0.6, name: "Нокс-9" },
+  airSlash: { kind: "melee",  startup: 0.05, active: 0.08, recovery: 0.14, cancel: 0.1,  dmg: 11, reach: 30, knock: 160, stun: 0.25, lunge: 0, arc: [-2.0, 1.4], moveControl: 0.6, name: "Теневой кинжал" },
   airSpin:  { kind: "melee",  startup: 0.04, active: 0.14, recovery: 0.12, cancel: 0.1,  dmg: 13, reach: 34, knock: 170, stun: 0.3,  lunge: 0, arc: [-2.8, 2.6], spin: true, flip: true, moveControl: 0.6, name: "Сальто-вихрь" },
   dash:     { kind: "dash",   startup: 0.05, active: 0.09, recovery: 0.17, cancel: 0.12, dmg: 16, reach: 30, knock: 220, stun: 0.35, speed: 1050, maxTravel: 0.17, arc: [-2.4, 1.2], name: "Рывок" },
-  shot:     { kind: "ranged", startup: 0.05, active: 0.02, recovery: 0.16, cancel: 0.09, dmg: 8,  speed: 900, knock: 90, stun: 0.15, moveControl: 0.35, name: "Импульс-7" },
+  shot:     { kind: "ranged", startup: 0.05, active: 0.02, recovery: 0.16, cancel: 0.09, dmg: 8,  speed: 900, knock: 90, stun: 0.15, moveControl: 0.35, name: "Неоновый пистолет" },
   // двойной выстрел двумя руками — на сильной доле
-  twin:     { kind: "ranged", startup: 0.05, active: 0.09, recovery: 0.18, cancel: 0.13, dmg: 8,  speed: 950, knock: 110, stun: 0.2, shots: 2, gap: 0.07, twoHand: true, name: "Двойной импульс" },
+  twin:     { kind: "ranged", startup: 0.05, active: 0.09, recovery: 0.18, cancel: 0.13, dmg: 8,  speed: 950, knock: 110, stun: 0.2, shots: 2, gap: 0.07, twoHand: true, name: "Двойной выстрел" },
   // от бедра — быстрый выстрел для неточных нажатий
   hip:      { kind: "ranged", startup: 0.03, active: 0.02, recovery: 0.13, cancel: 0.08, dmg: 7,  speed: 880, knock: 80, stun: 0.12, hip: true, moveControl: 0.5, name: "От бедра" },
   // сальто назад с выстрелом — когда игрок отходит от врага
   backShot: { kind: "ranged", startup: 0.04, active: 0.18, recovery: 0.2,  cancel: 0.3,  dmg: 11, speed: 950, knock: 140, stun: 0.2, backflip: true, fireAt: 0.12, name: "Отскок-выстрел" },
-  charged:  { kind: "ranged", startup: 0.09, active: 0.02, recovery: 0.24, cancel: 0.16, dmg: 20, speed: 1150, knock: 240, stun: 0.35, pierce: true, name: "Импульс-заряд" },
+  charged:  { kind: "ranged", startup: 0.09, active: 0.02, recovery: 0.24, cancel: 0.16, dmg: 20, speed: 1150, knock: 240, stun: 0.35, pierce: true, name: "Заряженный выстрел" },
   dive:     { kind: "dive",   startup: 0.04, active: 0.35, recovery: 0.1,  cancel: 0.1,  dmg: 14, reach: 22, knock: 120, stun: 0.3, name: "Пике" },
   // ---- комбинации (выбираются по прошлым действиям и такту, см. chooseAttack) ----
   // 4-й удар серии в такт после вихря: два крестом, второй отбрасывает
@@ -110,7 +110,7 @@ class CombatSystem {
     this.lastPress = { song: pressSong, beat: j.beatTime, period: j.period || clock.period, good: (j.rating === "perfect" || j.rating === "good") && !j.offbeat };
     const target = this.selectTarget();
     const name = this.chooseAttack(target, j);
-    const def = ATTACKS[name];
+    const def = weaponDef(name, g.settings.v);        // приём с поправкой на выбранное оружие (12b_weapons)
     this.registerRating(j);
     g.sync.add(j);
 
@@ -267,7 +267,7 @@ class CombatSystem {
       if (dx < 40 && Math.abs(dy) < 45) return j.rating === "perfect" || this.airCount % 2 ? "airSpin" : "airSlash";
       return good && j.strong ? "twin" : "shot";
     }
-    if (dx <= 34 && Math.abs(dy) < 40) {
+    if (dx <= 34 * (weaponOf("melee", g.settings.v).rangeK || 1) && Math.abs(dy) < 40) {
       if (away) return "backShot";
       // «и» после удара в долю — три быстрых укола
       if (j.offbeat && this.time - this.lastMeleeT < 0.6) return "flurry";
@@ -441,6 +441,7 @@ class CombatSystem {
       // «Метеор»: клинок над головой на замахе, вытянутый силуэт в падении
       if (def.slam) Object.assign(P, act.phase === "startup" ? { armF: 3.0, wAngle: -1.4, tuck: 0.3, lean: -0.15, sy: 1.08 } : { sy: 1.2, sx: 0.85, cloak: 1 });
     }
+    weaponPose(P, act, p);       // поправка позы под оружие (12b_weapons)
     return P;
   }
 
@@ -455,7 +456,7 @@ class CombatSystem {
   _slashFx(p, act, sub = 0) {
     const g = this.game, def = act.def, col = p.skin.accent;
     const cx = p.x + act.dir * 6, cy = p.y - 20;
-    const r = def.spin ? 34 : 26;
+    const r = (def.spin ? 34 : 26) * (def.fxR || 1), fw = def.fxW || 1;
     // второй удар «Креста» — встречной дугой (крест-накрест)
     const [a0, a1] = sub % 2 && !def.spin ? [def.arc[1] - 2.2, def.arc[0] + 2.2] : def.arc;
     // дуга в мировых углах: локальные углы руки → экранные
@@ -463,8 +464,10 @@ class CombatSystem {
     let w0 = toWorld(a0 - 0.4), w1 = toWorld(a1);
     if (act.dir < 0) { const t = w0; w0 = w1; w1 = t; }
     if (w1 < w0) w1 += TAU;
-    g.fx.slashArc(cx, cy, r, w0, w1, col, act.empowered ? 9 : 6, 0.2);
-    g.fx.slashArc(cx, cy, r - 5, w0, w1, "#ffffff", 2, 0.12);
+    g.fx.slashArc(cx, cy, r, w0, w1, col, (act.empowered ? 9 : 6) * fw, 0.2);
+    g.fx.slashArc(cx, cy, r - 5, w0, w1, "#ffffff", 2 * Math.min(fw, 1.2), 0.12);
+    // цепной серп: росчерк цепи от кисти до острия
+    if (def.lash) g.fx.cut(cx, cy + 2, cx + act.dir * (def.reach + 10), cy - 8, "#ffffff", 2, 0.22);
     if (def.spin) g.fx.ring(cx, cy, 10, 48, col, 0.3, 3);
   }
 
@@ -518,13 +521,16 @@ class CombatSystem {
 
   _fire(p, act, n = 0) {
     const g = this.game, def = act.def;
-    const hand = CharacterRenderer.handWorld(p, 8);
+    const hand = CharacterRenderer.handWorld(p, def.muzzle || 8);
     if (n === 1) hand.y += 3;
     let ang;
     if (act.target) ang = Math.atan2(act.target.centerY - hand.y, act.target.x - hand.x);
     else ang = act.dir > 0 ? 0 : Math.PI;
     if (def.spread) ang += (n - ((def.shots || 1) - 1) / 2) * def.spread;   // веер: пули расходятся
-    this.spawnProjectile({ x: hand.x, y: hand.y, vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed, owner: "player", act, r: def.pierce ? 6 : 3.5, color: p.skin.accent, life: 0.9, pierce: !!def.pierce });
+    if (def.burst) ang += (n % 2 ? 1 : -1) * 0.022 * (1 + (n >> 1) * 0.5);     // очередь: пули слегка рассеиваются
+    if (def.pellets) this._volley(p, act, hand, ang);
+    else this.spawnProjectile({ x: hand.x, y: hand.y, vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed, owner: "player", act, r: def.pr || (def.pierce ? 6 : 3.5), color: p.skin.accent, life: def.life || 0.9, pierce: !!def.pierce });
+    if (def.recoil && n === 0 && p.onGround) p.vx -= act.dir * def.recoil;
     g.fx.sparks(hand.x, hand.y, act.empowered ? 9 : 5, p.skin.accent, 240, ang, 0.7, 0.2);
     g.fx.ring(hand.x, hand.y, 2, act.empowered ? 18 : 11, "#ffffff", 0.14, 2);
     if (act.shotSound && n === 0) act.shotSound = false;   // первый выстрел уже поставлен на долю в execute
@@ -537,31 +543,59 @@ class CombatSystem {
     }
   }
 
+  /** Дробь: залп веером считается мгновенно (луч на каждую дробину до def.range). Цель получает один удар с уроном
+   *  пропорционально числу попавших дробин с поправкой на дальность (act.dmgK): вблизи попадают все, вдали — только середина веера, да и слабее. */
+  _volley(p, act, hand, ang) {
+    const g = this.game, def = act.def, n = def.pellets, hits = new Map();
+    for (let i = 0; i < n; i++) {
+      const a = ang + (n > 1 ? i / (n - 1) - 0.5 : 0) * def.pspread, dx = Math.cos(a), dy = Math.sin(a);
+      let best = def.range, who = null;
+      for (const e of g.enemies) {
+        if (!e.targetable) continue;
+        const t = rayBox(hand.x, hand.y, dx, dy, { x: e.x - e.w * e.scale / 2 - 2, y: e.y - e.h * e.scale - 2, w: e.w * e.scale + 4, h: e.h * e.scale + 4 });
+        if (t >= 0 && t < best) { best = t; who = e; }
+      }
+      // дробинка слабеет с дистанцией: полная до ~120 ед., на 420 и дальше — 55%
+      if (who) { const h = hits.get(who) || { c: 0, x: hand.x + dx * best, y: hand.y + dy * best }; h.c += 1 - 0.45 * clamp((best - 120) / 300, 0, 1); hits.set(who, h); }
+      this.spawnProjectile({ x: hand.x, y: hand.y, vx: dx * 1500, vy: dy * 1500, owner: "pellet", act, r: 2.2, color: p.skin.accent, life: Math.max(0.02, best / 1500) });
+    }
+    hits.forEach((h, e) => {
+      act.dmgK = h.c / n;
+      this._applyHit(e, act, sign(e.x - p.x) || act.dir, h.x, h.y);
+      g.sfx("bulletHit");
+    });
+    act.dmgK = 1;
+  }
+
   spawnProjectile(o) { o.hit = new Set(); this.projectiles.push(o); }
 
   /** Попадание по врагу: урон, отбрасывание, комбо, эффекты. */
   _applyHit(e, act, dirX, hx, hy) {
     const g = this.game, def = act.def, j = act.judge;
-    const dmg = def.dmg * act.power * g.diff.playerDmg;
+    const dmg = def.dmg * (act.dmgK || 1) * act.power * g.diff.playerDmg;
+    const extra = def.burst && act.comboCounted;      // очередь: комбо растёт один раз за нажатие
+    act.comboCounted = true;
     // смертельный точный удар — кинематографичное добивание
     if (e.hp - dmg <= 0 && this.canTakedown(e, act)) {
-      this.combo++; this.comboT = 3; this.hits++;
+      if (!extra) this.combo++;
+      this.comboT = 3; this.hits++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
       this.startTakedown(e, act, dirX);
       return true;
     }
     // многоударные: отбрасывает только последний удар, иначе следующие не достают
-    const knock = def.hits && (act.sub || 0) < def.hits - 1 ? def.knock * 0.2 : def.knock;
+    const knock = (def.hits && (act.sub || 0) < def.hits - 1 ? def.knock * 0.2 : def.knock) * (act.dmgK ? 0.4 + 0.6 * act.dmgK : 1);
     const broke = e.damage(dmg, dirX, knock * (act.empowered ? 1.3 : 1), g, def.stun);
     const killed = !e.alive;
     if (def.launch && !killed && e.kind !== "brute") { e.vy = -430; e.vx = dirX * 40; e.onGround = false; }
     const perfect = j.rating === "perfect";
     // комбо и очки
-    this.combo++; this.comboT = 3; this.hits++;
+    if (!extra) this.combo++;
+    this.comboT = 3; this.hits++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     const comboMult = 1 + Math.min(this.combo, 40) / 20;
     const chainMult = 1 + Math.min(this.chain, 10) * 0.1;
-    this.score += Math.round(50 * RATING[j.rating].score * comboMult * chainMult * (act.empowered ? 1.5 : 1));
+    this.score += Math.round(50 * RATING[j.rating].score * comboMult * chainMult * (act.empowered ? 1.5 : 1) * (def.scoreK || 1));
     if ([10, 25, 50, 100].includes(this.combo)) { g.sfx("combo", this.combo / 10); this.flashLabel(this.combo + " КОМБО"); }
     if (act.name === "slash3") this.lastSlash3HitT = this.time;
     // эффекты по силе
@@ -586,9 +620,9 @@ class CombatSystem {
     const peak = g.clock.kind === "drop" || g.clock.kind === "climax";
     if ((act.name === "slash3" && perfect && j.strong) || (killed && act.empowered) || (killed && perfect && j.strong && peak)) {
       g.slowmo(0.4, 0.3, "flair");
-      this.flashLabel(act.name === "slash3" ? "НОКС-ВИХРЬ" : "ФИНАЛ");
-    } else if (act.name === "slash3") this.flashLabel("НОКС-ВИХРЬ");
-    if (def.kind === "ranged" && act.def.pierce) this.flashLabel("ЗАРЯД");
+      this.flashLabel(act.name === "slash3" ? "ВИХРЬ" : "ФИНАЛ");
+    } else if (act.name === "slash3") this.flashLabel("ВИХРЬ");
+    if (act.name === "charged") this.flashLabel("ЗАРЯД");
     return broke;
   }
 
@@ -1053,7 +1087,7 @@ class CombatSystem {
   drawProjectiles(ctx, hq) {
     for (const b of this.projectiles) {
       const sp = Math.hypot(b.vx, b.vy) || 1;
-      const len = b.wave ? 0 : b.owner === "player" ? 22 : 12;
+      const mine = b.owner !== "enemy", len = b.wave ? 0 : b.owner === "pellet" ? 14 : mine ? 22 : 12;
       if (b.wave) {
         ctx.fillStyle = rgba(b.color, 0.8);
         ctx.beginPath(); ctx.moveTo(b.x - 10, 0); ctx.quadraticCurveTo(b.x, -16, b.x + 10, 0); ctx.fill();
@@ -1062,8 +1096,8 @@ class CombatSystem {
       ctx.lineCap = "round";
       ctx.beginPath(); ctx.moveTo(b.x - b.vx / sp * len, b.y - b.vy / sp * len); ctx.lineTo(b.x, b.y);
       if (hq) { ctx.strokeStyle = rgba(b.color, 0.3); ctx.lineWidth = b.r * 1.4; ctx.stroke(); }
-      ctx.strokeStyle = b.owner === "player" ? "#ffffff" : b.color; ctx.lineWidth = b.r * 0.45; ctx.stroke();
-      ctx.fillStyle = b.owner === "player" ? "#ffffff" : b.color; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.5, 0, TAU); ctx.fill();
+      ctx.strokeStyle = mine ? "#ffffff" : b.color; ctx.lineWidth = b.r * 0.45; ctx.stroke();
+      ctx.fillStyle = mine ? "#ffffff" : b.color; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.5, 0, TAU); ctx.fill();
     }
   }
 }
