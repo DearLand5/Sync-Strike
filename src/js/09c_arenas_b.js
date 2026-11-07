@@ -283,9 +283,7 @@
       back(c, v, m, pal, R) {
         // луна за стеблями и слои тумана над землёй
         const mx = v.w * 0.7 - v.camX * v.scale * 0.02, my = v.floorY * 0.3, r = Math.min(v.w, v.h) * 0.12;
-        glowAt(c, mx, my, r * 3.2, "#bfffe0", 0.12 + 0.06 * m.low);
-        c.fillStyle = rgba("#d8f5e6", 0.5 + 0.08 * m.low); c.beginPath(); c.arc(mx, my, r, 0, TAU); c.fill();
-        c.fillStyle = "rgba(10,40,30,.14)"; c.beginPath(); c.arc(mx - r * 0.3, my - r * 0.2, r * 0.22, 0, TAU); c.arc(mx + r * 0.3, my + r * 0.25, r * 0.15, 0, TAU); c.fill();
+        drawMoon(c, mx, my, r, { col: "#d8f5e6", dark: "#2a5a48", a: 0.62 + 0.08 * m.low, halo: "#bfffe0", ha: 0.4 + 0.2 * m.low, cres: 0 });
       },
       front(c, v, m, pal, R) {
         // стелющийся туман; падающие листья на дропе и кульминации
@@ -418,13 +416,28 @@
         }
         // планета снизу слева: тёмный диск, полосы облаков, светящаяся кромка атмосферы
         const pr = Math.min(Math.max(v.w * 0.7, v.floorY * 1.6), v.w), px = v.w * 0.3 - v.camX * v.scale * 0.01, py = v.floorY + pr * 0.66;
-        const pg = c.createLinearGradient(0, py - pr, 0, py - pr * 0.3);
-        pg.addColorStop(0, "#0e2250"); pg.addColorStop(1, "#04081c");
-        c.fillStyle = pg; c.beginPath(); c.arc(px, py, pr, 0, TAU); c.fill();
-        c.save(); c.beginPath(); c.arc(px, py, pr, 0, TAU); c.clip();
-        c.strokeStyle = "rgba(120,170,255,.1)"; c.lineWidth = 7;
-        for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(px + 40 + i * 30, py + 30 + i * 20, pr * (0.9 - i * 0.07), Math.PI * 1.15, Math.PI * 1.85); c.stroke(); }
+        // шар: свет звезды справа сверху (единичный градиент кэшируется на контекст, дальше translate/scale)
+        const pg = moonGrad(c, "planet", () => {
+          const g = c.createRadialGradient(0.55, -0.7, 0.05, 0.1, -0.1, 1.25);
+          g.addColorStop(0, "#2c5aa8"); g.addColorStop(0.3, "#14306e"); g.addColorStop(0.7, "#071331"); g.addColorStop(1, "#02040e"); return g;
+        });
+        const ag = moonGrad(c, "atmo", () => {      // кольцо атмосферы: прозрачно внутри, пик на кромке, быстрый спад наружу
+          const g = c.createRadialGradient(0, 0, 0.9, 0, 0, 1.06);
+          g.addColorStop(0, "rgba(120,190,255,0)"); g.addColorStop(0.62, "rgba(120,190,255,.34)"); g.addColorStop(0.8, "rgba(120,190,255,.1)"); g.addColorStop(1, "rgba(120,190,255,0)"); return g;
+        });
+        c.save(); c.translate(px, py); c.scale(pr, pr);
+        c.fillStyle = pg; c.beginPath(); c.arc(0, 0, 1, 0, TAU); c.fill();
+        c.clip();      // полосы облаков и штормовой вихрь: изогнутые дуги разной ширины и оттенка в пределах диска
+        c.lineCap = "round";
+        for (let i = 0; i < 7; i++) {
+          c.globalAlpha = 0.05 + 0.05 * hash1(i + 3); c.strokeStyle = i % 3 === 0 ? "#7a8cff" : i % 3 === 1 ? "#4aa8ff" : "#2a5ac8";
+          c.lineWidth = 0.012 + 0.03 * hash1(i + 11); c.beginPath();
+          c.arc(0.1 + i * 0.045, 0.04 + i * 0.03, 0.97 - i * 0.065, Math.PI * (1.12 + 0.02 * i), Math.PI * (1.86 - 0.015 * i)); c.stroke();
+        }
+        c.globalAlpha = 0.07; c.fillStyle = "#9cc8ff"; c.beginPath(); c.ellipse(0.28, -0.88, 0.2, 0.035, -0.18, 0, TAU); c.ellipse(0.1, -0.93, 0.14, 0.022, -0.1, 0, TAU); c.fill();
+        c.globalAlpha = 1; c.fillStyle = ag; c.beginPath(); c.arc(0, 0, 1.06, 0, TAU); c.fill();      // атмосфера (поверх, внутри обрезки по диску только внутренняя часть)
         c.restore();
+        c.save(); c.translate(px, py); c.scale(pr, pr); c.fillStyle = ag; c.beginPath(); c.arc(0, 0, 1.06, Math.PI * 1.05, Math.PI * 1.95); c.arc(0, 0, 1.0, Math.PI * 1.95, Math.PI * 1.05, true); c.closePath(); c.fill(); c.restore();      // внешнее свечение над кромкой
         c.strokeStyle = rgba(nA, 0.18 + 0.1 * m.low + 0.15 * hot); c.lineWidth = 6; c.beginPath(); c.arc(px, py, pr + 2, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
         c.strokeStyle = rgba("#bfe8ff", 0.45 + 0.2 * m.pulse); c.lineWidth = 1.5; c.beginPath(); c.arc(px, py, pr, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
         // дальний свет звезды справа
