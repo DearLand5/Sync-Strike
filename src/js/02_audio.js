@@ -16,6 +16,7 @@ class AudioManager extends Emitter {
     this.startCtx = 0;
     this.startOffset = 0;
     this._lastHeard = 0;
+    this._pll = null; this._pllT = 0;     // сглаженные часы (heardPosition)
     this.sfx = null;
     settings.on("change", k => { if (/Vol$/.test(k)) this.applyVolumes(); });
   }
@@ -110,7 +111,7 @@ class AudioManager extends Emitter {
     src.start(when, offset);
     this.startCtx = when;
     this.startOffset = offset;
-    this._lastHeard = offset;
+    this._lastHeard = offset; this._pll = null;
     src.onended = () => {
       if (this.source !== src) return;           // остановлен вручную
       this.source = null;
@@ -136,7 +137,7 @@ class AudioManager extends Emitter {
   seek(t) {
     const was = this.playing;
     this.pausedAt = clamp(t, 0, this.duration);
-    this._lastHeard = this.pausedAt;
+    this._lastHeard = this.pausedAt; this._pll = null;
     if (was) this.play(this.pausedAt);
     this.emit("seek");
   }
@@ -176,8 +177,20 @@ class AudioManager extends Emitter {
         if (Math.abs(est - fallback) < 0.35) ctxNow = est;
       }
     }
-    let pos = this.startOffset + (ctxNow - this.startCtx);
-    // гасим мелкий дребезг часов: время не идёт назад меньше чем на 40 мс
+    const raw = this.startOffset + (ctxNow - this.startCtx);
+    // Сглаживание часов (фазовая подстройка): на Android время вывода и currentTime обновляются рывками
+    // по 10–40 мс — доли, вспышки и оценка нажатий «дрожали». Ход времени ведём по performance.now(),
+    // а к сырым часам подтягиваемся плавно (≈ 0,15 с); скачок больше 60 мс (перемотка, пауза, сбой) — сразу.
+    const now = performance.now() / 1000;
+    let pos;
+    if (this._pll == null || !(this._pllT > 0)) pos = raw;
+    else {
+      const pred = this._pll + Math.min(0.1, Math.max(0, now - this._pllT));
+      const err = raw - pred;
+      pos = Math.abs(err) > 0.06 ? raw : pred + err * Math.min(1, (now - this._pllT) * 7 + 0.02);
+    }
+    this._pll = pos; this._pllT = now;
+    // время не идёт назад меньше чем на 40 мс
     if (pos < this._lastHeard && this._lastHeard - pos < 0.04) pos = this._lastHeard;
     this._lastHeard = pos;
     return pos;

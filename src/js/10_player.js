@@ -47,6 +47,20 @@ function groundBelow(x, y) {
   return g;
 }
 
+/** Скорость фазы шага (рад/с; шаг — каждые π) для бегущего персонажа. Под музыку шаги встают на доли: целое число
+ *  шагов на долю (или шаг на две доли), ближайшее к естественному темпу шага k·|vx|, и подтяжка фазы к доле.
+ *  Общая для героя и врагов (толпа «шагает» под бит). */
+function beatStepRate(game, vx, phase, k) {
+  const rate = Math.abs(vx) * k, c = game.clock;
+  if (rate < 2 || !c.map || !game.audio.playing) return rate;
+  const spb = rate / Math.PI * c.period;                      // шагов на долю при естественном шаге
+  const m = spb < 0.7 ? 0.5 : clamp(Math.round(spb), 1, 4);
+  let e = (Math.PI * m * (Math.max(0, c.idx) + c.phase) - phase) % Math.PI;
+  if (e < 0) e += Math.PI;
+  if (e > Math.PI / 2) e -= Math.PI;                          // ошибка фазы до ближайшего шага, −π/2..π/2
+  return Math.max(0, Math.PI * m / c.period + e * 6);
+}
+
 class Player {
   constructor(skinId) {
     this.kind = "player";
@@ -127,18 +141,8 @@ class Player {
     return true;
   }
 
-  /** Скорость фазы шага (рад/с; шаг — каждые π). Под музыку шаги встают на доли: целое число шагов на долю
-   *  (или шаг на две доли), ближайшее к естественному темпу шага, и подтяжка фазы к доле. */
-  _stepRate(game) {
-    const rate = Math.abs(this.vx) * 0.075, c = game.clock;
-    if (rate < 2 || !c.map || !game.audio.playing) return rate;
-    const spb = rate / Math.PI * c.period;                      // шагов на долю при естественном шаге
-    const m = spb < 0.7 ? 0.5 : clamp(Math.round(spb), 1, 4);
-    let e = (Math.PI * m * (Math.max(0, c.idx) + c.phase) - this.runPhase) % Math.PI;
-    if (e < 0) e += Math.PI;
-    if (e > Math.PI / 2) e -= Math.PI;                          // ошибка фазы до ближайшего шага, −π/2..π/2
-    return Math.max(0, Math.PI * m / c.period + e * 6);
-  }
+  /** Скорость фазы шага героя — шаги на долях (beatStepRate). */
+  _stepRate(game) { return beatStepRate(game, this.vx, this.runPhase, 0.075); }
 
   hurt(dmg, fromX, game) {
     if (!this.alive || this.invulnerable || this.state === "victory") return false;

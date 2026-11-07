@@ -181,6 +181,11 @@ class CombatSystem {
     else if (def.kind === "dive") g.sfx("slash", 1);
     if (def.kind === "ranged") { g.sfxAt(act.impactSong, "shot", def.pierce); act.shotSound = true; }
     if (act.onBeat && def.kind !== "dive") g.sfxAt(act.impactSong, "beatHit", empowered ? 1.25 : j.strong ? 1.1 : 0.9);
+    // звук попадания — тоже на долю, если удар точно достанет цель (рывок всегда доводит до неё, вплотную — ближний)
+    if (act.onBeat && target && (def.kind === "dash" || (def.kind === "melee" && Math.abs(target.x - p.x) - target.w * target.scale / 2 < (def.reach || 30) - 6 && Math.abs(target.centerY - p.centerY) < 30))) {
+      g.sfxAt(act.impactSong, "hit", empowered ? 1.2 : 1, j.rating === "perfect");
+      act.hitSound = true;
+    }
     if (def.kind === "ranged") p.pistolT = 0.6;
     if (def.backflip) { p.vx = -act.dir * 240; p.vy = -330; p.onGround = false; act.noGravity = false; }
     if (name === "rise") { this.lastRiseT = this.time; }
@@ -566,7 +571,8 @@ class CombatSystem {
     if (act.name === "slash3") this.lastSlash3HitT = this.time;
     // эффекты по силе
     const col = g.player.skin.accent;
-    g.sfx("hit", killed ? 1.3 : act.empowered ? 1.2 : 1, perfect);
+    if (act.hitSound) act.hitSound = false;     // первый звук попадания уже стоит на доле (execute)
+    else g.sfx("hit", killed ? 1.3 : act.empowered ? 1.2 : 1, perfect);
     g.fx.sparks(hx, hy, perfect ? 14 : 8, col, perfect ? 340 : 240, dirX > 0 ? 0 : Math.PI, 1.6);
     g.fx.sparks(hx, hy, 4, "#ffffff", 200, null);
     g.fx.ring(hx, hy, 4, perfect ? 30 : 20, perfect ? "#ffffff" : col, 0.22, perfect ? 3 : 2);

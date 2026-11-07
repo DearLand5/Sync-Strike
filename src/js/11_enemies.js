@@ -3,6 +3,8 @@
    Враги видят игрока с задержкой реакции, просят у AttackDirector
    «жетон» атаки, и назначают удар на ближайшую долю.
    ===================================================================== */
+/** Звук удара по типу врага (ставится на долю заранее, см. _windup). */
+const ENEMY_STRIKE_SOUND = { blade: "enemySwing", swift: "dash", gunner: "enemyShot", brute: "slam" };
 const ENEMY_TYPES = {
   blade:  { name: "Клинок", hp: 50,  speed: 95,  w: 12, h: 30, poise: 24, sight: 560, reach: 34, wind: 0.4, beats: 1,  dmg: 12, cd: [1.2, 2.1], lunge: 330, activeT: 0.14, recoverT: 0.45, score: 100 },
   gunner: { name: "Стрелок", hp: 38, speed: 80,  w: 12, h: 34, poise: 14, sight: 760, prefer: [210, 360], wind: 0.62, beats: 2, dmg: 9, cd: [1.6, 2.6], bolt: 290, activeT: 0.1, recoverT: 0.6, score: 120 },
@@ -181,15 +183,15 @@ class Enemy {
     moveBody(this, dt);
   }
 
-  _walk(dir, speed, dt) {
+  _walk(dir, speed, dt, game) {
     const target = dir * speed;
     this.vx = damp(this.vx, target, 8, dt);
-    if (Math.abs(this.vx) > 10) this.runPhase += Math.abs(this.vx) * dt * 0.08;
+    if (Math.abs(this.vx) > 10) this.runPhase += beatStepRate(game, this.vx, this.runPhase, 0.08) * dt;   // шаги на долях
   }
 
   _think(dt, game, dx, dist, dirToP, visible, aggro) {
     const T = this.T, pl = game.player;
-    if (!visible) { this._walk(0, 0, dt); return; }
+    if (!visible) { this._walk(0, 0, dt, game); return; }
     this.facing = dirToP;
     const sp = T.speed * (aggro < 1 ? 1.15 : 0.9);
     const canAttack = this.attackCD <= 0 && !this.passive && pl.alive && pl.state !== "victory";
@@ -202,8 +204,8 @@ class Enemy {
     }
 
     if (this.kind === "blade" || this.kind === "brute") {
-      if (dist > T.reach * 0.85 || !sameLevel) this._walk(dirToP, sp, dt);
-      else this._walk(0, 0, dt);
+      if (dist > T.reach * 0.85 || !sameLevel) this._walk(dirToP, sp, dt, game);
+      else this._walk(0, 0, dt, game);
       // спрыгнуть или запрыгнуть следом за игроком
       if (this.onGround && pl.y < this.y - 60 && dist < 140 && this.kind === "blade" && Math.random() < 0.02) this.vy = -520;
       if (this.onGround && this.platform && pl.y > this.y + 40 && Math.random() < 0.03) { this.dropT = 0.3; this.y += 2; }
@@ -218,7 +220,7 @@ class Enemy {
       }
       if (dist < T.prefer[0] * 0.8) this.goalX = clamp(this.x - dirToP * 120, 60, WORLD.w - 60);
       const gd = this.goalX - this.x;
-      if (Math.abs(gd) > 12) this._walk(sign(gd), sp, dt); else this._walk(0, 0, dt);
+      if (Math.abs(gd) > 12) this._walk(sign(gd), sp, dt, game); else this._walk(0, 0, dt, game);
       this.facing = dirToP;
       if (canAttack && dist < T.prefer[1] * 1.4) this._requestAttack(game);
     } else if (this.kind === "swift") {
@@ -226,7 +228,7 @@ class Enemy {
       this.relocT -= dt;
       if (this.relocT <= 0) { this.goalX = clamp(pl.x + (Math.random() < 0.5 ? -1 : 1) * rand(100, 180), 40, WORLD.w - 40); this.relocT = rand(0.8, 1.6); }
       const gd = this.goalX - this.x;
-      if (Math.abs(gd) > 10) this._walk(sign(gd), sp, dt); else this._walk(0, 0, dt);
+      if (Math.abs(gd) > 10) this._walk(sign(gd), sp, dt, game); else this._walk(0, 0, dt, game);
       this.facing = dirToP;
       if (this.onGround && Math.random() < 0.006) this.vy = -380;
       if (canAttack && dist < T.reach * 1.3 && dist > 50 && sameLevel) this._requestAttack(game);
@@ -285,6 +287,13 @@ class Enemy {
     this.eyeBoost = Math.max(clamp(this.windT / this.windDur, 0, 1), this.tickFlash * 0.9);
     // удар — по музыкальным часам (не по накоплению dt); кадр округляется к ближайшему, поэтому полкадра упреждения
     const lead = Math.min(0.02, (game._ft || 16) / 2000);
+    // звук удара ставится заранее ровно на долю (Game.sfxAt): так он совпадает с музыкой при любой задержке вывода.
+    // Во второй половине замаха враг под суперброней — удар уже не прервать; при замедлении — звук по факту удара
+    if (this.soundAt !== this.strikeAt && now > this.strikeAt - 0.09 && game.timeScale > 0.97 && this.windT >= this.windDur * 0.75) {
+      this.soundAt = this.strikeAt;
+      const snd = ENEMY_STRIKE_SOUND[this.kind];
+      if (snd) game.sfxAt(this.strikeAt, snd);
+    }
     if (now + lead < this.strikeAt) return;
     if (this.windT < this.windDur * 0.85) {
       // враг замедлен (slowmo/стоп-кадр) и не успел замахнуться: удар переносится на следующую долю
@@ -301,17 +310,17 @@ class Enemy {
       this.setState("attack");
       this.hitIds.clear();
       const T = this.T;
-      if (this.kind === "blade") { this.vx = this.facing * T.lunge; game.sfx("enemySwing"); }
+      if (this.kind === "blade") { this.vx = this.facing * T.lunge; this._strikeSfx(game); }
       else if (this.kind === "swift") {
-        this.vx = this.facing * T.lunge; this.vy = -140; game.sfx("dash");
+        this.vx = this.facing * T.lunge; this.vy = -140; this._strikeSfx(game);
       } else if (this.kind === "gunner") {
         const hp = CharacterRenderer.handWorld(this, 14);
         const ang = Math.atan2(this.aim.y - hp.y, this.aim.x - hp.x);
         game.combat.spawnProjectile({ x: hp.x, y: hp.y, vx: Math.cos(ang) * T.bolt * this.diff.bolt, vy: Math.sin(ang) * T.bolt * this.diff.bolt, owner: "enemy", dmg: T.dmg * this.diff.dmg * this.power, r: 4, color: this.look.accent, life: 3, src: this });
         game.fx.sparks(hp.x, hp.y, 5, this.look.accent, 160, ang, 0.8);
-        game.sfx("enemyShot");
+        this._strikeSfx(game);
       } else if (this.kind === "brute") {
-        game.sfx("slam");
+        this._strikeSfx(game);
         game.camera.shake(0.45);
         const fx = this.x + this.facing * 30;
         game.fx.shockwave(fx, this.y, this.look.accent, 150);
@@ -320,6 +329,12 @@ class Enemy {
         for (const d of [-1, 1]) game.combat.spawnProjectile({ x: fx, y: this.y - 5, vx: d * 300, vy: 0, owner: "enemy", dmg: T.dmg * 0.6 * this.diff.dmg * this.power, r: 6, color: this.look.accent, life: 1.1, wave: true, src: this });
       }
     }
+  }
+
+  /** Звук удара, если он ещё не поставлен заранее на эту долю. */
+  _strikeSfx(game) {
+    if (this.soundAt !== this.strikeAt) game.sfx(ENEMY_STRIKE_SOUND[this.kind]);
+    this.soundAt = -1;
   }
 
   _attack(dt, game) {
