@@ -13,9 +13,11 @@ async function run(browser, diff, prof) {
   page.on("pageerror", e => errors.push(e.message));
   await page.goto("file://" + path.join(__dirname, "../index.html"));
   await page.waitForTimeout(300);
-  await page.evaluate(([diff, P]) => {
+  await page.evaluate(([diff, P, melee, gun]) => {
     const g = window.__game;
     g.settings.set("difficulty", diff);
+    if (melee) g.settings.set("meleeWeapon", melee);   // MELEE=glaive GUN=sawed — оружие из «Арсенала»
+    if (gun) g.settings.set("gunWeapon", gun);
     window.__waveT = [];
     const ows = g.onWaveStart.bind(g);
     g.onWaveStart = n => { window.__waveT.push(Math.round(g.combat.time)); return ows(n); };
@@ -41,7 +43,7 @@ async function run(browser, diff, prof) {
         if (g.clock.idx !== lastBeat && !nextAttack) { lastBeat = g.clock.idx; if (Math.random() < P.attackP) nextAttack = g.clock.nextBeat + (Math.random() * 2 - 1) * P.jitter; }
       }, 16);
     });
-  }, [diff, PROFILES[prof]]);
+  }, [diff, PROFILES[prof], process.env.MELEE, process.env.GUN]);
   // ждём конец боя (итоги) или лимит времени
   for (let i = 0; i < secs; i++) { await page.waitForTimeout(1000); if (await page.evaluate(() => window.__game.state === "results")) break; }
   const r = await page.evaluate(() => { const g = window.__game; return { st: g.state, alive: g.player.alive, hp: Math.round(g.player.hp), maxHp: g.player.maxHp, wave: g.waves.wave, kills: g.combat.kills, dmg: Math.round(g.combat.damageTaken), t: Math.round(g.combat.time), waveT: window.__waveT.join(",") }; });

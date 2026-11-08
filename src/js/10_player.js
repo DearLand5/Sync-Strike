@@ -272,7 +272,9 @@ class Player {
       if (Math.floor(prevPh / Math.PI) !== Math.floor(this.runPhase / Math.PI)) game.sfx("step");
     }
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
-    this.weapon = this.pistolT > 0 ? "pistol" : "dagger";
+    const wset = game.settings.v;       // оружие из «Арсенала» (id совпадает с ключом WEAPON_DRAW / базовым рисунком)
+    this.weapon = this.pistolT > 0 ? weaponOf("gun", wset).id : weaponOf("melee", wset).id;
+    if (!this.action) this.wExt = 0;     // длина выброса цепи у кусаригамы
     // ускорение → наклон корпуса: разгон вперёд, торможение назад (плавно, независимо от кадра)
     const ax = (this.vx - this.prevVx) / Math.max(dt, 1e-4) * this.facing; this.prevVx = this.vx;
     this.accLean = damp(this.accLean, clamp(ax / 1600 * 0.1, -0.16, 0.1), 14, dt);

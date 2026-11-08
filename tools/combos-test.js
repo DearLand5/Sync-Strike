@@ -31,7 +31,8 @@ fs.mkdirSync(shots, { recursive: true });
       cu(t, dt, l, pl);
       const p = g.player;
       p.hp = p.maxHp; p.iframes = Math.max(p.iframes, 0.2);
-      if (window.__pin) for (const e of g.enemies) { e.x = window.__pin.x; e.vx = 0; e.attackCD = 9; }
+      if (window.__pin) for (const e of g.enemies) { e.x = window.__pin.x; e.vx = 0; e.attackCD = 9; if (e.alive && e.y < 0 && e.state !== "hurt") { e.y = 0; e.vy = 0; e.onGround = true; } }   // на полу: иначе враг подпрыгивает к герою в воздухе
+      if (window.__air && t >= window.__air.at) { const f = window.__air.go; window.__air = null; f(); }
       while (window.__plan.length && t >= window.__plan[0]) { const at = window.__plan.shift(); if (t - at < 0.03) c.onAttackPress(at); }
     };
     window.__setup = (dist, opts = {}) => {
@@ -109,7 +110,8 @@ fs.mkdirSync(shots, { recursive: true });
     const g = window.__game, p = g.player; window.__setup(40);
     const at = window.__beats(1)[0];
     // в воздух за ~0.2 с до нажатия (раньше — герой успеет приземлиться)
-    setTimeout(() => { p.y = -170; p.vy = -60; p.onGround = false; p.setState("jump"); g.combat.airChain = 2; }, Math.max(0, (at - g.songNow - 0.2) * 1000));
+    // по игровым кадрам (setTimeout в фоне браузера срабатывает неровно): ставим в воздух за 0.2 с до нажатия
+    window.__air = { at: at - 0.2, go: () => { p.x = 600; p.y = -170; p.vy = -60; p.vx = 0; p.onGround = false; p.setState("jump"); g.combat.airChain = 2; } };
   });
   await done();
   r = await res();

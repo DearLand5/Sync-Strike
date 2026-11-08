@@ -287,6 +287,7 @@ class UIManager {
     if (name === "settings") this.refreshSettings();
     if (name === "sync") this.refreshSync();
     if (name === "skins") this.buildSkins();
+    if (name === "arsenal") this.buildArsenal();
     if (name === "director") { if (this.prevScreen !== "director") this.dirReturn = this.prevScreen || "menu"; this.refreshDirector(); }
     if (name === "menu") this.refreshMenu();
     const first = document.querySelector("#scr-" + name + " .menu-item, #scr-" + name + " .btn.primary");
@@ -1346,6 +1347,64 @@ class UIManager {
     const ch = { kind: "player", skin: sk, x: cv.width / 2, y: cv.height * 0.82, facing: 1, scale: 3.4, anim: new AnimState(), scarfColor: null, weapon: "dagger", eyeBoost: 0.3, flash: 0, groundY: cv.height * 0.82, vx: 0, vy: 0 };
     Object.assign(ch.anim.pose, { armF: 0.5, elbowF: 0.5, lean: 0.05 });
     CharacterRenderer.draw(c, ch);
+    try { img.src = cv.toDataURL("image/png"); } catch (e) { img.removeAttribute("src"); }
+  }
+
+  /** Экран «Арсенал»: вкладки «Ближний бой» / «Огнестрел», карточки строятся и рисуются один раз (превью — <img>, не canvas). */
+  buildArsenal() {
+    const g = this.game, list = $("wpn-list"), tabs = $("wpn-tabs");
+    if (!this._wpnCards) {
+      this._wpnCards = {};
+      const stat = ["Дальность", "Скорость", "Урон"];
+      for (const id in WEAPONS) {
+        const w = WEAPONS[id];
+        const b = document.createElement("button");
+        b.className = "wpn"; b.type = "button"; b.dataset.id = id; b.dataset.slot = w.slot;
+        const img = document.createElement("img"); img.alt = ""; img.width = 200; img.height = 200; img.decoding = "async";
+        const label = document.createElement("b"); label.textContent = w.name;
+        const sub = document.createElement("small"); sub.textContent = w.info;
+        const ws = document.createElement("div"); ws.className = "ws";
+        w.stats.forEach((v, i) => { const t = document.createElement("span"); t.textContent = stat[i]; const bar = document.createElement("i"); bar.style.setProperty("--v", v * 20 + "%"); ws.append(t, bar); });
+        b.append(img, label, sub, ws);
+        b._img = img;
+        b.addEventListener("click", () => {
+          g.settings.set(WEAPON_KEY[w.slot], id);
+          this._wpnMark();
+          this.sfx("uiClick");
+        });
+        b.addEventListener("pointerenter", () => this.sfx("uiMove"));
+        list.appendChild(b);
+        this._wpnCards[id] = b;
+      }
+      for (const s of WEAPON_SLOTS) {
+        const t = document.createElement("button");
+        t.type = "button"; t.setAttribute("role", "tab"); t.dataset.slot = s.id;
+        t.append(s.name); const cnt = document.createElement("i"); cnt.textContent = Object.values(WEAPONS).filter(w => w.slot === s.id).length; t.append(cnt);
+        t.addEventListener("click", () => { this._wpnTab(s.id); this.sfx("uiMove"); });
+        tabs.appendChild(t);
+      }
+    }
+    // превью рисуются в цвете выбранного облика — перерисовываем только при его смене
+    if (this._wpnSkin !== g.settings.v.skin) {
+      this._wpnSkin = g.settings.v.skin;
+      for (const id in this._wpnCards) this._drawWeaponCard(this._wpnCards[id]._img, id);
+    }
+    this._wpnTab(this.wpnSlot || "melee");
+    this._wpnMark();
+  }
+  _wpnTab(slot) {
+    this.wpnSlot = slot;
+    for (const id in this._wpnCards) { const b = this._wpnCards[id]; b.hidden = b.dataset.slot !== slot; }
+    $("wpn-tabs").querySelectorAll("button").forEach(t => t.setAttribute("aria-selected", String(t.dataset.slot === slot)));
+  }
+  _wpnMark() {
+    const sv = this.game.settings.v;
+    for (const id in this._wpnCards) this._wpnCards[id].setAttribute("aria-pressed", String(weaponOf(WEAPONS[id].slot, sv).id === id));
+  }
+  _drawWeaponCard(img, id) {
+    const cv = this._wpnCv || (this._wpnCv = document.createElement("canvas"));
+    cv.width = 200; cv.height = 200;
+    drawWeaponPreview(cv.getContext("2d"), id, SKINS[this.game.settings.v.skin] || SKINS.shade, 200, "idle");
     try { img.src = cv.toDataURL("image/png"); } catch (e) { img.removeAttribute("src"); }
   }
 
