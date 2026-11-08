@@ -639,7 +639,7 @@
      ВЫБОР ПРИЁМОВ
      ===================================================================== */
   registerKit("spear", {
-    moves: spearMoves,
+    moves: capMoves(spearMoves),   // тоже без «лежащего» героя (Контрвыпад, Бросок-возврат)
     pose: spearPose,
     choose(cs, name, c) {
       if (c.air || !c.target) return;
