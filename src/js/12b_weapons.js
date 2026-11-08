@@ -175,20 +175,30 @@ const WEAPON_DRAW = {
     },
   },
   glaive: {
-    off: -0.85,
+    // двусторонняя глефа: длинное древко, хват ПОСЕРЕДИНЕ (начало координат — кисть), изогнутые лезвия на обоих концах.
+    // Точечная симметрия (поворот на π даёт тот же силуэт), поэтому лезвие заднего конца рисуется тем же кодом с scale(-1, -1)
+    off: -0.75,
     draw(ctx, ch, p, accent, hq) {
+      ctx.scale(0.9, 0.9);
       ctx.strokeStyle = "#14151b"; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(19, 0); ctx.stroke();
-      ctx.strokeStyle = rgba(accent, 0.55); ctx.lineWidth = 0.5;
-      ctx.beginPath(); for (const x of WD_GLAIVE) { ctx.moveTo(x, -1); ctx.lineTo(x + 0.7, 1); } ctx.stroke();
-      ctx.fillStyle = "#1c1d25"; ctx.fillRect(17.5, -1.8, 1.4, 3.6);
-      // широкий изогнутый клинок («лунный серп» вперёд и вверх)
-      ctx.beginPath(); ctx.moveTo(18.5, 0.9); ctx.lineTo(19.5, -1.1); ctx.quadraticCurveTo(27, -3, 33, -9.5); ctx.quadraticCurveTo(32, -2.5, 26, 1.6); ctx.quadraticCurveTo(22, 2.2, 18.5, 0.9); ctx.closePath();
-      ctx.fillStyle = "#171820"; ctx.fill();
-      ctx.beginPath(); ctx.moveTo(19.5, -1.1); ctx.quadraticCurveTo(27, -3, 33, -9.5);
-      wGlow(ctx, hq, 3.4, accent, 0.35);
-      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(21, 0.2); ctx.quadraticCurveTo(26, -0.3, 30, -5); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.35; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-17, 0); ctx.lineTo(17, 0); ctx.stroke();
+      // хват: тёмная оплётка с неоновыми кольцами и небольшие упоры по краям
+      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-4.6, -1.3, 9.2, 2.6);
+      ctx.fillStyle = rgba(accent, 0.75);
+      for (let i = -2; i <= 2; i++) ctx.fillRect(i * 1.8 - 0.25, -1.3, 0.5, 2.6);
+      ctx.fillStyle = "#1c1d25"; ctx.fillRect(5, -2, 1, 4); ctx.fillRect(-6, -2, 1, 4);
+      for (let s = 1; s >= -1; s -= 2) {
+        ctx.save(); ctx.scale(s, s);
+        ctx.fillStyle = "#1c1d25"; ctx.fillRect(16, -1.9, 1.4, 3.8);
+        // широкий изогнутый клинок («лунный серп»: вперёд и вбок)
+        ctx.beginPath(); ctx.moveTo(17, 0.9); ctx.lineTo(18, -1.1); ctx.quadraticCurveTo(25, -3, 30.5, -9.5); ctx.quadraticCurveTo(29.6, -2.6, 24, 1.6); ctx.quadraticCurveTo(20.5, 2.2, 17, 0.9); ctx.closePath();
+        ctx.fillStyle = "#171820"; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(18, -1.1); ctx.quadraticCurveTo(25, -3, 30.5, -9.5);
+        wGlow(ctx, hq, 3.4, accent, 0.35);
+        ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(19.5, 0.2); ctx.quadraticCurveTo(24.5, -0.3, 28.2, -5); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.35; ctx.stroke();
+        ctx.restore();
+      }
     },
   },
   kusari: {

@@ -91,15 +91,34 @@ fs.mkdirSync(shots, { recursive: true });
   check(r.hits >= 2 && r.dmg >= 20, `Бросок-возврат: попаданий ${r.hits} (туда и обратно), урон ${r.dmg}`);
   check(await page.evaluate(() => window.__game.combat.projectiles.length === 0 && window.__game.player.weapon === "spear"), "Бросок-возврат: копьё вернулось в руку, снарядов нет");
 
+  // Контрвыпад: атака в окне после идеального уклона
+  await page.evaluate(() => { window.__setup(28); window.__game.player.counterT = 5; window.__plan.push(window.__beatAt(false, 1.0) - 0.02); });
+  await done(); r = await res();
+  check(r.names[0] === "spear_counter", `Контрвыпад: ${r.names.join(" → ")}`);
+  check(r.hits >= 1, `Контрвыпад: попаданий ${r.hits}, урон ${r.dmg}`);
+
   console.log("— глефа —");
   await use("glaive");
-  await page.evaluate(() => { window.__setup([30, -30]); window.__plan.push(window.__beatAt(false, 1.0) - 0.02); });
+  await page.evaluate(() => { window.__setup([30, -30, 60]); window.__plan.push(window.__beatAt(false, 1.0) - 0.02); });
   await page.waitForFunction(() => window.__game.player.action && window.__game.player.action.name === "glaive_circle" && window.__game.player.action.phase === "active", null, { timeout: 9000 }).catch(() => {});
   await wait(60);
   await page.screenshot({ path: path.join(shots, "kh-glaive-circle.png") });
   await done(); r = await res();
   check(r.names[0] === "glaive_circle", `Лунный круг: ${r.names.join(" → ")}`);
-  check(r.hits >= 3, `Лунный круг: попаданий ${r.hits} по двум врагам, урон ${r.dmg}`);
+  check(r.hits >= 3, `Лунный круг: попаданий ${r.hits} по трём врагам, урон ${r.dmg}`);
+  // Двойной полумесяц: враг спереди и сзади — передний конец, затем задний
+  await page.evaluate(() => { window.__setup([30, -30]); window.__plan.push(window.__beatAt(false, 1.0) - 0.02); });
+  await page.waitForFunction(() => window.__game.player.action && window.__game.player.action.name === "glaive_dual" && window.__game.player.action.phase === "active", null, { timeout: 9000 }).catch(() => {});
+  await wait(40);
+  await page.screenshot({ path: path.join(shots, "kh-glaive-dual.png") });
+  await done(); r = await res();
+  check(r.names[0] === "glaive_dual", `Двойной полумесяц: ${r.names.join(" → ")}`);
+  check(r.log.includes("glaive_dual:0") && r.log.includes("glaive_dual:1") && r.hits >= 2, `Двойной полумесяц: попал и вперёд, и назад (${r.log}), урон ${r.dmg}`);
+  // Пропеллер: удар в долю, затем «и» — серия тычков по обе стороны
+  await page.evaluate(() => { window.__setup(28); const t = window.__beatPair(1.0), t2 = window.__pair2; window.__plan.push(t - 0.02, t + (t2 - t) / 2 - 0.02); });
+  await done(); r = await res();
+  check(r.names[1] === "glaive_prop", `Пропеллер: ${r.names.join(" → ")}`);
+  check((r.log.match(/glaive_prop/g) || []).length >= 4, `Пропеллер: попаданий серией ${(r.log.match(/glaive_prop/g) || []).length} (${r.log}), урон ${r.dmg}`);
   // Подсечка: два удара в долю, затем «и»
   await page.evaluate(() => { window.__setup(28); const t = window.__beatPair(1.0), t2 = window.__pair2; window.__plan.push(t - 0.02, t2 - 0.02, t2 + (t2 - t) / 2 - 0.02); });
   await done(); r = await res();
@@ -114,6 +133,11 @@ fs.mkdirSync(shots, { recursive: true });
   await done(); r = await res();
   check(r.names[0] === "axe_cleave", `Раскол земли: ${r.names.join(" → ")}`);
   check(r.hits >= 2, `Раскол земли: удар + ударная волна по соседу: ${r.hits}, урон ${r.dmg}`);
+  // Оглушение обухом: враг в замахе вплотную
+  await page.evaluate(() => { window.__setup(26); const e = window.__game.enemies[0]; e.state = "windup"; e.windT = 0; e.windDur = 99; window.__plan.push(window.__beatAt(false, 1.0) - 0.02); });
+  await done(); r = await res();
+  check(r.names[0] === "axe_pommel", `Оглушение обухом: ${r.names.join(" → ")}`);
+  check(r.hits >= 1, `Оглушение обухом: попал (${r.log}), урон ${r.dmg}`);
   await page.evaluate(() => { window.__setup(150); window.__plan.push(window.__beatAt(false, 1.0) - 0.02); });
   await page.waitForFunction(() => window.__game.player.action && window.__game.player.action.name === "axe_throw" && window.__game.player.action.t > 0.25, null, { timeout: 9000 }).catch(() => {});
   await page.screenshot({ path: path.join(shots, "kh-axe-throw.png") });
