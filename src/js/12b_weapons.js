@@ -24,7 +24,7 @@ const WEAPONS = {
     mod: { reach: 1.3, st: 1.22, rc: 1.18, ac: 1.2, dmg: 1, knock: 1.2, stun: 1.1, lunge: 1, fxR: 1.4, fxW: 1.25 },
   },
   kusari: {
-    slot: "melee", name: "Цепной серп", info: "Дальний хлёст цепью, но слабее по силе.", stats: [5, 3, 2], rangeK: 1.36,
+    slot: "melee", name: "Цепной серп", info: "Длинная цепь с грузом: бьёт издалека и по дуге, вблизи — серпом.", stats: [5, 3, 2], rangeK: 1.36,
     mod: { reach: 1.6, st: 0.96, rc: 1.1, dmg: 0.95, knock: 0.8, stun: 1, lunge: 0.9, fxR: 1.35, fxW: 0.7, lash: true },
   },
   katana: {
@@ -213,7 +213,7 @@ const WEAPON_DRAW = {
       ctx.save(); ctx.rotate(-al);
       const ca = Math.cos(al), sa = Math.sin(al);
       const x0 = -4.3 * ca, y0 = -4.3 * sa;                                      // кольцо рукояти
-      const tx = lerp(-1.5, ch.kuX == null ? 30 : ch.kuX, ext), ty = lerp(13, ch.kuY == null ? 8 : ch.kuY, ext);
+      const tx = lerp(-1.5, ch.kuX == null ? 30 : ch.kuX, ext), ty = lerp(8.5, ch.kuY == null ? 8 : ch.kuY, ext);
       const bend = (ch.kuB || 0) * ext, sag = lerp(2.5, ch.kuS || 0, ext);
       const dx = tx - x0, dy = ty - y0, len = Math.hypot(dx, dy) || 1;
       // управляющая точка: середина + боковой изгиб + провис (вершина кривой смещена на половину)
@@ -340,7 +340,7 @@ function drawWeaponPreview(c, id, skin, size, act = "idle") {
   if (gun) Object.assign(P, { armF: 1.45, elbowF: 0.05, lean: -0.04, armB: 0.3, wAngle: 0, wBlend: 0 });
   else if (act === "strike") Object.assign(P, id === "spear" ? { armF: Math.PI / 2, elbowF: 0, wBlend: 1, wAngle: 0, lean: 0.4, legSpread: 1.7 } : { armF: 1.9, elbowF: 0.1, lean: 0.25, legSpread: 1.6 });
   else Object.assign(P, { armF: 0.55, elbowF: 0.5, lean: 0.05 });
-  if (id === "kusari") { ch.wExt = act === "strike" ? 1 : 0; ch.kuX = 31; ch.kuY = 7; ch.kuB = -5; ch.kuS = 6; }     // на карточке цепь короче: груз у края кадра
+  if (id === "kusari") { ch.wExt = act === "strike" ? 1 : 0; ch.kuX = 23; ch.kuY = 6; ch.kuB = -4; ch.kuS = 5; }     // на карточке цепь короче: груз у края кадра
   if (id === "smg") P.armB = 1.45;
   CharacterRenderer.draw(c, ch);
 }
