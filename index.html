@@ -13252,7 +13252,10 @@ function kitTakedown(cs, kind, e, act) {
       const name = choose0.call(this, target, j);
       const g = this.game, p = g.player;
       const k = ATTACKS[name];
-      if (target && k && (k.kind === "melee" || k.kind === "dash") && !k.kit && weaponOf("gun", g.settings.v).id === "sawed"
+      // подменяет и общий ближний приём, и приём набора ближнего оружия (напр. «Теневой шаг» кинжала):
+      // условие приклада (сразу после выстрела, враг вплотную) конкретнее
+      const meleeName = k && (k.kit ? WEAPONS[k.kit].slot === "melee" : k.kind === "melee" || k.kind === "dash");
+      if (target && meleeName && weaponOf("gun", g.settings.v).id === "sawed"
         && p.onGround && (j.rating === "perfect" || j.rating === "good") && this.time - this.lastActionT < 0.9
         && this.lastAction && ATTACKS[this.lastAction].kind === "ranged" && !(p.counterT > 0)) {
         const dx = Math.abs(target.x - p.x) - (target.w * target.scale) / 2 - p.w / 2;

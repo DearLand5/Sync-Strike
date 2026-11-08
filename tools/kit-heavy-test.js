@@ -50,8 +50,11 @@ fs.mkdirSync(shots, { recursive: true });
     // начало серии из двух ударов: ни одна из двух долей не сильная (иначе вместо удара выйдет подброс)
     window.__beatPair = (ahead = 1.2) => {
       const cl = g.clock, m = cl.map, P = cl.period; let t = cl.nextBeatAfter(g.songNow, ahead), i = 0;
-      const strongAt = x => { const k = m.beats.findIndex(b => Math.abs(b + cl.correction - x) < 1e-3); return k >= 0 && m.strong[k]; };
-      while (i++ < 40 && (strongAt(t) || strongAt(t + P))) t = cl.nextBeatAfter(t, 0.05);
+      // доли трека не идеально ровные: вторую долю берём настоящую (nextBeatAfter), а не t + P
+      const strongAt = x => { const k = m.beats.findIndex(b => Math.abs(b + cl.correction - x) < 0.03); return k >= 0 && m.strong[k]; };
+      const next = x => cl.nextBeatAfter(x, 0.05);
+      while (i++ < 40 && (strongAt(t) || strongAt(next(t)))) t = next(t);
+      window.__pair2 = next(t);
       return t;
     };
     window.__beatAt = (strong, ahead = 1.2) => {
@@ -98,7 +101,7 @@ fs.mkdirSync(shots, { recursive: true });
   check(r.names[0] === "glaive_circle", `Лунный круг: ${r.names.join(" → ")}`);
   check(r.hits >= 3, `Лунный круг: попаданий ${r.hits} по двум врагам, урон ${r.dmg}`);
   // Подсечка: два удара в долю, затем «и»
-  await page.evaluate(() => { window.__setup(28); const t = window.__beatPair(1.0), P = window.__game.clock.period; window.__plan.push(t - 0.02, t + P - 0.02, t + 1.5 * P - 0.02); });
+  await page.evaluate(() => { window.__setup(28); const t = window.__beatPair(1.0), t2 = window.__pair2; window.__plan.push(t - 0.02, t2 - 0.02, t2 + (t2 - t) / 2 - 0.02); });
   await done(); r = await res();
   check(r.names[2] === "glaive_sweep", `Подсечка: ${r.names.join(" → ")}`);
   check(r.log.includes("glaive_sweep"), `Подсечка: попала (${r.log}), урон ${r.dmg}`);
