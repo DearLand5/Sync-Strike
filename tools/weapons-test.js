@@ -129,8 +129,10 @@ const path = require("path");
     await page.evaluate(() => { window.__setup(380); window.__beats(5, -0.02); });
     await done(); await wait(600); r = await res();
     if (id === "pistol") base.gun = r.dmg;
-    check(r.hits >= 1 && r.names.every(n => ["shot", "twin", "fan", "charged", "hip"].includes(n)), `${nm}: выстрелы ${r.names.join(" → ")}, попаданий ${r.hits}`);
-    check(r.names.includes("fan"), `${nm}: Веер появился (${r.names.join(",")})`);
+    // приёмы набора этого оружия (12k_*) законно подменяют общие: «Заряженный луч» карабина вместо Веера и т.п.
+    const own = await page.evaluate(id => Object.keys(window.ATTACKS_REF).filter(n => window.ATTACKS_REF[n].kit === id), id);
+    check(r.hits >= 1 && r.names.every(n => ["shot", "twin", "fan", "charged", "hip"].includes(n) || own.includes(n)), `${nm}: выстрелы ${r.names.join(" → ")}, попаданий ${r.hits}`);
+    check(r.names.includes("fan") || r.names.some(n => own.includes(n)), `${nm}: Веер или своя комбинация появились (${r.names.join(",")})`);
     check(r.onBeat >= 3, `${nm}: выстрелов в долю ${r.onBeat} из ${r.acts} (≥ 3)`);
     const ratio = r.dmg / base.gun;
     console.log(`     урон за 5 нажатий на дистанции 380: ${Math.round(r.dmg)} (${(ratio * 100).toFixed(0)}% пистолета)`);
