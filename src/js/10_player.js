@@ -337,12 +337,18 @@ class Player {
       case "walk":
         Object.assign(P, { legPhase: this.runPhase, legAmp: 0.55, lean: 0.08 + acc, bodyY: Math.abs(Math.sin(this.runPhase)) * -0.6 + pulse * 0.5, armF: 0.1 + Math.sin(this.runPhase) * 0.3, elbowF: 0.5, armB: -0.1 - Math.sin(this.runPhase) * 0.3, tuck: 0, sx: 1, sy: 1, wBlend: 0, headTilt: 0 });
         break;
-      case "run":
-        Object.assign(P, { legPhase: this.runPhase, legAmp: 1.0, lean: 0.24 + acc, bodyY: Math.abs(Math.sin(this.runPhase)) * -1.2 + pulse * 0.6, armF: -0.6, elbowF: 0.9, armB: 0.5, tuck: 0, sx: 1, sy: 1, cloak: 0.3, wBlend: 0, headTilt: 0.05 });
+      case "run": {
+        // руки работают в противофазе шагам, корпус чуть покачивается, голова ловит шаг
+        const sw = Math.sin(this.runPhase), bob = Math.abs(sw);
+        Object.assign(P, { legPhase: this.runPhase, legAmp: 1.0, lean: 0.24 + acc + 0.04 * bob, bodyY: bob * -1.2 + pulse * 0.6, armF: -0.55 + 0.5 * sw, elbowF: 0.9 + 0.2 * bob, armB: 0.45 - 0.5 * sw, tuck: 0, sx: 1, sy: 1, cloak: 0.3 + 0.15 * bob, wBlend: 0, headTilt: 0.05 - 0.04 * bob });
         break;
-      case "jump":
-        Object.assign(P, { tuck: 0.35, legAmp: 0.25, legPhase: 1.2, lean: 0.1 + acc, armF: -0.5, elbowF: 0.6, armB: -0.9, sx: 0.94, sy: 1.08, bodyY: 0, wBlend: 0, headTilt: -0.1 });
+      }
+      case "jump": {
+        // подъём: руки вверх и силуэт вытянут; к вершине — группировка (по скорости, а не одна поза на весь прыжок)
+        const up = clamp(-this.vy / PL.jumpV, 0, 1), apex = 1 - up;
+        Object.assign(P, { tuck: 0.2 + 0.35 * apex, legAmp: 0.25, legPhase: 1.2, lean: 0.1 + acc - 0.08 * up, armF: lerp(0.4, -0.7, up), elbowF: 0.6, armB: lerp(-0.4, -1.2, up), sx: 1 - 0.05 * up, sy: 1 + 0.07 * up, bodyY: 0, wBlend: 0, headTilt: -0.1 + 0.08 * apex, cloak: 0.4 * up });
         break;
+      }
       case "fall": {
         // чем дольше падение — тем шире раскинуты руки и вытянутее силуэт
         const f = clamp(this.airT / 0.7, 0, 1);
