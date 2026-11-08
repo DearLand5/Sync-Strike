@@ -25,6 +25,19 @@
     return { l, r: rt, n: l + rt };
   };
 
+  /** Ограничение наклона корпуса: тяжесть удара — приседом, стойкой и сжатием, а не «лежащим» героем. */
+  const LEAN_MAX = 0.3, LEAN_MIN = -0.32;
+  const capLean = P => {
+    if (P.lean != null) P.lean = clamp(P.lean, LEAN_MIN, LEAN_MAX);
+    if (P.cloak != null) P.cloak = Math.max(P.cloak, -0.5);      // длинный плащ назад превращает силуэт в «лежащего»
+    if (P.sx != null && P.sx > 1.08) P.sx = 1.08;
+    if (P.sy != null && P.sy < 0.88) P.sy = 0.88;
+    if (P.bodyY != null && P.bodyY > 3.8) P.bodyY = 3.8;
+    return P;
+  };
+  const capPose = f => (P, act, p, k) => { f(P, act, p, k); capLean(P); };
+  const capMoves = ms => { for (const n in ms) ms[n].pose = capPose(ms[n].pose); return ms; };
+
   /* ---------- бумеранг: бросок оружия и возврат (копьё, топор) ---------- */
   /** Запуск: снаряд-пронзатель от кисти, летит к цели и дальше, затем возвращается к руке. */
   function throwLaunch(g, p, act, o) {
@@ -451,8 +464,8 @@
     takedown(cs, kind, e) { return kind === "colossus" ? "spear_impale_big" : kind === "xcut" ? "spear_impale" : null; },
   });
   registerKit("glaive", {
-    moves: glaiveMoves,
-    pose: glaivePose,
+    moves: capMoves(glaiveMoves),
+    pose: capPose(glaivePose),
     choose(cs, name, c) {
       if (c.air || !c.target) return;
       // Лунный круг: окружён (двое и более вплотную) + точное нажатие
@@ -463,8 +476,8 @@
     takedown(cs, kind, e) { return kind === "colossus" ? "glaive_moon_big" : kind === "xcut" ? "glaive_moon" : null; },
   });
   registerKit("axe", {
-    moves: axeMoves,
-    pose: axePose,
+    moves: capMoves(axeMoves),
+    pose: capPose(axePose),
     choose(cs, name, c) {
       if (c.air || !c.target) return;
       // Раскол земли: сильная доля + точный удар вплотную
@@ -693,9 +706,11 @@
 
   registerTakedown("spear_impale", spearImpale(false));
   registerTakedown("spear_impale_big", spearImpale(true));
-  registerTakedown("glaive_moon", glaiveMoon(false));
-  registerTakedown("glaive_moon_big", glaiveMoon(true));
-  registerTakedown("axe_headsman", axeHeadsman(false));
-  registerTakedown("axe_headsman_big", axeHeadsman(true));
+  // у глефы и топора наклон корпуса ограничен и в добиваниях
+  const capTd = td => { const f = td.pose; td.pose = (cs, p, t) => capLean(f(cs, p, t)); return td; };
+  registerTakedown("glaive_moon", capTd(glaiveMoon(false)));
+  registerTakedown("glaive_moon_big", capTd(glaiveMoon(true)));
+  registerTakedown("axe_headsman", capTd(axeHeadsman(false)));
+  registerTakedown("axe_headsman_big", capTd(axeHeadsman(true)));
   void stand;
 }
