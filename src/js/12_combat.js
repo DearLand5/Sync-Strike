@@ -251,7 +251,13 @@ class CombatSystem {
     return best;
   }
 
+  /** Выбор приёма: общая логика, затем подмена набором выбранного оружия (12d_kits). */
   chooseAttack(target, j) {
+    const name = this._chooseBase(target, j);
+    return kitChoose(this, name, target, j) || name;
+  }
+
+  _chooseBase(target, j) {
     const g = this.game, p = g.player;
     const air = !p.onGround;
     const good = j.rating === "perfect" || j.rating === "good";
@@ -305,6 +311,9 @@ class CombatSystem {
     act.t += dt;
     const tA = act.startup + act.travel;           // начало активной фазы
     act.phase = act.t < act.startup ? "startup" : act.t < tA ? "travel" : act.t < tA + act.active ? "active" : "recovery";
+    // приёмы набора оружия: своя механика (kind "custom" — только она) и эффект в момент удара
+    if (def.fx && !act.kitFx && (act.phase === "active" || act.phase === "recovery")) { act.kitFx = true; def.fx(g, p, act); }
+    if (def.update) def.update(this, p, act, dt, tA);
 
     if (def.kind === "melee") {
       if (act.phase === "startup") p.vx = damp(p.vx, 0, 12, dt);
@@ -452,6 +461,7 @@ class CombatSystem {
       if (def.slam) Object.assign(P, act.phase === "startup" ? { armF: 3.0, wAngle: -1.4, tuck: 0.3, lean: -0.15, sy: 1.08 } : { sy: 1.2, sx: 0.85, cloak: 1 });
     }
     weaponPose(P, act, p);       // поправка позы под оружие (12b_weapons)
+    kitPose(P, act, p, { s: kS, a: kA, r: kR }, this.game.settings.v);   // анимации атак своего оружия (12d_kits)
     if (act.style) ATTACK_STYLES[act.style].pose(P, act, p, { s: kS, a: kA, r: kR });   // визуальный стиль — поверх
     return P;
   }
@@ -679,7 +689,9 @@ class CombatSystem {
     else if (def.kind === "ranged") kind = "volley";
     else if (def.launch || def.kind === "dive" || !p.onGround || !e.onGround) kind = "sky";
     else kind = "xcut";
-    const dur = { xcut: 0.78, sky: 0.95, volley: 0.72, colossus: 1.15 }[kind];
+    kind = kitTakedown(this, kind, e, act) || kind;     // своё добивание оружия (12d_kits)
+    const tk = TD_KITS[kind];
+    const dur = tk ? tk.dur : { xcut: 0.78, sky: 0.95, volley: 0.72, colossus: 1.15 }[kind];
     e.executed = true; e.hp = Math.max(0.01, e.hp); e.cancelAttack(g);
     e.setState("executed"); e.vx = 0; e.vy = 0; e.hitKick = 1; e.tdPose = null;
     p.action = null; p.scripted = true; p.setState("takedown"); p.vx = 0; p.vy = 0;
@@ -698,8 +710,9 @@ class CombatSystem {
     g.letterboxTarget = 1;
     g.sfx("perfect");
     const names = { xcut: "РАССЕЧЕНИЕ", sky: "НЕБЕСНАЯ КАЗНЬ", volley: "РАССТРЕЛ", colossus: "ПАДЕНИЕ КОЛОССА" };
-    this.flashLabel(names[kind]);
-    g.takedownTitle = names[kind]; g.takedownTitleT = 1.4;
+    const title = tk ? tk.name : names[kind];
+    this.flashLabel(title);
+    g.takedownTitle = title; g.takedownTitleT = 1.4;
   }
 
   /** Эффекты живут в игровом времени, а сценарий идёт в реальном: при замедлении сокращаем жизнь, чтобы росчерки не висели после удара. */
@@ -713,6 +726,7 @@ class CombatSystem {
     const t = td.t, ph = (a, b) => clamp((t - a) / (b - a), 0, 1);
     const P = { legAmp: 0, legSpread: 1.7, tuck: 0, sx: 1, sy: 1, wBlend: 0, wAngle: 0, headTilt: 0, elbowF: 0.2, armB: -1.0, cloak: 0, bodyY: 0, spin: 0 };
     const strike = { lean: 0.75, bodyY: 2, tuck: 0.3, sx: 1.22, sy: 0.84, armF: 1.45, elbowF: 0.1, wBlend: 1, wAngle: 0, armB: -1.5, cloak: -1.1 };
+    if (TD_KITS[td.kind]) return Object.assign(P, TD_KITS[td.kind].pose(this, p, td));
     if (td.kind === "xcut") {
       if (t < 0.1) { const k = easeOut(ph(0, 0.1)); Object.assign(P, { lean: 0.3 * k, bodyY: 3 * k, sx: 1 + 0.06 * k, sy: 1 - 0.08 * k, armF: lerp(0.3, -1.3, k), elbowF: 0.3, armB: 0.9 * k, cloak: -0.4 * k }); }
       else if (t < 0.2) Object.assign(P, strike);
@@ -771,7 +785,9 @@ class CombatSystem {
     const cam = g.camera;
     e.hitKick = Math.max(0, e.hitKick - dt * 5);
 
-    if (td.kind === "xcut") {
+    const tk = TD_KITS[td.kind];
+    if (tk) tk.update(this, td, { t, dt, once, life, streak, cy, d, low, col, ec, finish: () => this._finishTakedown(true) });
+    else if (td.kind === "xcut") {
       const pass = clamp(e.x + d * 36, 40, WORLD.w - 40), back = clamp(e.x - d * 36, 40, WORLD.w - 40);
       p.y = td.py;
       if (t < 0.1) p.x = td.px;
@@ -872,7 +888,7 @@ class CombatSystem {
     if (t >= td.dur) {
       this.td = null;
       p.scripted = false;
-      p.y = td.kind === "sky" ? Math.min(0, p.y) : p.y;
+      p.y = td.kind === "sky" || (tk && tk.air) ? Math.min(0, p.y) : p.y;
       if (p.state === "takedown") p.setState(p.onGround ? "idle" : "fall");
       p.iframes = Math.max(p.iframes, 0.35);
       g.camera.release();
@@ -897,7 +913,7 @@ class CombatSystem {
 
   _finishTakedown() {
     const td = this.td, g = this.game, e = td.e, p = g.player, low = g.fx.low;
-    const style = { xcut: "split", sky: "slam", volley: "shot", colossus: "topple" }[td.kind];
+    const style = TD_KITS[td.kind] ? TD_KITS[td.kind].death || "shot" : { xcut: "split", sky: "slam", volley: "shot", colossus: "topple" }[td.kind];
     e.executed = false;
     e.hp = 0;
     e.deathStyle = style;

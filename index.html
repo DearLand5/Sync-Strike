@@ -10021,7 +10021,13 @@ class CombatSystem {
     return best;
   }
 
+  /** Выбор приёма: общая логика, затем подмена набором выбранного оружия (12d_kits). */
   chooseAttack(target, j) {
+    const name = this._chooseBase(target, j);
+    return kitChoose(this, name, target, j) || name;
+  }
+
+  _chooseBase(target, j) {
     const g = this.game, p = g.player;
     const air = !p.onGround;
     const good = j.rating === "perfect" || j.rating === "good";
@@ -10075,6 +10081,9 @@ class CombatSystem {
     act.t += dt;
     const tA = act.startup + act.travel;           // начало активной фазы
     act.phase = act.t < act.startup ? "startup" : act.t < tA ? "travel" : act.t < tA + act.active ? "active" : "recovery";
+    // приёмы набора оружия: своя механика (kind "custom" — только она) и эффект в момент удара
+    if (def.fx && !act.kitFx && (act.phase === "active" || act.phase === "recovery")) { act.kitFx = true; def.fx(g, p, act); }
+    if (def.update) def.update(this, p, act, dt, tA);
 
     if (def.kind === "melee") {
       if (act.phase === "startup") p.vx = damp(p.vx, 0, 12, dt);
@@ -10222,6 +10231,7 @@ class CombatSystem {
       if (def.slam) Object.assign(P, act.phase === "startup" ? { armF: 3.0, wAngle: -1.4, tuck: 0.3, lean: -0.15, sy: 1.08 } : { sy: 1.2, sx: 0.85, cloak: 1 });
     }
     weaponPose(P, act, p);       // поправка позы под оружие (12b_weapons)
+    kitPose(P, act, p, { s: kS, a: kA, r: kR }, this.game.settings.v);   // анимации атак своего оружия (12d_kits)
     if (act.style) ATTACK_STYLES[act.style].pose(P, act, p, { s: kS, a: kA, r: kR });   // визуальный стиль — поверх
     return P;
   }
@@ -10449,7 +10459,9 @@ class CombatSystem {
     else if (def.kind === "ranged") kind = "volley";
     else if (def.launch || def.kind === "dive" || !p.onGround || !e.onGround) kind = "sky";
     else kind = "xcut";
-    const dur = { xcut: 0.78, sky: 0.95, volley: 0.72, colossus: 1.15 }[kind];
+    kind = kitTakedown(this, kind, e, act) || kind;     // своё добивание оружия (12d_kits)
+    const tk = TD_KITS[kind];
+    const dur = tk ? tk.dur : { xcut: 0.78, sky: 0.95, volley: 0.72, colossus: 1.15 }[kind];
     e.executed = true; e.hp = Math.max(0.01, e.hp); e.cancelAttack(g);
     e.setState("executed"); e.vx = 0; e.vy = 0; e.hitKick = 1; e.tdPose = null;
     p.action = null; p.scripted = true; p.setState("takedown"); p.vx = 0; p.vy = 0;
@@ -10468,8 +10480,9 @@ class CombatSystem {
     g.letterboxTarget = 1;
     g.sfx("perfect");
     const names = { xcut: "РАССЕЧЕНИЕ", sky: "НЕБЕСНАЯ КАЗНЬ", volley: "РАССТРЕЛ", colossus: "ПАДЕНИЕ КОЛОССА" };
-    this.flashLabel(names[kind]);
-    g.takedownTitle = names[kind]; g.takedownTitleT = 1.4;
+    const title = tk ? tk.name : names[kind];
+    this.flashLabel(title);
+    g.takedownTitle = title; g.takedownTitleT = 1.4;
   }
 
   /** Эффекты живут в игровом времени, а сценарий идёт в реальном: при замедлении сокращаем жизнь, чтобы росчерки не висели после удара. */
@@ -10483,6 +10496,7 @@ class CombatSystem {
     const t = td.t, ph = (a, b) => clamp((t - a) / (b - a), 0, 1);
     const P = { legAmp: 0, legSpread: 1.7, tuck: 0, sx: 1, sy: 1, wBlend: 0, wAngle: 0, headTilt: 0, elbowF: 0.2, armB: -1.0, cloak: 0, bodyY: 0, spin: 0 };
     const strike = { lean: 0.75, bodyY: 2, tuck: 0.3, sx: 1.22, sy: 0.84, armF: 1.45, elbowF: 0.1, wBlend: 1, wAngle: 0, armB: -1.5, cloak: -1.1 };
+    if (TD_KITS[td.kind]) return Object.assign(P, TD_KITS[td.kind].pose(this, p, td));
     if (td.kind === "xcut") {
       if (t < 0.1) { const k = easeOut(ph(0, 0.1)); Object.assign(P, { lean: 0.3 * k, bodyY: 3 * k, sx: 1 + 0.06 * k, sy: 1 - 0.08 * k, armF: lerp(0.3, -1.3, k), elbowF: 0.3, armB: 0.9 * k, cloak: -0.4 * k }); }
       else if (t < 0.2) Object.assign(P, strike);
@@ -10541,7 +10555,9 @@ class CombatSystem {
     const cam = g.camera;
     e.hitKick = Math.max(0, e.hitKick - dt * 5);
 
-    if (td.kind === "xcut") {
+    const tk = TD_KITS[td.kind];
+    if (tk) tk.update(this, td, { t, dt, once, life, streak, cy, d, low, col, ec, finish: () => this._finishTakedown(true) });
+    else if (td.kind === "xcut") {
       const pass = clamp(e.x + d * 36, 40, WORLD.w - 40), back = clamp(e.x - d * 36, 40, WORLD.w - 40);
       p.y = td.py;
       if (t < 0.1) p.x = td.px;
@@ -10642,7 +10658,7 @@ class CombatSystem {
     if (t >= td.dur) {
       this.td = null;
       p.scripted = false;
-      p.y = td.kind === "sky" ? Math.min(0, p.y) : p.y;
+      p.y = td.kind === "sky" || (tk && tk.air) ? Math.min(0, p.y) : p.y;
       if (p.state === "takedown") p.setState(p.onGround ? "idle" : "fall");
       p.iframes = Math.max(p.iframes, 0.35);
       g.camera.release();
@@ -10667,7 +10683,7 @@ class CombatSystem {
 
   _finishTakedown() {
     const td = this.td, g = this.game, e = td.e, p = g.player, low = g.fx.low;
-    const style = { xcut: "split", sky: "slam", volley: "shot", colossus: "topple" }[td.kind];
+    const style = TD_KITS[td.kind] ? TD_KITS[td.kind].death || "shot" : { xcut: "split", sky: "slam", volley: "shot", colossus: "topple" }[td.kind];
     e.executed = false;
     e.hp = 0;
     e.deathStyle = style;
@@ -11185,6 +11201,7 @@ function weaponOf(slot, set) {
 /** Приём с поправкой на оружие: копия ATTACKS[name] (создаётся один раз и кэшируется). Базовое оружие — исходный объект. */
 function weaponDef(name, set) {
   const base = ATTACKS[name];
+  if (base.kit) return base;          // приёмы набора оружия (12d_kits) уже настроены под своё оружие
   const w = base.kind === "ranged" ? weaponOf("gun", set) : base.kind === "melee" || base.kind === "dash" ? weaponOf("melee", set) : null;
   if (!w || !w.mod) return base;
   return w._defs[name] || (w._defs[name] = buildWeaponDef(base, w));
@@ -11544,6 +11561,81 @@ function pickAttackStyle(cs, name, j) {
   cs.lastStyle = id;
   cs.styles[id] = (cs.styles[id] || 0) + 1;
   return id;
+}
+
+/* ==== 12d_kits.js ==== */
+/* =====================================================================
+   Наборы оружия (kits) — у каждого оружия свои анимации атак, свои комбинации и свои добивания.
+   Оружие регистрирует набор в своём модуле (12k_<группа>.js) через registerKit(id, kit). Поля набора (все необязательные):
+
+   moves: { имя: def }   — собственные приёмы оружия. def — как запись ATTACKS (kind "melee" | "dash" | "ranged" | "dive"
+                            работают встроенной механикой 12_combat) или kind "custom" — вся механика в def.update.
+                            Дополнительные поля def:
+                              name      — подпись приёма (показывается при срабатывании, как у комбинаций);
+                              update(cs, p, act, dt, tA) — каждый шаг 1/120 действия (после встроенной механики своего kind);
+                              pose(P, act, p, k)        — поза приёма поверх встроенной (k = {s, a, r} ход фаз 0..1);
+                              fx(g, p, act)             — один раз в момент удара (начало active).
+                            Приёмы набора НЕ проходят множители оружия (weaponDef) — они уже настроены под своё оружие.
+   choose(cs, name, ctx) — подмена выбора приёма: name — что выбрала общая логика (chooseAttack), ctx =
+                            { target, j, good, air, dx, dy, away, p }. Вернуть имя своего приёма или ничего.
+                            Вызывается только для набора выбранного в «Арсенале» оружия того же слота (ближний бой —
+                            для приёмов melee/dash/dive, огнестрел — для ranged).
+   pose(P, act, p, k)    — анимация ВСЕХ атак этим оружием (стойка, хват, замах): вызывается после weaponPose,
+                            до визуального стиля приёма (12c_styles).
+   takedown(cs, kind, e, act) — вернуть id своего добивания (из TD_KITS) вместо встроенного kind
+                            (xcut / sky / volley / colossus) или ничего — тогда встроенное.
+   Добивания: registerTakedown(id, { name, dur, air?, death, update(cs, td, api), pose(cs, p, td) }):
+     name — заголовок («ЛУННЫЙ КРУГ»), dur — длительность сценария (с, во времени td.t), death — поза смерти врага
+     ("split" | "slam" | "shot" | "topple"), air — сценарий может закончиться в воздухе;
+     update — двигает героя/врага по td.t (p.x/p.y/p.facing, e.x/e.y, e.tdPose) и запускает события через api;
+     api = { t, dt, once(key, time, fn), life(x), streak(x0, x1, y), cy, d, low, col, ec, finish() } —
+     finish() вызвать один раз в момент смерти врага (как _finishTakedown); pose — поза героя (как tdPose).
+   ===================================================================== */
+const WEAPON_KITS = {};
+const TD_KITS = {};
+
+function registerKit(id, kit) {
+  WEAPON_KITS[id] = kit;
+  const w = WEAPONS[id];
+  for (const name in kit.moves || {}) {
+    const def = kit.moves[name];
+    def.kit = id; def.w = w;
+    if (!def.name) def.name = name;
+    ATTACKS[name] = def;
+    if (!COMBO_MOVES.includes(name)) COMBO_MOVES.push(name);
+  }
+}
+function registerTakedown(id, td) { TD_KITS[id] = td; }
+
+/** Набор выбранного оружия слота (или null). */
+function kitOf(slot, set) { const w = weaponOf(slot, set); return WEAPON_KITS[w.id] || null; }
+
+/** Подмена выбора приёма набором оружия. */
+function kitChoose(cs, name, target, j) {
+  const g = cs.game, p = g.player, base = ATTACKS[name];
+  const kit = kitOf(base.kind === "ranged" ? "gun" : "melee", g.settings.v);
+  if (!kit || !kit.choose) return null;
+  const ctx = { target, j, p, air: !p.onGround, good: j.rating === "perfect" || j.rating === "good", away: Math.abs(g.input.moveX) > 0.4 && target && sign(g.input.moveX) !== sign(target.x - p.x),
+    dx: target ? Math.abs(target.x - p.x) - (target.w * target.scale) / 2 - p.w / 2 : 1e9, dy: target ? target.centerY - p.centerY : 0 };
+  const r = kit.choose(cs, name, ctx);
+  return r && ATTACKS[r] ? r : null;
+}
+
+/** Анимация атаки: поза оружия для всех приёмов + поза собственного приёма набора. */
+function kitPose(P, act, p, k, set) {
+  const def = act.def;
+  const kit = def.kit ? WEAPON_KITS[def.kit] : kitOf(def.kind === "ranged" ? "gun" : "melee", set);
+  if (kit && kit.pose) kit.pose(P, act, p, k);
+  if (def.pose) def.pose(P, act, p, k);
+}
+
+/** Добивание набора: id из TD_KITS или null. */
+function kitTakedown(cs, kind, e, act) {
+  const def = act.def, set = cs.game.settings.v;
+  const kit = def.kit ? WEAPON_KITS[def.kit] : kitOf(def.kind === "ranged" ? "gun" : "melee", set);
+  if (!kit || !kit.takedown) return null;
+  const id = kit.takedown(cs, kind, e, act);
+  return id && TD_KITS[id] ? id : null;
 }
 
 /* ==== 13_ui.js ==== */
