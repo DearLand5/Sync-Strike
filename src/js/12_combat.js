@@ -433,7 +433,8 @@ class CombatSystem {
       if (act.phase === "travel") Object.assign(P, { tuck: 0.4, sx: 1.15, sy: 0.88, cloak: -0.8, bodyY: 2 });
       if (def.spin && act.phase === "active") Object.assign(P, { sx: 1.1, sy: 0.92, bodyY: 2, cloak: -1 });
       // «Ответ»: разворот на месте между ударами (силуэт сужается на развороте)
-      if (def.turn && act.phase === "active") Object.assign(P, { sx: 0.45 + 0.65 * Math.abs(Math.cos(Math.PI * u)), bodyY: 2.4, cloak: 1.1, armB: -1.5 });
+      // разворот между ударами — направление удара уже меняется (act.dir), поворот только «доводит» корпус
+      if (def.turn && act.phase === "active") Object.assign(P, { turn: sub ? 0.5 * easeInOut(u) - 0.5 : 0, bodyY: 2.4, cloak: 1.1, armB: -1.5 });
       if (act.name === "cross" && act.phase === "active") Object.assign(P, { lean: 0.38, bodyY: 1.8, legSpread: 1.8, armB: sub ? -1.2 : 0.4 });
       if (def.flip) P.spin = act.phase === "active" ? TAU * easeInOut(kA) : 0;   // сальто в воздухе
       if (!p.onGround) P.tuck = 0.4;

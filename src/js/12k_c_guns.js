@@ -464,7 +464,9 @@
       }
       if (t < 0.42) {          // разворот спиной: силуэт сужается на развороте
         const k = ph(0.3, 0.42);
-        return { armF: 0.18, elbowF: 0.3, armB: -0.2, lean: 0.04, bodyY: 1.6, legSpread: 1.7, sx: 0.3 + 0.7 * Math.abs(Math.cos(Math.PI * k)), cloak: 1.1, headTilt: -0.1 };
+        // разворот спиной — поворот вокруг оси; с 0,36 с update уже развернул p.facing, поэтому угол отсчитывается от нового направления
+        const th = 0.5 * easeInOut(k);
+        return { armF: 0.18, elbowF: 0.3, armB: -0.2, lean: 0.04, bodyY: 1.6, legSpread: 1.7, turn: t < 0.36 ? th : th - 0.5, cloak: 1.1, headTilt: -0.1 };
       }
       if (t < 0.54) {          // рука с револьвером откидывается назад-вверх, взгляд через плечо
         const k = easeOut(ph(0.42, 0.53));

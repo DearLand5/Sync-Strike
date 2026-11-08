@@ -37,9 +37,10 @@ const POSES = {
         return { lean: 0.2 * a, armF: lerp(0.3, 1.0, a), elbowF: 1.1, armB: lerp(-0.3, 0.8, a), bodyY: 1.6 * a, cloak: 0.5 * a, headTilt: 0.25 * a, legSpread: 1, wBlend: 0, sx: 1, sy: 1, legAmp: 0, tuck: 0 };
       }
       if (k < 0.82) {
-        const s = (k - 0.2) / 0.62, th = TAU * 2 * easeInOut(s);
-        p.facing = Math.cos(th) >= 0 ? p.poseAct.face : -p.poseAct.face;
-        return { lean: 0.05, armF: 1.6, elbowF: 0.1, armB: -1.6, bodyY: 0.6 - Math.sin(Math.PI * s) * 1.4, cloak: 1.3, headTilt: -0.1, legSpread: 1.25, wBlend: 1, wAngle: 0.2, sx: Math.max(0.18, Math.abs(Math.cos(th))), sy: 1.03, legAmp: 0, tuck: 0.15 * Math.sin(Math.PI * s) };
+        const s = (k - 0.2) / 0.62;
+        p.facing = p.poseAct.face;
+        // два оборота на месте — настоящий поворот (turn), а не сжатие силуэта
+        return { lean: 0.05, armF: 1.6, elbowF: 0.1, armB: -1.6, bodyY: 0.6 - Math.sin(Math.PI * s) * 1.4, cloak: 1.3, headTilt: -0.1, legSpread: 1.25, wBlend: 1, wAngle: 0.2, sx: 1, sy: 1.03, turn: 2 * easeInOut(s), legAmp: 0, tuck: 0.15 * Math.sin(Math.PI * s) };
       }
       p.facing = p.poseAct.face;
       const b = easeOut((k - 0.82) / 0.18);

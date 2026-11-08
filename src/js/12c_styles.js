@@ -20,7 +20,7 @@ const ATTACK_STYLES = {
     name: "Пируэт", moves: ["slash1", "slash2", "slash3"],
     pose(P, act, p, k) {
       if (act.phase === "startup") Object.assign(P, { bodyY: -0.6, sy: 1.05 });
-      if (act.phase === "active") Object.assign(P, { sx: 0.38 + 0.62 * Math.abs(Math.cos(Math.PI * k.a)), cloak: 1.3, armB: -1.5, bodyY: 0.8, legSpread: 1.1 });
+      if (act.phase === "active") Object.assign(P, { turn: easeInOut(k.a), cloak: 1.3, armB: -1.5, bodyY: 0.8, legSpread: 1.1 });   // полный оборот
     },
     fx(g, p, act) {
       g.fx.ring(p.x, p.y - 18, 6, 30, p.skin.accent, 0.25, 2);

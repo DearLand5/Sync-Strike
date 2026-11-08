@@ -27,6 +27,7 @@ const ENEMY_LOOKS = {
 const BASE_POSE = {
   bodyY: 0, sx: 1, sy: 1, lean: 0, legPhase: 0, legAmp: 0, legSpread: 1, tuck: 0,
   armF: 0.35, elbowF: 0.4, armB: -0.3, wAngle: 0, wBlend: 0, headTilt: 0, cloak: 0, eye: 0, spin: 0,
+  turn: 0,    // поворот вокруг вертикальной оси в оборотах (0.5 — спиной): силуэт сужается и зеркалится, а не сплющивается
 };
 
 class AnimState {
@@ -45,11 +46,12 @@ const AnimationSystem = {
     const k = 1 - Math.exp(-rate * dt);
     for (const key in target) {
       const v = target[key];
-      if (typeof v === "number") p[key] = key === "legPhase" || key === "spin" ? v : p[key] + (v - p[key]) * k;
+      if (typeof v === "number") p[key] = key === "legPhase" || key === "spin" || key === "turn" ? v : p[key] + (v - p[key]) * k;
       else p[key] = v;
     }
     // вращение (кувырки, сальто) задаётся напрямую — плавный возврат дал бы обратный оборот
     if (target.spin == null) p.spin = 0;
+    if (target.turn == null) p.turn = 0;
   },
   /** Вторичная анимация с подшагами 1/120 с — результат не зависит от частоты кадров. */
   secondary(st, ch, dt) {
@@ -167,8 +169,12 @@ const CharacterRenderer = {
       ctx.fillStyle = ch.scarfColor; ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 1.5 * s, 0, TAU); ctx.fill();
       ctx.restore();
     }
-    const sq = st.squashT;
-    ctx.scale(s * ch.facing * p.sx * (1 + sq * 0.18), s * p.sy * (1 - sq * 0.16));
+    // масштаб силуэта: поза × импульс приземления/удара × разворот (st.turnMul) × поворот вокруг оси (p.turn).
+    // Итог ограничен — раньше наложение множителей «сплющивало» героя до тонкой полоски
+    const sq = st.squashT, tc = p.turn ? Math.cos(TAU * p.turn) : 1;
+    const kx = clamp(p.sx * (1 + sq * 0.18) * (st.turnMul || 1) * Math.max(0.62, Math.abs(tc)), 0.62, 1.35);
+    const ky = clamp(p.sy * (1 - sq * 0.16), 0.78, 1.25);
+    ctx.scale(s * ch.facing * (tc < 0 ? -1 : 1) * kx, s * ky);
     // кувырки и сальто — вращение вокруг центра тела
     if (p.spin) { ctx.translate(0, -14); ctx.rotate(p.spin); ctx.translate(0, 14); }
     ctx.lineCap = "round"; ctx.lineJoin = "round";

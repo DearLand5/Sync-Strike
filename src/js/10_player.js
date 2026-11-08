@@ -415,7 +415,8 @@ class Player {
     }
     AnimationSystem.blend(this.anim, P, rate, dt);
     if (P.legPhase != null) this.anim.pose.legPhase = P.legPhase;
-    if (this.turnT > 0) this.anim.pose.sx *= 1 - 0.28 * Math.sin(Math.PI * (1 - this.turnT / 0.14));
+    // разворот на месте: множитель ширины на этот кадр (раньше умножался сам pose.sx каждый кадр — сжатие накапливалось)
+    this.anim.turnMul = this.turnT > 0 ? 1 - 0.28 * Math.sin(Math.PI * (1 - this.turnT / 0.14)) : 1;
     AnimationSystem.secondary(this.anim, this, dt);
   }
 }
