@@ -37,7 +37,7 @@ fs.mkdirSync(shots, { recursive: true });
       g.waves.queue = []; g.waves.pending = []; g.waves.between = 999;
       for (const e of g.enemies) e.dead = true; g.enemies = [];
       const p = g.player; p.x = 600; p.y = 0; p.vx = 0; p.vy = 0; p.onGround = true; p.action = null; p.setState("idle"); p.facing = 1; p.counterT = 0;
-      Object.assign(c, { comboStep: 0, lastMeleeT: -9, lastRiseT: -9, shotChain: 0, lastAction: null, lastActionT: -9, chain: opts.chain || 0, airChain: 0, lastPress: null, lastTdT: 99, kbGrabT: -9, kbDagT: -9 });
+      Object.assign(c, { comboStep: 0, lastMeleeT: -9, lastRiseT: -9, shotChain: 0, lastAction: null, lastActionT: -9, chain: opts.chain || 0, airChain: 0, lastPress: null, lastTdT: 99, kbGrabT: -9, kbDagT: -9, kuWrapT: -9, kuPendT: -9 });
       const e = g.waves.spawn(opts.kind || "blade", true);
       e.x = p.x + dist; e.y = 0; e.maxHp = e.hp = 1e5; e.attackCD = 99;
       window.__pin = { x: e.x }; window.__free = !!opts.free; window.__recent = !!opts.recent;
@@ -60,10 +60,29 @@ fs.mkdirSync(shots, { recursive: true });
 
   console.log("— Цепной серп —");
   await use("kusari");
-  await page.evaluate(() => { window.__setup(120, { free: true }); window.__beat(false); });
+  // дальний удар вместо рывка: груз летит с места и бьёт по линии цепи (цель на средней дистанции, точность не «perfect»-вдали)
+  await page.evaluate(() => { window.__setup(80, { free: true }); window.__beat(false); });
+  await done(); r = await res();
+  check(r.names[0] === "kusariLash" && r.hits >= 1, `Бросок груза: ${r.names.join(" → ")}, попаданий ${r.hits}`);
+  check(Math.abs(r.px - 600) < 40, `Бросок груза: герой почти не сдвинулся (${Math.round(r.px - 600)})`);
+  console.log(`     урон ${Math.round(r.dmg)}`);
+  // цепь бьёт и далеко: цель на дистанции ~160 (раньше — рывок к цели)
+  await page.evaluate(() => { window.__setup(185, { free: true }); window.__beat(false, 0.01); window.__game.combat.kbGrabT = 1e9; });
+  await done(); r = await res();
+  check(r.names[0] === "kusariLash" && r.hits >= 1, `Бросок груза издалека: ${r.names.join(" → ")}, попаданий ${r.hits}, герой сдвинулся на ${Math.round(r.px - 600)}`);
+  await page.evaluate(() => { window.__setup(130, { free: true }); window.__beat(false); });
   await done(); r = await res();
   check(r.names[0] === "kusariGrab" && r.hits >= 1, `Цепной захват: ${r.names.join(" → ")}, попаданий ${r.hits}`);
   check(r.ex - r.px < 60, `Цепной захват: враг притянут к герою (расстояние ${Math.round(r.ex - r.px)})`);
+  console.log(`     урон ${Math.round(r.dmg)}`);
+  await page.evaluate(() => { window.__setup(110, { free: true }); window.__beat(true); });
+  await done(); r = await res();
+  check(r.names[0] === "kusariWrap" && r.hits >= 2, `Обмотка: ${r.names.join(" → ")}, попаданий ${r.hits}`);
+  check(r.ex < r.px, `Обмотка: враг переброшен за спину героя (${Math.round(r.ex)} < ${Math.round(r.px)})`);
+  console.log(`     урон ${Math.round(r.dmg)}`);
+  await page.evaluate(() => { window.__setup(120); window.__game.combat.kuWrapT = 1e9; window.__beat(true); });
+  await done(); r = await res();
+  check(r.names[0] === "kusariPendulum" && r.hits >= 1, `Маятник: ${r.names.join(" → ")}, попаданий ${r.hits}`);
   console.log(`     урон ${Math.round(r.dmg)}`);
   await page.evaluate(() => { window.__setup(28); window.__beat(true); });
   await done(); r = await res();
@@ -81,6 +100,12 @@ fs.mkdirSync(shots, { recursive: true });
   check(r.names[0] === "katanaPetals" && r.hits >= 4, `Танец лепестков: ${r.names.join(" → ")}, попаданий ${r.hits}`);
   console.log(`     урон ${Math.round(r.dmg)}`);
 
+  // «и» после удара в долю: два разреза в одну точку (сверху вниз и обратно)
+  await page.evaluate(() => { window.__setup(28); window.__beat(false); const g = window.__game; window.__plan.push(window.__plan[0] + g.clock.period / 2 + 0.005); });
+  await done(); r = await res();
+  check(r.names[1] === "katanaSwallow" && r.hits >= 2, `Ласточка: ${r.names.join(" → ")}, попаданий ${r.hits}`);
+  console.log(`     урон ${Math.round(r.dmg)}`);
+
   console.log("— Теневой кинжал —");
   await use("dagger");
   await page.evaluate(() => { window.__setup(80, { free: true }); window.__beat(false); });
@@ -90,6 +115,11 @@ fs.mkdirSync(shots, { recursive: true });
   await page.evaluate(() => { window.__setup(180); window.__beat(false); });
   await done(); r = await res();
   check(r.names[0] === "daggerKnives" && r.hits >= 2, `Веер ножей: ${r.names.join(" → ")}, попаданий ${r.hits}`);
+  console.log(`     урон ${Math.round(r.dmg)}`);
+
+  await page.evaluate(() => { window.__setup(28, { chain: 3 }); window.__beat(true); });
+  await done(); r = await res();
+  check(r.names[0] === "daggerWhirl" && r.hits >= 2, `Вихрь теней: ${r.names.join(" → ")}, попаданий ${r.hits}`);
   console.log(`     урон ${Math.round(r.dmg)}`);
 
   console.log("— добивания —");

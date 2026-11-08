@@ -11275,9 +11275,7 @@ function weaponPose(P, act, p) {
   if (!w) return;
   const tA = act.startup + act.travel;
   if (w.id === "kusari") {
-    // цепь выбрасывается к удару и втягивается на восстановлении
-    const kS = clamp(act.t / Math.max(0.01, act.startup), 0, 1), kR = clamp((act.t - tA - act.active) / Math.max(0.01, act.recovery), 0, 1);
-    p.wExt = act.phase === "startup" ? 0.25 * kS : act.phase === "recovery" ? 1 - easeInOut(kR) : 1;
+    p.wExt = 0;      // форму цепи задают позы набора (12k_b_blades); без набора — цепь в покое
   } else if (w.id === "glaive" || w.id === "axe") {
     if (act.phase === "active" && !act.def.thrust) { P.bodyY = (P.bodyY || 0) + 0.6; P.legSpread = Math.max(P.legSpread || 1, 1.6); }
   } else if (w.id === "katana") {
@@ -11335,30 +11333,50 @@ const WEAPON_DRAW = {
   },
   kusari: {
     off: -0.6,
+    /* Кусаригама: серп в руке и ДЛИННАЯ цепь с грузом (фундо) на его рукояти. Цепь рисуется в «мировых» осях героя
+       (x — вперёд по взгляду, y — вниз) от рукояти до груза; положение груза задают позы приёмов (12k_b_blades):
+       ch.kuX/kuY — груз относительно кисти (ед. мира), kuB — боковой изгиб (хвост за движением), kuS — провис вниз,
+       ch.wExt — доля «боевой» формы 0..1 (0 — в покое цепь висит петлёй с грузом). Без аллокаций, одна обводка на звенья. */
     draw(ctx, ch, p, accent, hq) {
       const ext = ch.wExt || 0;
-      // рукоять
-      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-3, -0.9, 5, 1.8);
-      ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(-2.2, -0.9, 0.4, 1.8); ctx.fillRect(-0.8, -0.9, 0.4, 1.8);
-      const hx = 4 + 17 * ext, hy = -1 * ext;        // положение серпа: в руке или на конце цепи
-      // цепь: звенья по провисающей кривой от рукояти к серпу; в покое — короткая петля вниз с гирькой
-      const sag = 7 * (1 - ext);
-      ctx.strokeStyle = "#2a2c36"; ctx.lineWidth = 1; ctx.setLineDash(WD_DASH);
-      ctx.beginPath(); ctx.moveTo(2, 0); ctx.quadraticCurveTo((2 + hx) / 2, sag + 0.5, hx, hy); ctx.stroke();
-      ctx.setLineDash(WD_NODASH);
-      if (ext < 0.5) {      // гирька на втором конце цепи
-        ctx.beginPath(); ctx.moveTo(-3, 0.4); ctx.quadraticCurveTo(-7, 3, -5.5, 8); ctx.strokeStyle = "#2a2c36"; ctx.lineWidth = 1; ctx.setLineDash(WD_DASH); ctx.stroke(); ctx.setLineDash(WD_NODASH);
-        ctx.fillStyle = "#1c1d25"; ctx.beginPath(); ctx.arc(-5.5, 8.6, 1.5, 0, TAU); ctx.fill();
-        ctx.strokeStyle = accent; ctx.lineWidth = 0.5; ctx.stroke();
-      }
-      // серп: короткая рукоять и загнутый клинок
-      ctx.save(); ctx.translate(hx, hy);
-      ctx.fillStyle = "#14151b"; ctx.fillRect(-0.5, -0.7, 4, 1.4);
-      ctx.beginPath(); ctx.moveTo(3, -0.8); ctx.quadraticCurveTo(9, -1.4, 9.5, -7); ctx.quadraticCurveTo(6.5, -3.6, 3, 1); ctx.closePath();
+      // серп: рукоять с кольцом на конце и широкий загнутый клинок
+      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-3.4, -0.9, 9.6, 1.8);
+      ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(-2.4, -0.9, 0.4, 1.8); ctx.fillRect(-1, -0.9, 0.4, 1.8); ctx.fillRect(0.4, -0.9, 0.4, 1.8);
+      ctx.beginPath(); ctx.arc(-4.3, 0, 1.15, 0, TAU); ctx.strokeStyle = "#8a90a2"; ctx.lineWidth = 0.6; ctx.stroke();
+      ctx.fillStyle = "#1c1d25"; ctx.fillRect(5.6, -1.5, 1, 3);
+      ctx.beginPath(); ctx.moveTo(6.4, -0.9); ctx.quadraticCurveTo(14.5, -1.6, 14.6, -9.6); ctx.quadraticCurveTo(10.6, -5, 6.4, 1.1); ctx.closePath();
       ctx.fillStyle = "#171820"; ctx.fill();
-      ctx.beginPath(); ctx.moveTo(3, -0.8); ctx.quadraticCurveTo(9, -1.4, 9.5, -7);
+      ctx.beginPath(); ctx.moveTo(6.4, -0.9); ctx.quadraticCurveTo(14.5, -1.6, 14.6, -9.6);
       wGlow(ctx, hq, 3, accent, 0.35);
-      ctx.strokeStyle = accent; ctx.lineWidth = 0.75; ctx.stroke();
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(7.6, -1.3); ctx.quadraticCurveTo(12.4, -2.2, 13.2, -7); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.35; ctx.stroke();
+      // цепь — в осях «вперёд/вниз»: поворачиваем систему так, чтобы убрать наклон корпуса и угол оружия
+      const m = ctx.getTransform(), al = Math.atan2(m.b, (ch.facing || 1) * m.a);
+      ctx.save(); ctx.rotate(-al);
+      const ca = Math.cos(al), sa = Math.sin(al);
+      const x0 = -4.3 * ca, y0 = -4.3 * sa;                                      // кольцо рукояти
+      const tx = lerp(-1.5, ch.kuX == null ? 30 : ch.kuX, ext), ty = lerp(13, ch.kuY == null ? 8 : ch.kuY, ext);
+      const bend = (ch.kuB || 0) * ext, sag = lerp(2.5, ch.kuS || 0, ext);
+      const dx = tx - x0, dy = ty - y0, len = Math.hypot(dx, dy) || 1;
+      // управляющая точка: середина + боковой изгиб + провис (вершина кривой смещена на половину)
+      const cx = (x0 + tx) / 2 + (-dy / len) * bend * 2, cy = (y0 + ty) / 2 + (dx / len) * bend * 2 + sag * 2;
+      const n = clamp(Math.round(len / 4.4), 4, 44);
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n, u = 1 - t;
+        const px = u * u * x0 + 2 * u * t * cx + t * t * tx, py = u * u * y0 + 2 * u * t * cy + t * t * ty;
+        const tgx = 2 * u * (cx - x0) + 2 * t * (tx - cx), tgy = 2 * u * (cy - y0) + 2 * t * (ty - cy), ang = Math.atan2(tgy, tgx);
+        const rx = i % 2 ? 1.2 : 2;
+        ctx.moveTo(px + Math.cos(ang) * rx, py + Math.sin(ang) * rx);
+        ctx.ellipse(px, py, rx, i % 2 ? 0.55 : 1, ang, 0, TAU);
+      }
+      if (hq) { ctx.globalAlpha *= 0.22; ctx.lineWidth = 2.6; ctx.strokeStyle = accent; ctx.stroke(); ctx.globalAlpha /= 0.22; }
+      ctx.strokeStyle = "#9aa1b4"; ctx.lineWidth = 0.7; ctx.stroke();
+      // груз (фундо): тёмный шар с неоновой кромкой
+      ctx.fillStyle = "#1c1d25"; ctx.beginPath(); ctx.arc(tx, ty, 2.9, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(tx, ty, 2.9, 0, TAU); wGlow(ctx, hq, 3.4, accent, 0.4);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.beginPath(); ctx.arc(tx - 0.8, ty - 0.8, 0.7, 0, TAU); ctx.fillStyle = rgba("#ffffff", 0.3); ctx.fill();
       ctx.restore();
     },
   },
@@ -11464,7 +11482,7 @@ function drawWeaponPreview(c, id, skin, size, act = "idle") {
   if (gun) Object.assign(P, { armF: 1.45, elbowF: 0.05, lean: -0.04, armB: 0.3, wAngle: 0, wBlend: 0 });
   else if (act === "strike") Object.assign(P, id === "spear" ? { armF: Math.PI / 2, elbowF: 0, wBlend: 1, wAngle: 0, lean: 0.4, legSpread: 1.7 } : { armF: 1.9, elbowF: 0.1, lean: 0.25, legSpread: 1.6 });
   else Object.assign(P, { armF: 0.55, elbowF: 0.5, lean: 0.05 });
-  if (id === "kusari") ch.wExt = act === "strike" ? 1 : 0;
+  if (id === "kusari") { ch.wExt = act === "strike" ? 1 : 0; ch.kuX = 31; ch.kuY = 7; ch.kuB = -5; ch.kuS = 6; }     // на карточке цепь короче: груз у края кадра
   if (id === "smg") P.armB = 1.45;
   CharacterRenderer.draw(c, ch);
 }
@@ -12399,8 +12417,95 @@ function kitTakedown(cs, kind, e, act) {
   const subOf = (act, k) => { const h = act.def.hits || 1, s = Math.min(h - 1, Math.floor(k.a * h)); return { h, s, u: k.a * h - s }; };
   const ground = p => p.onGround !== false;
 
-  /* ---------- кусаригама ---------- */
-  // w0 — угол цепи в замахе, w1 — в конце взмаха (0 — вперёд, −π/2 — вверх, π/2 — вниз); a0/a1 — угол руки
+  /* ---------- кусаригама: длинная цепь ---------- */
+  // Цепь (WEAPON_DRAW.kusari, 12b_weapons) рисуется от кольца рукояти серпа до груза; позы приёмов задают положение груза
+  // относительно кисти в осях «вперёд/вниз» (chainSet). Длина цепи — 172 ед., как дальность рывка: основные удары дальние
+  // (груз бросается в цель), а серп работает вблизи. Все хитбоксы — по тому месту, где груз и цепь нарисованы.
+  const KU_L = 172;
+  const KU_E = { x: 0, y: 0 }, KU_W = { x: 0, y: 0 }, KU_T = { x: 0, y: 0 };     // временные точки (без аллокаций в кадре)
+  const KU_WIND = 0.045;                  // время полёта груза до удара (с)
+  const chainSet = (p, x, y, bend, sag, w) => { p.kuX = x; p.kuY = y; p.kuB = bend; p.kuS = sag; p.wExt = w == null ? 1 : w; };
+  /** Мировая точка → относительно кисти в осях цепи (вперёд по взгляду, вниз). */
+  const toLocal = (p, wx, wy, o) => { const h = CharacterRenderer.handWorld(p, 0); o.x = (wx - h.x) * p.facing; o.y = wy - h.y; return o; };
+  /** Эллиптическая орбита груза (вид «в три четверти»): над головой или вокруг героя. */
+  const orbit = (o, cx, cy, rx, ry, th) => { o.x = cx + rx * Math.cos(th); o.y = cy + ry * Math.sin(th); return o; };
+  /** Груз летит к точке E: раскрутка над головой до s = −KU_WIND, затем бросок; к удару (s = 0) груз у цели. */
+  const castChain = (p, s, E, w) => {
+    if (s < -KU_WIND) { orbit(KU_W, 0, -2, 25, 8, -2.4 + 24 * (s + KU_WIND)); chainSet(p, KU_W.x, KU_W.y, -6, 2, w); }
+    else {
+      const f = easeIn((s + KU_WIND) / KU_WIND);        // 1 к моменту удара — груз у цели
+      orbit(KU_W, 0, -2, 25, 8, -2.4);
+      chainSet(p, lerp(KU_W.x, E.x, f), lerp(KU_W.y, E.y, f), lerp(-6, 0, f), lerp(2, 5, f), w);
+    }
+  };
+  /** Втягивание цепи: груз по земле возвращается к ногам, звенья провисают, в конце цепь складывается в петлю на поясе. */
+  const reelChain = (p, E, r, w) => {
+    const gv = p.y - CharacterRenderer.handWorld(p, 0).y - 2;
+    const e = easeInOut(r);
+    chainSet(p, lerp(E.x, 16, e), r < 0.5 ? lerp(E.y, gv, Math.min(1, r * 3)) : lerp(gv, 12, easeInOut((r - 0.5) / 0.5)), 0, 3 + 9 * Math.sin(Math.PI * r), w * (1 - easeInOut((r - 0.62) / 0.38)));
+  };
+  /** Отрезок цепи (x0,y0)-(x1,y1) пересекает врага (прямоугольник с запасом pad)? */
+  const segHit = (x0, y0, x1, y1, e, pad) => {
+    const b = { x: e.x - e.w * e.scale / 2 - pad, y: e.y - e.h * e.scale - pad, w: e.w * e.scale + pad * 2, h: e.h * e.scale + pad * 2 };
+    const t = rayBox(x0, y0, x1 - x0, y1 - y0, b);
+    return t >= 0 && t <= 1;
+  };
+  /** Удар цепью по всем врагам на отрезке (каждого один раз за приём). Возвращает число попаданий. */
+  const chainHits = (cs, p, act, x0, y0, x1, y1, pad) => {
+    let n = 0;
+    for (const e of cs.game.enemies) {
+      if (!e.targetable || act.hit.has(e.id) || !segHit(x0, y0, x1, y1, e, pad)) continue;
+      act.hit.add(e.id); n++;
+      cs._applyHit(e, act, sign(e.x - p.x) || act.dir, e.x, e.centerY);
+    }
+    return n;
+  };
+  /** Вспышка рывка цепи: тонкая линия с белой сердцевиной и пятно на грузе. */
+  const snapFx = (g, p, x0, y0, x1, y1, hit) => {
+    g.fx.cut(x0, y0, x1, y1, "#9aa3b5", 2.4, 0.14);
+    g.fx.cut(x0, y0, x1, y1, "#ffffff", 0.9, 0.1);
+    g.fx.glow(x1, y1, 3, hit ? 18 : 10, p.skin.accent, 0.16, hit ? 0.45 : 0.25);
+    if (hit) g.fx.sparks(x1, y1, 5, p.skin.accent, 170, null, Math.PI, 0.25);
+  };
+  /** След груза: короткие росчерки между положениями груза (по ходу вращения и броска). */
+  const trail = (g, p, act) => {
+    if (!p.wExt || g.fx.low) return;
+    const h = CharacterRenderer.handWorld(p, 0), x = h.x + (p.kuX || 0) * p.facing, y = h.y + (p.kuY || 0);
+    if (act.kpx != null) {
+      const d = Math.hypot(x - act.kpx, y - act.kpy);
+      if (d > 10) { if (d < 140) g.fx.line(act.kpx, act.kpy, x, y, p.skin.accent, 1.8, 0.13); act.kpx = x; act.kpy = y; }
+    } else { act.kpx = x; act.kpy = y; }
+  };
+  /** Шаг героя навстречу цели в подготовке, чтобы цепь доставала (скорость — чтобы успеть к удару). */
+  const stepIn = (p, act, dt, tA, need) => {
+    if (act.stepNeed == null) { act.stepNeed = need; act.stepX = p.x; }
+    const left = act.stepNeed - Math.abs(p.x - act.stepX), rem = Math.max(0.03, tA - act.t);
+    if (act.phase !== "active" && act.phase !== "recovery" && left > 1) p.vx = act.dir * Math.min(900, left / rem);
+    else p.vx = damp(p.vx, 0, 12, dt);
+  };
+  /** Точка и сторона цели: враг в act.target (или ближайший); вне досягаемости цепи — груз падает коротко. */
+  const kuTarget = (cs, p, act) => {
+    const g = cs.game, tg = act.target && act.target.targetable ? act.target : nearestEnemy(g, p, 230);
+    const hand = CharacterRenderer.handWorld(p, 0);
+    let ex, ey;
+    if (tg) { act.dir = sign(tg.x - p.x) || act.dir; p.facing = act.dir; ex = tg.x; ey = tg.centerY; }
+    else { ex = hand.x + act.dir * 125; ey = hand.y + 6; }
+    const d = Math.hypot(ex - hand.x, ey - hand.y);
+    if (d > KU_L) { ex = hand.x + (ex - hand.x) * KU_L / d; ey = hand.y + (ey - hand.y) * KU_L / d; }
+    act.Ex = ex; act.Ey = ey; act.tg = tg;
+    return hand;
+  };
+  /** Предполагаемая точка удара до броска (оси цепи) — груз летит к цели, даже пока она движется. */
+  const kuEnd = (act, p, o) => {
+    if (act.fired) return toLocal(p, act.Ex, act.Ey, o);
+    const tg = act.target;
+    if (tg && tg.targetable) toLocal(p, tg.x, tg.centerY, o); else { o.x = 120; o.y = 2; }
+    const d = Math.hypot(o.x, o.y);
+    if (d > KU_L) { o.x *= KU_L / d; o.y *= KU_L / d; }
+    return o;
+  };
+
+  // w0 — угол серпа в замахе, w1 — в конце взмаха (0 — вперёд, −π/2 — вверх, π/2 — вниз); a0/a1 — угол руки
   const KUS = {
     slash1: { w0: -2.2, w1: 0.55, a0: 2.7, a1: 1.5 },
     slash2: { w0: 2.5, w1: -0.55, a0: 0.1, a1: 1.8 },
@@ -12409,43 +12514,312 @@ function kitTakedown(cs, kind, e, act) {
     rise:   { w0: 1.3, w1: -2.6, a0: 0.3, a1: 2.9 },
     cross:  { w0: -2.0, w1: 0.6, a0: 2.5, a1: 1.5 },
   };
+  /** Удары серпом вблизи (обычные приёмы, «Крест», «Шквал»): серп бьёт, цепь хвостом тянется за взмахом и стекает вниз. */
   const kusariPose = (P, act, p, k) => {
+    if (act.def.kit) return;                      // у своих приёмов набора — своя поза
     const nm = BASE[act.name] || act.name;
-    if (SKIP[nm]) return;
+    if (SKIP[nm]) { p.wExt = 0; return; }
     const S = KUS[nm] || KUS.slash1, ph = act.phase, g = ground(p), { h, s, u } = subOf(act, k);
     const kb = baseAng(act, p, S.w0);
-    let w = S.w0, arm = S.a0, ext = 1;
+    const sI = act.t - act.startup - act.travel;
+    let w = S.w0, arm = S.a0, q = 0;
     if (ph === "startup") {
-      // раскрутка цепи над головой: оборот-полтора, к концу подготовки цепь встаёт в угол замаха
+      // раскрутка цепи над головой: оборот-полтора, к концу подготовки серп встаёт в угол замаха
       const e = easeOut(k.s);
       arm = lerp(1.0, S.a0, e);
       w = S.w0 - (S.straight ? 0.6 : TAU * 1.5) * (1 - e);
-      ext = 0.4 + 0.25 * e;
       Object.assign(P, { lean: -0.14 * k.s, armB: lerp(-0.3, -1.3, e), elbowF: 0.25 });
       if (g) Object.assign(P, { bodyY: 0.5 + 1.8 * e, legSpread: 1.3 + 0.5 * e });
     } else if (ph === "travel") {
-      w = S.w0; arm = S.a0; ext = 0.6;
+      w = S.w0; arm = S.a0;
     } else if (ph === "active") {
-      let q = easeOut(k.a), a0 = S.w0, a1 = S.w1;
+      q = easeOut(k.a); let a0 = S.w0, a1 = S.w1;
       if (h > 1 && !S.spin && !S.straight) { q = easeOut(u); if (s % 2) { a0 = S.w1; a1 = S.w0; } }     // «Крест»: туда и обратно
       w = lerp(a0, a1, q);
       arm = lerp(s % 2 && h > 1 ? S.a1 : S.a0, s % 2 && h > 1 ? S.a0 : S.a1, q);
-      if (S.straight && h > 1) { ext = 0.35 + 0.65 * Math.sin(Math.PI * Math.min(1, u * 1.5)); arm = 1.57; w = lerp(-0.25, 0.1, u); }
-      P.armB = lerp(-1.3, 0.6, q);       // вторая рука с серпом идёт навстречу цепи
+      if (S.straight && h > 1) { arm = 1.57; w = lerp(-0.25, 0.1, u); q = Math.sin(Math.PI * Math.min(1, u * 1.5)); }
+      P.armB = lerp(-1.3, 0.6, q);       // вторая рука идёт навстречу цепи
       P.elbowF = 0.1;
       if (g) Object.assign(P, { legSpread: 1.8, bodyY: 2 });
     } else {
-      // втягивание цепи: рука опускается, цепь змеёй стекает вниз, серп возвращается в ладонь
+      // доводка: рука опускается, цепь стекает вниз и собирается в петлю, серп возвращается к бедру
       const e = easeInOut(k.r), w1 = S.w1;
       w = lerp(w1, w1 + wrapPi(1.25 - w1), e);
       arm = lerp(S.a1, 0.6, e);
-      ext = 1 - e;
       P.armB = lerp(0.6, -0.4, e);
     }
-    // относительные углы: kb — представление w0, ближайшее к текущему углу
     Object.assign(P, { armF: arm, wBlend: 1, wAngle: kb + (w - S.w0) });
-    p.wExt = ext;
+    // цепь: до удара — петля над головой, в ударе — хвост за серпом, на доводке — стекает вниз
+    const lean = P.lean || 0, ac = clamp((act.t - act.startup - act.travel) / 0.04, 0, 1);
+    orbit(KU_W, 0, -2, 18, 6, -1.6 + 20 * sI);
+    if (ph === "startup" || ph === "travel") chainSet(p, KU_W.x, KU_W.y, -4, 2, clamp(act.t / 0.04, 0, 1));
+    else {
+      const dirS = S.spin ? 1 : Math.sign(S.w1 - S.w0) || 1, R = ph === "active" ? 22 + 30 * Math.sin(Math.PI * Math.min(1, q)) : lerp(36, 10, easeInOut(k.r));
+      const ph0 = S.straight ? 0 : w + lean - 0.75 * dirS, ty = S.straight ? 4 : R * Math.sin(ph0) * 0.85, tx = S.straight ? 20 + 36 * (ph === "active" ? q : 1 - k.r) : R * Math.cos(ph0);
+      chainSet(p, lerp(KU_W.x, tx, easeOut(ac)), lerp(KU_W.y, ty, easeOut(ac)), -4, ph === "recovery" ? 3 + 9 * Math.sin(Math.PI * k.r) : 2, ph === "recovery" ? 1 - easeInOut((k.r - 0.5) / 0.5) : 1);
+    }
   };
+
+  /* ---------- приёмы: Цепной серп ---------- */
+  const nearestEnemy = (g, p, maxDx) => {
+    let best = null, bd = maxDx;
+    for (const e of g.enemies) { if (!e.targetable) continue; const d = Math.abs(e.x - p.x); if (d < bd) { bd = d; best = e; } }
+    return best;
+  };
+  /** Оглушить как обычный удар, прервавший замах (суперброню не ломаем — так же, как Enemy.damage). */
+  const stagger = (e, g, stun) => {
+    const armored = (e.state === "windup" && e.windT > e.windDur * 0.5) || e.state === "attack" || e.staggerImmune > 0;
+    if (armored || !e.alive || e.executed) return;
+    e.cancelAttack(g); e.setState("hurt"); e.hurtDur = stun; e.staggerImmune = 1.1;
+  };
+
+  const kusariMoves = {
+    // ДАЛЬНИЙ УДАР (основной у кусаригамы вместо рывка): груз раскручивается над головой и летит по прямой в цель, цепь
+    // провисает и натягивается; бьёт всех на линии цепи. Герой стоит на месте (или подаётся шагом вперёд), потом втягивает цепь.
+    kusariLash: {
+      kind: "custom", name: "Бросок груза", startup: 0.1, active: 0.1, recovery: 0.27, cancel: 0.2,
+      dmg: 15, knock: 230, stun: 0.4, moveControl: 0.1,
+      pose(P, act, p, k) {
+        const ph = act.phase, s = act.t - act.startup - act.travel, w = clamp(act.t / 0.04, 0, 1), E = kuEnd(act, p, KU_E);
+        const cast = s > -KU_WIND ? easeIn((s + KU_WIND) / KU_WIND) : 0, raise = easeOut(k.s);
+        if (ph === "startup" || ph === "travel") {
+          Object.assign(P, { armF: lerp(lerp(1.0, 2.7, raise), 1.55, cast), elbowF: lerp(0.25, 0.08, cast), wBlend: 1, wAngle: lerp(-1.3, 0.1, cast), lean: lerp(-0.2 * raise, 0.3, cast), armB: lerp(-0.3, -0.9, raise), bodyY: 0.5 + 1.7 * raise, legSpread: 1.3 + 0.6 * raise, sx: 1 + 0.06 * cast, sy: 1 - 0.06 * cast });
+          castChain(p, s, E, w);
+        } else if (ph === "active") {
+          Object.assign(P, { armF: 1.55, elbowF: 0.08, wBlend: 1, wAngle: 0.1, lean: 0.38, armB: -0.8, bodyY: 2.2, legSpread: 1.9, sx: 1.1, sy: 0.93, cloak: -0.8 });
+          chainSet(p, E.x, E.y, 0, lerp(5, 1, easeOut(k.a)), 1);
+        } else {
+          const e = easeInOut(k.r);
+          Object.assign(P, { armF: lerp(1.55, 0.7, e), elbowF: lerp(0.08, 0.5, e), wBlend: 1, wAngle: lerp(0.1, 1.0, e), lean: lerp(0.3, 0.05, e), armB: lerp(-0.8, -0.3, e), bodyY: lerp(2.2, 0.6, e), legSpread: lerp(1.9, 1.3, e) });
+          reelChain(p, E, k.r, 1);
+        }
+      },
+      update(cs, p, act, dt, tA) {
+        const g = cs.game;
+        if (act.stepNeed == null && act.target) stepIn(p, act, dt, tA, clamp(Math.abs(act.target.x - p.x) - 120, 0, 90));
+        else stepIn(p, act, dt, tA, 0);
+        trail(g, p, act);
+        if (act.phase === "active" && !act.fired) {
+          act.fired = true;
+          const hand = kuTarget(cs, p, act);
+          const n = chainHits(cs, p, act, hand.x, hand.y, act.Ex, act.Ey, 7);
+          snapFx(g, p, hand.x, hand.y, act.Ex, act.Ey, n > 0);
+          g.sfx("slash", 1.25);
+          if (n) g.camera.kick(0.008);
+        }
+      },
+    },
+    // сильная доля, точно: груз раскручен высоко над головой и обрушивается дугой сверху вниз — удар по земле с ударной
+    // волной; бьёт всё в точке приземления
+    kusariPendulum: {
+      kind: "custom", name: "Маятник", startup: 0.1, active: 0.1, recovery: 0.3, cancel: 0.22,
+      dmg: 24, knock: 280, stun: 0.55, moveControl: 0.1,
+      pose(P, act, p, k) {
+        const ph = act.phase, s = act.t - act.startup - act.travel, w = clamp(act.t / 0.04, 0, 1), SW = 0.1;
+        const gv = p.y - CharacterRenderer.handWorld(p, 0).y - 1;
+        // точка приземления: до броска — по цели, после — где упал груз
+        const E = kuEnd(act, p, KU_E), lx = clamp(Math.abs(E.x) < 40 ? 40 : E.x, 40, KU_L - 12), rf = Math.hypot(lx, gv), phE = Math.atan2(gv, lx);
+        const raise = easeOut(k.s), u = s > -SW ? (s + SW) / SW : 0, sw = easeIn(u);
+        if (ph === "startup" || ph === "travel") {
+          Object.assign(P, { armF: lerp(lerp(1.0, 2.8, raise), 1.25, sw), elbowF: lerp(0.25, 0.08, sw), wBlend: 1, wAngle: lerp(-1.4, 0.35, sw), lean: lerp(-0.26 * raise, 0.5, sw), armB: lerp(-0.3, -1.1, raise), bodyY: 0.5 + 2.2 * raise, legSpread: 1.3 + 0.7 * raise, cloak: lerp(0, -1, sw) });
+          // сначала груз раскручен позади-над головой, затем дуга через верх вперёд-вниз; радиус растёт к концу дуги
+          const phi = lerp(-2.7, phE, sw), r = lerp(36, rf, Math.pow(sw, 1.6)), fy = lerp(0.45, 1, sw), th = s < -SW ? -2.7 + 18 * (s + SW) : phi;
+          if (s < -SW) orbit(KU_W, 0, -4, 30, 13, th); else { KU_W.x = r * Math.cos(phi); KU_W.y = fy * r * Math.sin(phi) - (1 - fy) * 4; }
+          chainSet(p, KU_W.x, KU_W.y, lerp(-6, 4, sw), lerp(2, 0, sw), w);
+        } else if (ph === "active") {
+          Object.assign(P, { armF: 1.25, elbowF: 0.08, wBlend: 1, wAngle: 0.35, lean: 0.5, armB: -1.1, bodyY: 3, legSpread: 2.0, sx: 1.1, sy: 0.92, cloak: -1 });
+          chainSet(p, lx, gv - 3 * Math.max(0, 1 - k.a * 4), 0, 3, 1);
+        } else {
+          const e = easeInOut(k.r);
+          Object.assign(P, { armF: lerp(1.25, 0.7, e), elbowF: lerp(0.08, 0.5, e), wBlend: 1, wAngle: lerp(0.35, 1.0, e), lean: lerp(0.5, 0.05, e), armB: lerp(-1.1, -0.3, e), bodyY: lerp(3, 0.6, e), legSpread: lerp(2, 1.3, e) });
+          KU_T.x = lx; KU_T.y = gv - 2; reelChain(p, KU_T, k.r, 1);
+        }
+      },
+      update(cs, p, act, dt, tA) {
+        const g = cs.game, def = act.def;
+        stepIn(p, act, dt, tA, act.target ? clamp(Math.abs(act.target.x - p.x) - 120, 0, 70) : 0);
+        trail(g, p, act);
+        if (act.phase === "active" && !act.fired) {
+          act.fired = true;
+          const hand = kuTarget(cs, p, act);
+          const lx = hand.x + act.dir * clamp(Math.abs(act.Ex - hand.x), 40, KU_L - 12);
+          act.Ex = lx; act.Ey = p.y - 2;
+          g.fx.shockwave(lx, p.y, p.skin.accent, 170);
+          g.fx.ring(lx, p.y - 4, 5, 46, "#ffffff", 0.28, 2.6);
+          g.fx.sparks(lx, p.y, 9, p.skin.accent, 280, -Math.PI / 2, 2.4, 0.4);
+          g.fx.dust(lx, p.y, g.fx.low ? 4 : 9);
+          g.fx.cut(hand.x, hand.y, lx, p.y - 2, "#9aa3b5", 2.2, 0.14);
+          g.camera.shake(0.2); g.camera.kick(0.012);
+          g.sfx("slam", 1);
+          for (const e of g.enemies) {
+            if (!e.targetable || act.hit.has(e.id)) continue;
+            if (Math.abs(e.x - lx) > 34 + e.w * e.scale / 2 || Math.abs(e.y - p.y) > 40) continue;
+            act.hit.add(e.id);
+            cs._applyHit(e, act, sign(e.x - p.x) || act.dir, e.x, e.centerY);
+          }
+        }
+      },
+    },
+    // точное нажатие на средней/дальней дистанции: груз обвивает врага, цепь натягивается и рывком подтягивает его к
+    // герою (подтягивание — после удара). Бросок — на доле
+    kusariGrab: {
+      kind: "custom", name: "Цепной захват", startup: 0.1, active: 0.2, recovery: 0.26, cancel: 0.2,
+      dmg: 20, knock: 0, stun: 0.9, moveControl: 0.1,
+      pose(P, act, p, k) {
+        const ph = act.phase, s = act.t - act.startup - act.travel, w = clamp(act.t / 0.04, 0, 1), E = kuEnd(act, p, KU_E);
+        const raise = easeOut(k.s), cast = s > -KU_WIND ? easeIn((s + KU_WIND) / KU_WIND) : 0;
+        if (ph === "startup" || ph === "travel") {
+          Object.assign(P, { armF: lerp(lerp(1.0, 2.6, raise), 1.6, cast), elbowF: lerp(0.25, 0.08, cast), wBlend: 1, wAngle: lerp(-1.3, -0.05, cast), lean: lerp(-0.2 * raise, 0.3, cast), armB: lerp(-0.3, -0.7, raise), bodyY: 0.5 + 1.8 * raise, legSpread: 1.3 + 0.6 * raise });
+          castChain(p, s, E, w);
+        } else {
+          // груз у врага (пока он жив и тянется — цепь идёт к нему); герой откидывается назад, выбирая цепь
+          const pull = ph === "active" ? easeInOut(clamp(k.a * 1.1, 0, 1)) : 1;
+          const e = act.grabE && act.grabE.alive ? toLocal(p, act.grabE.x, act.grabE.centerY, KU_T) : E;
+          if (ph === "active") {
+            Object.assign(P, { armF: lerp(1.6, 0.55, pull), elbowF: lerp(0.08, 1.0, pull), wBlend: 1, wAngle: -0.05, lean: lerp(0.35, -0.32, pull), armB: lerp(-0.6, -1.4, pull), sx: 1.1 - 0.1 * pull, bodyY: 2.4 + pull * 0.6, legSpread: 2.0 });
+            chainSet(p, e.x, e.y, 0, lerp(3, 0.5, pull), 1);
+          } else {
+            const r = easeInOut(k.r);
+            Object.assign(P, { armF: lerp(0.55, 0.7, r), elbowF: lerp(1.0, 0.5, r), wBlend: 1, wAngle: lerp(-0.05, 1.0, r), lean: lerp(-0.32, 0.05, r), armB: lerp(-1.4, -0.3, r), bodyY: lerp(3, 0.6, r), legSpread: lerp(2, 1.3, r) });
+            KU_E.x = e.x; KU_E.y = e.y; reelChain(p, KU_E, k.r, 1);
+          }
+        }
+      },
+      update(cs, p, act, dt, tA) {
+        const g = cs.game, def = act.def;
+        stepIn(p, act, dt, tA, act.target ? clamp(Math.abs(act.target.x - p.x) - 120, 0, 90) : 0);
+        trail(g, p, act);
+        if (act.phase === "active" && !act.fired) {
+          act.fired = true;
+          const hand = kuTarget(cs, p, act), e = act.tg;
+          const n = chainHits(cs, p, act, hand.x, hand.y, act.Ex, act.Ey, 6);
+          snapFx(g, p, hand.x, hand.y, act.Ex, act.Ey, n > 0);
+          g.sfx("slash", 1.3);
+          if (e && act.hit.has(e.id) && e.alive && !e.executed && e.kind !== "brute") {
+            stagger(e, g, def.stun);
+            act.grabE = e; act.pullFrom = e.x;
+            act.pullTo = clamp(p.x + act.dir * (e.w * e.scale * 0.5 + 18), 40, WORLD.w - 40);
+            act.pullT = 0;
+          }
+        }
+        const e = act.grabE;
+        if (e) {
+          if (!e.alive || e.executed) act.grabE = null;
+          else {
+            act.pullT += dt;
+            const q = clamp(act.pullT / 0.17, 0, 1);
+            e.x = lerp(act.pullFrom, act.pullTo, easeIn(q) * 0.35 + easeOut(q) * 0.65); e.vx = 0;
+            if (q >= 1) { g.fx.dust(e.x, e.y, 4); g.camera.shake(0.12); g.sfx("hit", 0.9); act.grabE = null; }
+          }
+        }
+      },
+    },
+    // сильная доля, точно (perfect): цепь обвивает врага и перебрасывает его через голову — приземляется за спиной на «и»
+    // (вторая половина доли), удар о землю. Громилу не поднять — вместо этого «Маятник»
+    kusariWrap: {
+      kind: "custom", name: "Обмотка", startup: 0.1, active: 0.3, recovery: 0.26, cancel: 0.2,
+      dmg: 18, knock: 300, stun: 0.5, moveControl: 0.05,
+      pose(P, act, p, k) {
+        const ph = act.phase, s = act.t - act.startup - act.travel, w = clamp(act.t / 0.04, 0, 1), E = kuEnd(act, p, KU_E);
+        const raise = easeOut(k.s), cast = s > -KU_WIND ? easeIn((s + KU_WIND) / KU_WIND) : 0;
+        if (ph === "startup" || ph === "travel") {
+          Object.assign(P, { armF: lerp(lerp(1.0, 2.6, raise), 1.6, cast), elbowF: lerp(0.25, 0.08, cast), wBlend: 1, wAngle: lerp(-1.3, -0.05, cast), lean: lerp(-0.2 * raise, 0.3, cast), armB: lerp(-0.3, -0.7, raise), bodyY: 0.5 + 1.8 * raise, legSpread: 1.3 + 0.6 * raise });
+          castChain(p, s, E, w);
+        } else {
+          const e = act.wrapE && act.wrapE.alive ? toLocal(p, act.wrapE.x, act.wrapE.centerY, KU_T) : E;
+          if (ph === "active") {
+            // пока враг летит по дуге, рука идёт от «на себя» вверх-назад и вниз через плечо
+            const u = clamp(act.arcT == null ? 0 : act.arcT, 0, 1);
+            Object.assign(P, { armF: u < 0.45 ? lerp(1.6, 3.0, easeOut(u / 0.45)) : lerp(3.0, 0.9, easeIn((u - 0.45) / 0.55)), elbowF: 0.1, wBlend: 1, wAngle: lerp(-0.05, -1.2, Math.sin(Math.PI * u)), lean: u < 0.45 ? lerp(0.3, -0.35, easeOut(u / 0.45)) : lerp(-0.35, 0.5, easeIn((u - 0.45) / 0.55)), armB: lerp(-0.8, -1.4, Math.sin(Math.PI * u)), bodyY: 2.4, legSpread: 2.0, cloak: -0.6 });
+            chainSet(p, e.x, e.y, 0, 1, 1);
+          } else {
+            const r = easeInOut(k.r);
+            Object.assign(P, { armF: lerp(0.9, 0.7, r), elbowF: lerp(0.1, 0.5, r), wBlend: 1, wAngle: lerp(-0.4, 1.0, r), lean: lerp(0.5, 0.05, r), armB: lerp(-1.0, -0.3, r), bodyY: lerp(3, 0.6, r), legSpread: lerp(2, 1.3, r) });
+            KU_E.x = e.x; KU_E.y = e.y; reelChain(p, KU_E, k.r, 1);
+          }
+        }
+      },
+      update(cs, p, act, dt, tA) {
+        const g = cs.game, def = act.def;
+        stepIn(p, act, dt, tA, act.target ? clamp(Math.abs(act.target.x - p.x) - 110, 0, 60) : 0);
+        trail(g, p, act);
+        if (act.phase === "active" && !act.fired) {
+          act.fired = true;
+          const hand = kuTarget(cs, p, act), e = act.tg;
+          // первый удар (обмотка) — половина силы; основной — приземление
+          act.dmgK = 0.5;
+          const n = chainHits(cs, p, act, hand.x, hand.y, act.Ex, act.Ey, 6);
+          snapFx(g, p, hand.x, hand.y, act.Ex, act.Ey, n > 0);
+          g.sfx("slash", 1.3);
+          if (e && act.hit.has(e.id) && e.alive && !e.executed && e.kind !== "brute") {
+            const P = period(cs);
+            act.arc = clamp(P * 0.5, 0.2, 0.34);
+            act.wrapE = e; act.wx0 = e.x; act.wy0 = e.y; act.arcT = 0;
+            act.wxEnd = clamp(p.x - act.dir * 34, 40, WORLD.w - 40);
+            stagger(e, g, act.arc + 0.5);
+            // активная фаза = перелёт врага; приём не отменяется раньше приземления
+            const d = act.arc + 0.04 - act.active;
+            act.active += d; act.total += d; act.cancel = act.total - 0.12;
+            g.fx.slashArc(e.x, e.centerY, 14 * e.scale, 0.4, 0.4 + TAU * 0.78, "#9aa3b5", 2, 0.3);
+            e.flash = 0.35;
+          } else act.dmgK = 1;
+        }
+        const e = act.wrapE;
+        if (e) {
+          if (!e.alive || e.executed) act.wrapE = null;
+          else if (!act.slammed) {
+            act.arcT = clamp((act.t - tA) / act.arc, 0, 1);
+            const u = act.arcT;
+            e.x = lerp(act.wx0, act.wxEnd, easeInOut(u)); e.y = act.wy0 - 64 * Math.sin(Math.PI * u) * (1 - 0.15 * u); e.vx = 0; e.vy = 0;
+            if (u >= 1) {
+              act.slammed = true; e.y = act.wy0; e.vy = 0; act.dmgK = 1.15;
+              g.fx.shockwave(e.x, e.y, p.skin.accent, 150); g.fx.dust(e.x, e.y, g.fx.low ? 4 : 8);
+              g.fx.cut(e.x, e.y - 50, e.x, e.y - 2, p.skin.accent, 3, 0.3);
+              g.fx.cut(e.x, e.y - 50, e.x, e.y - 2, "#ffffff", 1, 0.22);
+              g.camera.shake(0.22); g.sfx("slam"); g.sfx("hit", 1.2, true);
+              cs._applyHit(e, act, -act.dir, e.x, e.centerY);
+              act.wrapE = e;
+            }
+          }
+        }
+      },
+    },
+    // сильная доля при точном нажатии вплотную (место подброса): цепь с грузом вращается вокруг героя, втягивает и бьёт всех
+    // в радиусе троекратно; хорошо видно длинную цепь по кругу
+    kusariWhirl: {
+      kind: "melee", spin: true, hits: 3, startup: 0.07, active: 0.3, recovery: 0.24, cancel: 0.22,
+      dmg: 9, reach: 76, knock: 320, stun: 0.6, lunge: 10, arc: [-2.8, 2.6], fxR: 2.1, fxW: 0.8, lash: true, name: "Вихрь цепи",
+      update(cs, p, act, dt, tA) {
+        const g = cs.game, def = act.def;
+        trail(g, p, act);
+        if (act.phase !== "active") return;
+        // вихрь втягивает всех в радиусе к центру (но не вплотную)
+        for (const e of g.enemies) {
+          if (!e.targetable || e.kind === "brute") continue;
+          const dx = p.x - e.x, ad = Math.abs(dx);
+          if (ad < def.reach * 1.3 && ad > 16) { e.x += sign(dx) * Math.min(ad - 16, 120 * dt); }
+        }
+      },
+      pose(P, act, p, k) {
+        const R0 = 76, spin = 34;
+        // вращение по орбите вокруг героя (центр — ниже поднятой руки): раскрутка, полный круг, затухание
+        const R = act.phase === "startup" ? lerp(12, R0, easeOut(k.s)) : act.phase === "active" ? R0 : lerp(R0, 14, easeIn(k.r));
+        const th = -1.2 + (act.t) * spin;
+        if (act.phase === "active") {
+          Object.assign(P, { armF: 2.6, elbowF: 0.1, wBlend: 1, wAngle: kb(act, p) + TAU * 2.4 * k.a, armB: -1.7, sx: 1.08, sy: 0.94, cloak: -1.2, bodyY: 1.6, legSpread: 1.9 });
+        } else if (act.phase === "startup") {
+          Object.assign(P, { armF: lerp(1.0, 2.6, easeOut(k.s)), elbowF: 0.2, wBlend: 1, wAngle: kb(act, p) - TAU * 0.5 * (1 - k.s), armB: lerp(-0.3, -1.5, k.s), bodyY: 0.5 + 1.6 * k.s, legSpread: 1.3 + 0.6 * k.s, lean: -0.1 * k.s });
+        } else {
+          const e = easeInOut(k.r);
+          Object.assign(P, { armF: lerp(2.6, 0.7, e), elbowF: 0.2, wBlend: 1, wAngle: kb(act, p) + TAU * 2.4 + lerp(0, 1.5, e), armB: lerp(-1.7, -0.3, e), bodyY: lerp(1.6, 0.6, e), legSpread: lerp(1.9, 1.3, e) });
+        }
+        orbit(KU_W, -4, 12, R, 0.22 * R + 2, th);
+        chainSet(p, KU_W.x, KU_W.y, -R * 0.1, 2, act.phase === "recovery" ? 1 - easeInOut((k.r - 0.4) / 0.6) : clamp(act.t / 0.04, 0, 1));
+      },
+    },
+  };
+  // опорный угол вращения для позы приёмов набора (приём не из таблицы — база от текущего угла)
+  const kb = (act, p) => baseAng(act, p, -1.6, "kc");
 
   /* ---------- катана ---------- */
   const KAT_REST = 3.0;      // клинок позади и чуть вниз: рука на рукояти у бедра
@@ -12458,6 +12832,7 @@ function kitTakedown(cs, kind, e, act) {
     thrust: { w0: 0.0, w1: 0.0, a0: -0.5, a1: 1.57, e0: 1.6, e1: 0.0, flat: true },        // хира-дзуки: клинок плашмя
     rise:   { w0: 2.6, w1: -2.5, a0: 0.3, a1: 2.8, e0: 0.5, e1: 0.1 },
     cross:  { w0: KAT_REST, w1: -0.5, a0: 0.45, a1: 1.55, e0: 0.95, e1: 0.05 },
+    katanaSwallow: { w0: -2.5, w1: 0.9, a0: 2.8, a1: 1.5, e0: 0.2, e1: 0.05 },        // «Ласточка»: разрез сверху вниз и тут же обратный снизу вверх
   };
   const katanaPose = (P, act, p, k) => {
     const nm = BASE[act.name] || act.name;
@@ -12466,12 +12841,13 @@ function kitTakedown(cs, kind, e, act) {
     const kb = baseAng(act, p, S.w0);
     let w = S.w0, arm = S.a0, elb = S.e0;
     if (ph === "startup" || ph === "travel") {
-      // иай: низкая стойка, рука на рукояти, клинок в ножнах позади; к удару — напряжение (лёгкая дрожь)
-      const e = easeOut(ph === "travel" ? 1 : k.s);
-      w = lerp(KAT_REST, S.w0, e) + (S.flat ? 0 : 0);
+      // иай: сначала корпус «набирается» и левая рука тянет ножны назад (саябики), затем клинок уходит в замах;
+      // к удару — напряжение (лёгкая дрожь), дыхание не даёт кадру застыть
+      const kk = ph === "travel" ? 1 : k.s, dip = easeOut(Math.min(1, kk * 2)), e = easeInOut(clamp((kk - 0.3) / 0.7, 0, 1));
+      w = lerp(KAT_REST, S.w0, e);
       arm = lerp(0.45, S.a0, e); elb = lerp(0.95, S.e0, e);
-      Object.assign(P, { lean: -0.1 - 0.12 * k.s, armB: 0.55 - 0.9 * k.s, cloak: -0.4 });
-      if (g) Object.assign(P, { bodyY: 1 + 2.4 * e + 0.3 * Math.sin(act.t * 70) * k.s, sy: 1 - 0.08 * e, sx: 1 + 0.06 * e, legSpread: 1.9 });
+      Object.assign(P, { lean: -0.06 - 0.16 * dip + 0.025 * Math.sin(act.t * 26), armB: 0.55 - 1.0 * dip, cloak: -0.6 * dip });
+      if (g) Object.assign(P, { bodyY: 1 + 2.4 * dip + 0.3 * Math.sin(act.t * 70) * k.s, sy: 1 - 0.07 * dip, sx: 1 + 0.05 * dip, legSpread: 1.5 + 0.5 * dip });
     } else if (ph === "active") {
       let q = easeOut(k.a), a0 = S.w0, a1 = S.w1, r0 = S.a0, r1 = S.a1, f0 = S.e0, f1 = S.e1;
       if (h > 1 && !S.spin && !S.flat) { q = easeOut(u); if (s % 2) { a0 = S.w1; a1 = S.w0 + (nm === "slash1" ? -2.4 - KAT_REST : 0); r0 = S.a1; r1 = 2.6; f0 = S.e1; f1 = 0.2; } }
@@ -12480,6 +12856,7 @@ function kitTakedown(cs, kind, e, act) {
       Object.assign(P, { armB: -1.35 + 0.3 * q, cloak: -1.1 });         // левая рука резко отводит ножны назад
       if (g) Object.assign(P, { legSpread: 1.95, bodyY: 2.6, sx: 1.14, sy: 0.9 });
       P.lean = 0.5;
+      if (S.spin) P.turn = -easeInOut(k.a);                 // круговой разрез: корпус делает оборот вокруг оси
     } else {
       // тибури: клинок стряхивает кровь вниз-вперёд, затем плавный возврат в ножны (ното)
       const f = Math.min(1, k.r / 0.45), n = Math.max(0, (k.r - 0.45) / 0.55), w1 = S.w1;
@@ -12519,8 +12896,9 @@ function kitTakedown(cs, kind, e, act) {
     if (g) Object.assign(P, { bodyY: 2.0 + 0.35 * Math.sin(act.t * 16), legSpread: 1.6 });
     if (ph === "startup" || ph === "travel") {
       const e = easeOut(ph === "travel" ? 1 : k.s);
-      w = S.w0; arm = lerp(0.85, S.a0, e); elb = lerp(1.0, S.e0, e);
-      Object.assign(P, { lean: 0.1 - 0.2 * e, armB: lerp(1.0, 1.35, e) });
+      // замах с «пружиной»: клинок сначала поднимается чуть выше исходного угла и только потом встаёт в замах — кадр не застывает
+      w = S.w0 + 0.4 * Math.sin(Math.PI * e); arm = lerp(0.85, S.a0, e); elb = lerp(1.0, S.e0, e);
+      Object.assign(P, { lean: 0.1 - 0.2 * e + 0.02 * Math.sin(act.t * 30), armB: lerp(1.0, 1.35, e) + 0.12 * Math.sin(act.t * 22) });
     } else if (ph === "active") {
       let q = easeOut(k.a), a0 = S.w0, a1 = S.w1, r0 = S.a0, r1 = S.a1;
       if (h > 1 && !S.spin) {       // серия коротких уколов: рука качается туда-обратно, острие каждый раз вперёд
@@ -12529,6 +12907,7 @@ function kitTakedown(cs, kind, e, act) {
       w = lerp(a0, a1, q); arm = lerp(r0, r1, q); elb = lerp(S.e0, S.e1, q);
       Object.assign(P, { armB: lerp(1.35, -0.9, q), lean: 0.35 });
       if (g) Object.assign(P, { sx: 1.1, sy: 0.93, legSpread: 1.75, bodyY: 2.4 });
+      if (S.spin) P.turn = -easeInOut(k.a);                 // вихрь: корпус делает оборот вокруг оси
     } else {
       // перехват: клинок прокручивается на пальце и возвращается в обратный хват
       const e = easeInOut(k.r), w1 = S.w1;
@@ -12540,111 +12919,25 @@ function kitTakedown(cs, kind, e, act) {
     Object.assign(P, { armF: arm, elbowF: elb, wBlend: 1, wAngle: kb + (w - S.w0) });
   };
 
-  /* ---------- приёмы: Цепной серп ---------- */
-  const nearestEnemy = (g, p, maxDx) => {
-    let best = null, bd = maxDx;
-    for (const e of g.enemies) { if (!e.targetable) continue; const d = Math.abs(e.x - p.x); if (d < bd) { bd = d; best = e; } }
-    return best;
-  };
-  /** Оглушить как обычный удар, прервавший замах (суперброню не ломаем — так же, как Enemy.damage). */
-  const stagger = (e, g, stun) => {
-    const armored = (e.state === "windup" && e.windT > e.windDur * 0.5) || e.state === "attack" || e.staggerImmune > 0;
-    if (armored || !e.alive || e.executed) return;
-    e.cancelAttack(g); e.setState("hurt"); e.hurtDur = stun; e.staggerImmune = 1.1;
-  };
-
-  const kusariMoves = {
-    // дальняя цель, точное нажатие: цепь хлещет, обвивает и рывком тянет врага к герою (удар — на доле, подтягивание — после)
-    kusariGrab: {
-      kind: "custom", name: "Цепной захват", startup: 0.05, active: 0.16, recovery: 0.24, cancel: 0.18,
-      dmg: 22, knock: 0, stun: 0.9, moveControl: 0.1,
-      pose(P, act, p, k) {
-        if (act.phase === "startup") Object.assign(P, { armF: lerp(1.0, 2.5, easeOut(k.s)), lean: -0.2 * k.s });
-        else {
-          // бросок: рука строго вперёд, цепь натянута; затем герой откидывается назад, выбирая цепь
-          const pull = act.phase === "active" ? 0 : easeInOut(Math.min(1, k.r * 1.8));
-          Object.assign(P, { armF: lerp(1.6, 0.6, pull), elbowF: 0.1 + 1.0 * pull, wBlend: 1, wAngle: baseAng(act, p, -0.05, "kc"), lean: lerp(0.35, -0.3, pull), armB: lerp(-0.5, -1.4, pull), sx: 1.12 - 0.1 * pull, bodyY: 2.4 });
-          p.wExt = act.phase === "recovery" ? 1 - easeInOut(clamp((k.r - 0.55) / 0.45, 0, 1)) : 1;
-        }
-      },
-      update(cs, p, act, dt, tA) {
-        const g = cs.game, def = act.def;
-        if (act.phase === "startup") p.vx = damp(p.vx, 0, 12, dt);
-        if (act.phase === "active" && !act.fired) {
-          act.fired = true;
-          const e = act.target && act.target.targetable ? act.target : nearestEnemy(g, p, 260);
-          const hand = CharacterRenderer.handWorld(p, 12);
-          if (e) {
-            const cy = e.centerY;
-            act.dir = sign(e.x - p.x) || act.dir; p.facing = act.dir;
-            // цепь — тонкая линия с белой сердцевиной от руки до цели, вспышка в точке захвата
-            g.fx.cut(hand.x, hand.y, e.x, cy, "#9aa3b5", 2.6, 0.26);
-            g.fx.cut(hand.x, hand.y, e.x, cy, "#ffffff", 1, 0.2);
-            g.fx.glow(e.x, cy, 3, 16, p.skin.accent, 0.18, 0.4);
-            g.sfx("slash", 1.3);
-            cs._applyHit(e, act, act.dir, e.x, cy);
-            if (e.alive && !e.executed && e.kind !== "brute") {
-              stagger(e, g, def.stun);
-              act.grabE = e; act.pullFrom = e.x;
-              act.pullTo = clamp(p.x + act.dir * (e.w * e.scale * 0.5 + 18), 40, WORLD.w - 40);
-              act.pullT = 0;
-            }
-          } else {
-            g.fx.cut(hand.x, hand.y, hand.x + act.dir * 120, hand.y - 6, "#9aa3b5", 2.2, 0.2);     // промах: цепь просто хлещет воздух
-            g.sfx("slash", 1);
-          }
-        }
-        const e = act.grabE;
-        if (e) {
-          if (!e.alive || e.executed) act.grabE = null;
-          else {
-            act.pullT += dt;
-            const q = clamp(act.pullT / 0.14, 0, 1);
-            e.x = lerp(act.pullFrom, act.pullTo, easeOut(q)); e.vx = 0;
-            if (q > 0.2 && q < 1 && act.pullT - dt <= 0.14) {
-              const hand = CharacterRenderer.handWorld(p, 12);
-              g.fx.cut(hand.x, hand.y, e.x, e.centerY, "#9aa3b5", 1.6, 0.06);
-            }
-            if (q >= 1) { g.fx.dust(e.x, e.y, 4); g.camera.shake(0.1); act.grabE = null; }
-          }
-        }
-        if (act.phase === "recovery") p.vx = damp(p.vx, 0, 10, dt);
-      },
-    },
-    // сильная доля, точно, вплотную: цепь вращается вокруг героя, втягивает врагов и бьёт троекратно
-    kusariWhirl: {
-      kind: "melee", spin: true, hits: 3, startup: 0.07, active: 0.3, recovery: 0.24, cancel: 0.22,
-      dmg: 9, reach: 64, knock: 320, stun: 0.6, lunge: 10, arc: [-2.8, 2.6], fxR: 1.9, fxW: 0.8, lash: true, name: "Вихрь цепи",
-      update(cs, p, act, dt, tA) {
-        if (act.phase !== "active") return;
-        const g = cs.game, def = act.def;
-        // вихрь втягивает всех в радиусе к центру (но не вплотную), цепь рисует орбиту
-        for (const e of g.enemies) {
-          if (!e.targetable || e.kind === "brute") continue;
-          const dx = p.x - e.x, ad = Math.abs(dx);
-          if (ad < def.reach * 1.3 && ad > 16) { e.x += sign(dx) * Math.min(ad - 16, 120 * dt); }
-        }
-        act.orbT = (act.orbT || 0) - dt;
-        if (act.orbT <= 0) {
-          act.orbT = 0.035;
-          const th = (act.t - tA) * 34, r = def.reach * 0.95, cx = p.x, cy = p.y - 20;
-          const x0 = cx + Math.cos(th) * r * 0.35, y0 = cy + Math.sin(th) * r * 0.35 * 0.55;
-          g.fx.cut(x0, y0, cx + Math.cos(th) * r, cy + Math.sin(th) * r * 0.55, "#ffffff", 1.2, 0.12);
-        }
-      },
-      pose(P, act, p, k) {
-        if (act.phase === "active") {
-          Object.assign(P, { armF: 2.6, elbowF: 0.1, wBlend: 1, wAngle: kb(act, p) + TAU * 2.4 * k.a, armB: -1.7, sx: 1.08, sy: 0.94, cloak: -1.2, bodyY: 1.6, legSpread: 1.9 });
-          p.wExt = 1;
-        }
-      },
-    },
-  };
-  // опорный угол вращения для позы приёмов набора (приём не из таблицы — база от текущего угла)
-  const kb = (act, p) => baseAng(act, p, -1.6, "kc");
-
   /* ---------- приёмы: Багровая катана ---------- */
   const katanaMoves = {
+    // «и» (полдоли) сразу после удара в долю: два разреза подряд в одну точку — сверху вниз и тут же обратным ходом снизу вверх;
+    // на втором герой подаётся вперёд, с клинка срывается россыпь искр
+    katanaSwallow: {
+      kind: "melee", hits: 2, startup: 0.03, active: 0.2, recovery: 0.2, cancel: 0.14,
+      dmg: 9, reach: 46, knock: 230, stun: 0.5, lunge: 70, arc: [-2.5, 1.2], fxR: 1.2, fxW: 0.65, name: "Ласточка",
+      update(cs, p, act, dt, tA) {
+        const g = cs.game;
+        if (act.phase !== "active" || (act.sub || 0) === act.ksSub) return;
+        act.ksSub = act.sub || 0;
+        if (act.ksSub > 0) {
+          p.vx = act.dir * 120; g.addAfterimage(p);
+          const cx = p.x + act.dir * 28, cy = p.y - 20;
+          g.fx.sparks(cx, cy, 6, p.skin.accent, 200, act.dir > 0 ? -0.9 : Math.PI + 0.9, 1.6, 0.35);
+          if (!g.fx.low) g.fx.cut(cx - act.dir * 6, cy + 20, cx + act.dir * 22, cy - 22, "#ffffff", 1.2, 0.14);
+        }
+      },
+    },
     // сильная доля после паузы: рывок сквозь цель без видимого урона, «щелчок» ножен на следующей доле — враг рассечён
     katanaIai: {
       kind: "custom", name: "Иай", startup: 0.07, active: 0.1, recovery: 0.3, cancel: 0.4,
@@ -12654,9 +12947,9 @@ function kitTakedown(cs, kind, e, act) {
         if (act.phase === "startup") {      // низкая стойка: ладонь на рукояти, корпус подан вперёд, дрожь напряжения
           Object.assign(P, { armF: 0.45, elbowF: 0.95, wBlend: 1, wAngle: kbA, lean: -0.2 - 0.1 * k.s, bodyY: 3 + 0.3 * Math.sin(act.t * 70), sy: 0.9, sx: 1.06, legSpread: 2.0, armB: 0.2 });
         } else if (act.phase === "travel") {
-          Object.assign(P, { armF: 1.5, elbowF: 0.05, wBlend: 1, wAngle: kbA + (-0.1 - KAT_REST), lean: 0.85, bodyY: 2, sx: 1.34, sy: 0.8, legSpread: 2.1, armB: -1.5, cloak: -1.3 });
+          Object.assign(P, { armF: 1.5, elbowF: 0.05, wBlend: 1, wAngle: kbA + (-0.1 - KAT_REST), lean: 0.85, bodyY: 2, sx: 1.15, sy: 0.88, legSpread: 2.1, armB: -1.5, cloak: -1.3 });
         } else if (act.phase === "active") {
-          Object.assign(P, { armF: 1.5, elbowF: 0.05, wBlend: 1, wAngle: kbA + (-0.1 - KAT_REST), lean: 0.6, bodyY: 2.4, sx: 1.2, sy: 0.88, legSpread: 2.0, armB: -1.2, cloak: -0.8 });
+          Object.assign(P, { armF: 1.5, elbowF: 0.05, wBlend: 1, wAngle: kbA + (-0.1 - KAT_REST), lean: 0.6, bodyY: 2.4, sx: 1.12, sy: 0.9, legSpread: 2.0, armB: -1.2, cloak: -0.8 });
         } else {
           // после прохода герой стоит спиной к врагу; первая половина — стряхнуть, вторая — вложить клинок до щелчка
           const f = Math.min(1, k.r / 0.5), n = Math.max(0, (k.r - 0.5) / 0.5);
@@ -12766,6 +13059,35 @@ function kitTakedown(cs, kind, e, act) {
 
   /* ---------- приёмы: Теневой кинжал ---------- */
   const daggerMoves = {
+    // сильная доля вплотную при груве ≥ 1 (место подброса): герой крутится на месте с двумя клинками — два круговых
+    // удара по всем рядом; корпус делает оборот вокруг оси, за ним остаются тени
+    daggerWhirl: {
+      kind: "melee", spin: true, hits: 2, startup: 0.04, active: 0.26, recovery: 0.2, cancel: 0.17,
+      dmg: 10, reach: 44, knock: 250, stun: 0.55, lunge: 40, arc: [-2.8, 2.6], fxR: 1.35, fxW: 0.7, name: "Вихрь теней",
+      update(cs, p, act, dt, tA) {
+        const g = cs.game;
+        if (act.phase !== "active" || (act.sub || 0) === act.kwSub) return;
+        act.kwSub = act.sub || 0;
+        g.addAfterimage(p);
+        g.fx.smoke(p.x, p.y - 12, 4, "#0b0c10", 0.4);
+        if (act.kwSub > 0) g.fx.ring(p.x, p.y - 18, 8, 46, p.skin.accent, 0.22, 2);
+      },
+      pose(P, act, p, k) {
+        const kbA = baseAng(act, p, DAG_REST, "kc"), g = ground(p);
+        if (act.phase === "startup") {
+          // присесть и скрутить корпус: клинок отведён назад, свободная рука впереди
+          Object.assign(P, { armF: lerp(0.85, 0.2, easeOut(k.s)), elbowF: 1.2, wBlend: 1, wAngle: kbA + 0.4 * Math.sin(Math.PI * k.s), lean: -0.25 * k.s, armB: 1.2, bodyY: 1 + 2.4 * easeOut(k.s), legSpread: 1.5 + 0.5 * k.s, turn: 0.06 * k.s });
+        } else if (act.phase === "active") {
+          // два оборота клинка за один оборот корпуса; на втором ударе руки меняются местами
+          const q = easeInOut(k.a);
+          Object.assign(P, { armF: 1.5, elbowF: 0.15, wBlend: 1, wAngle: kbA + (lerp(DAG_REST, DAG_REST - TAU * 2, q) - DAG_REST), lean: 0.2, armB: lerp(-1.3, 1.3, Math.abs(Math.sin(Math.PI * q * 2))), turn: -q, cloak: -1.2 });
+          if (g) Object.assign(P, { bodyY: 3, legSpread: 2.0, sx: 1.08, sy: 0.92 });
+        } else {
+          const e = easeInOut(k.r);
+          Object.assign(P, { armF: lerp(1.5, 0.85, e), elbowF: lerp(0.15, 1.0, e), wBlend: 1, wAngle: kbA - TAU * 2, lean: lerp(0.25, 0.1, e), armB: lerp(0.5, 1.0, e), bodyY: lerp(3, 1.5, e), legSpread: lerp(2, 1.6, e) });
+        }
+      },
+    },
     // perfect-нажатие на средней дистанции: исчезает в тени и бьёт врага со спины
     daggerStep: {
       kind: "custom", name: "Теневой шаг", startup: 0.05, active: 0.1, recovery: 0.2, cancel: 0.14,
@@ -12773,11 +13095,11 @@ function kitTakedown(cs, kind, e, act) {
       pose(P, act, p, k) {
         const kbA = baseAng(act, p, DAG_REST, "kc");
         if (act.phase === "startup") {
-          // растворение: силуэт сужается в тонкую линию и подаётся назад
-          Object.assign(P, { sx: lerp(1, 0.18, easeIn(k.s)), sy: 1 + 0.08 * k.s, lean: -0.4 * k.s, armF: 1.0, elbowF: 0.8, wBlend: 1, wAngle: kbA, armB: -0.6, bodyY: 1.5 });
+          // растворение: герой поворачивается к врагу боком (силуэт сужается) и подаётся назад
+          Object.assign(P, { turn: 0.25 * easeIn(k.s), sy: 1 + 0.06 * k.s, lean: -0.4 * k.s, armF: 1.0, elbowF: 0.8, wBlend: 1, wAngle: kbA, armB: -0.6, bodyY: 1.5 });
         } else if (act.phase === "active") {
           // выход из тени со спины: глубокий выпад, клинок вперёд
-          Object.assign(P, { sx: lerp(0.5, 1.28, easeOut(Math.min(1, k.a * 2.5))), sy: 0.86, lean: 0.8, bodyY: 2.6, legSpread: 2.0, armF: 1.5, elbowF: 0.1, wBlend: 1, wAngle: kbA + (lerp(DAG_REST, 0.0, easeOut(k.a)) - DAG_REST), armB: -1.4, cloak: -1.2 });
+          Object.assign(P, { turn: 0.25 * (1 - easeOut(Math.min(1, k.a * 2.5))), sx: 1.12, sy: 0.9, lean: 0.8, bodyY: 2.6, legSpread: 2.0, armF: 1.5, elbowF: 0.1, wBlend: 1, wAngle: kbA + (lerp(DAG_REST, 0.0, easeOut(k.a)) - DAG_REST), armB: -1.4, cloak: -1.2 });
         } else {
           const e = easeInOut(k.r);
           Object.assign(P, { sx: 1.1 - 0.1 * e, sy: 0.9 + 0.1 * e, lean: lerp(0.5, 0.1, e), bodyY: lerp(2.2, 1.5, e), legSpread: 1.7, armF: lerp(1.5, 0.85, e), elbowF: lerp(0.1, 1.0, e), wBlend: 1, wAngle: kbA + (lerp(0.0, DAG_REST, e) - DAG_REST) - TAU * e, armB: lerp(-1.2, 1.0, e) });
@@ -12855,16 +13177,29 @@ function kitTakedown(cs, kind, e, act) {
       if (!c.target || c.air) return;
       // сильная доля вплотную (место подброса) → вихрь цепи; подброс не нужен — цепь и так втягивает врагов
       if (name === "rise") { cs.lastRiseT = cs.time; return "kusariWhirl"; }
-      // точное нажатие на средней дистанции (не ближний бой) → захват; не чаще, чем раз в 0,8 с
-      if (name === "dash" && c.good && c.dx >= 52 && cs.time - (cs.kbGrabT == null ? -9 : cs.kbGrabT) > 0.8) { cs.kbGrabT = cs.time; return "kusariGrab"; }
+      // средняя и дальняя дистанция (общая логика выбрала рывок): вместо рывка — удары длинной цепью с места
+      if (name === "dash" || name === "pierce") {
+        const T = cs.time, ready = (key, s) => T - (cs[key] == null ? -9 : cs[key]) > s, brute = c.target.kind === "brute";
+        if (c.j.strong && c.good) {
+          // сильная доля: точно — «Обмотка» (бросок через голову), иначе «Маятник» (удар грузом сверху вниз)
+          if (c.j.rating === "perfect" && !brute && c.dx <= 150 && ready("kuWrapT", 2.2)) { cs.kuWrapT = T; return "kusariWrap"; }
+          if (ready("kuPendT", 0.9)) { cs.kuPendT = T; return "kusariPendulum"; }
+        }
+        // точное нажатие вдали — «Цепной захват» (подтягивает врага), не чаще раза в 1,3 с
+        if (c.j.rating === "perfect" && !brute && c.dx >= 70 && ready("kbGrabT", 1.3)) { cs.kbGrabT = T; return "kusariGrab"; }
+        return "kusariLash";
+      }
     },
     takedown(cs, kind) { return kind === "xcut" ? "kusariCoil" : null; },
   });
+  // «Бросок груза» — основной дальний удар, а не комбинация: подпись над героем не показываем
+  { const i = COMBO_MOVES.indexOf("kusariLash"); if (i >= 0) COMBO_MOVES.splice(i, 1); }
   registerKit("katana", {
     moves: katanaMoves,
     pose: katanaPose,
     choose(cs, name, c) {
       if (!c.target || c.air) return;
+      if (name === "flurry") return "katanaSwallow";          // синкопа «и» после удара — «Ласточка» вместо трёх уколов
       if ((name === "rise" || name === "dash") && c.j.strong && c.good && c.dx <= 200) {
         const P = c.j.period || period(cs), pause = cs.time - cs.lastActionT > 1.1 * P;
         if (name === "rise") cs.lastRiseT = cs.time;
@@ -12879,7 +13214,10 @@ function kitTakedown(cs, kind, e, act) {
     moves: daggerMoves,
     pose: daggerPose,
     choose(cs, name, c) {
-      if (!c.target || c.air || name !== "dash" || !c.good) return;
+      if (!c.target || c.air) return;
+      // сильная доля вплотную (место подброса) при груве ≥ 1 — вихрь теней вместо восходящего разреза
+      if (name === "rise" && cs.groove >= 1) { cs.lastRiseT = cs.time; return "daggerWhirl"; }
+      if (name !== "dash" || !c.good) return;
       // издалека — ножи веером, на средней дистанции при perfect — теневой шаг (перезарядка ~1 с)
       if (cs.time - (cs.kbDagT == null ? -9 : cs.kbDagT) < 1.0) return;
       if (c.dx >= 105) { cs.kbDagT = cs.time; return "daggerKnives"; }
@@ -12930,10 +13268,10 @@ function kitTakedown(cs, kind, e, act) {
         const s = ph(0, 0.2);
         Object.assign(P, { armF: 0.45, elbowF: 0.95, wAngle: kbA, lean: -0.1 - 0.12 * easeOut(s), bodyY: 1 + 2.4 * easeOut(s) + 0.3 * Math.sin(t * 70) * s, sy: 1 - 0.08 * s, sx: 1 + 0.06 * s, armB: 0.55 - 0.7 * s, cloak: -0.3 });
       } else if (t < 0.4) {
-        Object.assign(P, { armF: 1.5, elbowF: 0.05, wAngle: lerp(kbA, -0.12, easeOut(ph(0.28, 0.33))), lean: 0.85, bodyY: 2, sx: 1.34, sy: 0.8, armB: -1.5, cloak: -1.3 });
+        Object.assign(P, { armF: 1.5, elbowF: 0.05, wAngle: lerp(kbA, -0.12, easeOut(ph(0.28, 0.33))), lean: 0.85, bodyY: 2, sx: 1.15, sy: 0.88, armB: -1.5, cloak: -1.3 });
       } else if (t < 0.62) {
         const s = easeInOut(ph(0.42, 0.62));
-        Object.assign(P, { armF: lerp(1.5, 1.7, s), elbowF: 0.05, wAngle: lerp(-0.12, -0.7, s), lean: lerp(0.6, 0.15, s), bodyY: lerp(2.4, 0.8, s), sx: lerp(1.2, 1.0, s), sy: lerp(0.9, 1, s), armB: lerp(-1.2, -0.4, s), cloak: lerp(-0.8, 0.2, s), legSpread: lerp(2, 1.5, s) });
+        Object.assign(P, { armF: lerp(1.5, 1.7, s), elbowF: 0.05, wAngle: lerp(-0.12, -0.7, s), lean: lerp(0.6, 0.15, s), bodyY: lerp(2.4, 0.8, s), sx: lerp(1.15, 1.0, s), sy: lerp(0.9, 1, s), armB: lerp(-1.2, -0.4, s), cloak: lerp(-0.8, 0.2, s), legSpread: lerp(2, 1.5, s) });
       } else if (t < 0.74) {
         const f = ph(0.62, 0.74);       // тибури
         Object.assign(P, { armF: lerp(1.7, 1.1, easeOut(f)), elbowF: 0.1, wAngle: lerp(-0.7, KAT_TIB, easeOut(f)) + Math.sin(f * TAU * 2) * 0.16 * (1 - f), lean: 0.12, bodyY: 0.6, armB: -0.4, legSpread: 1.4 });
@@ -12945,66 +13283,92 @@ function kitTakedown(cs, kind, e, act) {
     },
   });
 
-  // Кусаригама «ЦЕПНЫЕ ОКОВЫ»: раскрутка → бросок → цепь обвивает → рывок врага к герою → подброс и удар о землю.
+  // Кусаригама «ЦЕПНЫЕ ОКОВЫ»: раскрутка груза над головой → бросок (цепь через всё поле) → три витка вокруг врага →
+  // рывок к герою → враг взлетает за спину → мах цепью через голову → удар о землю впереди. Цепь всё время натянута до врага.
   registerTakedown("kusariCoil", {
-    name: "ЦЕПНЫЕ ОКОВЫ", dur: 1.15, death: "slam",
+    name: "ЦЕПНЫЕ ОКОВЫ", dur: 1.3, death: "slam",
     update(cs, td, api) {
       const g = cs.game, p = g.player, e = td.e, d = td.dir, t = api.t, cy = api.cy, col = p.skin.accent;
       p.y = td.py; p.x = td.px; p.facing = d;
-      const hold = clamp(p.x + d * (e.w * e.scale * 0.5 + 24), 40, WORLD.w - 40);
-      // враг скован: плечи прижаты, голова опущена
-      const bound = clamp((t - 0.24) / 0.2, 0, 1);
-      e.tdPose = { lean: -0.12 * bound, headTilt: -0.25 * bound, armF: lerp(0.35, 0.05, bound), armB: lerp(-0.3, 0.05, bound), bodyY: 1.5 * bound };
-      api.once("throw", 0.24, () => {
-        const h = CharacterRenderer.handWorld(p, 12);
+      const half = e.w * e.scale * 0.5;
+      const hold = clamp(p.x + d * (half + 22), 40, WORLD.w - 40), back = p.x - d * 8, far = clamp(p.x + d * (half + 74), 40, WORLD.w - 40);
+      const bound = clamp((t - 0.33) / 0.16, 0, 1), sw = clamp((t - 0.8) / 0.12, 0, 1);
+      // враг скован: плечи прижаты, голова опущена; в полёте — сжимается и переворачивается
+      e.tdPose = { lean: -0.12 * bound + 0.5 * sw, headTilt: -0.25 * bound, armF: lerp(0.35, 0.05, bound), armB: lerp(-0.3, 0.05, bound), bodyY: 1.5 * bound, tuck: t > 0.66 && t < 0.92 ? 0.6 : 0, spin: t >= 0.8 && t < 0.92 ? TAU * easeInOut(sw) : 0 };
+      api.once("throw", 0.31, () => {
+        const h = CharacterRenderer.handWorld(p, 0);
         g.fx.cut(h.x, h.y, e.x, cy, "#9aa3b5", 2.6, api.life(0.3));
         g.fx.cut(h.x, h.y, e.x, cy, "#ffffff", 0.9, api.life(0.22));
         g.sfx("slash", 1.4); g.camera.shake(0.08);
       });
       // три витка цепи вокруг корпуса — тонкие дуги разной высоты
-      [[0.3, -10, 0.4], [0.36, 0, 2.6], [0.42, 10, 1.0]].forEach(([tt, dy, a0], i) => api.once("coil" + i, tt, () => {
+      [[0.34, -10, 0.4], [0.4, 0, 2.6], [0.46, 10, 1.0]].forEach(([tt, dy, a0], i) => api.once("coil" + i, tt, () => {
         g.fx.slashArc(e.x, cy + dy, 13 * e.scale, a0, a0 + TAU * 0.78, "#9aa3b5", 2, api.life(0.34));
         g.fx.slashArc(e.x, cy + dy, 13 * e.scale, a0, a0 + TAU * 0.78, "#ffffff", 0.8, api.life(0.26));
         e.flash = 0.35; g.sfx("slash", 1.1 + 0.15 * i);
       }));
-      // рывок: враг скользит к герою
-      const pull = easeIn(clamp((t - 0.48) / 0.16, 0, 1));
-      if (t >= 0.48) e.x = lerp(td.ex, hold, pull);
+      // рывок: враг скользит к герою, цепь натянута
+      if (t >= 0.5 && t < 0.66) e.x = lerp(td.ex, hold, easeIn(clamp((t - 0.5) / 0.16, 0, 1)));
+      else if (t >= 0.66 && t < 0.8) {
+        // подброс за спину: враг взмывает над героем
+        const u = easeOut((t - 0.66) / 0.14);
+        e.x = lerp(hold, back, u); e.y = td.ey - 58 * u;
+      } else if (t >= 0.8 && t < 0.92) {
+        // мах через голову вперёд: по дуге выше, к земле — ускоряясь
+        const u = (t - 0.8) / 0.12;
+        e.x = lerp(back, far, easeInOut(u)); e.y = lerp(td.ey - 58, td.ey, easeIn(u)) - 16 * Math.sin(Math.PI * u);
+      } else if (t >= 0.92) { e.x = far; e.y = td.ey; }
       api.once("yank", 0.5, () => { api.streak(td.ex, hold, cy); g.sfx("dash"); g.camera.shake(0.18); });
-      // подброс над головой и бросок вниз
-      if (t >= 0.64 && t < 0.76) e.y = lerp(td.ey, td.ey - 30, easeOut((t - 0.64) / 0.12));
-      else if (t >= 0.76) e.y = lerp(td.ey - 30, td.ey, easeIn(clamp((t - 0.76) / 0.07, 0, 1)));
-      api.once("slam", 0.83, () => {
-        e.y = td.ey;
-        g.fx.cut(e.x, td.ey - 52, e.x, td.ey - 2, col, 3.2, api.life(0.4));
-        g.fx.cut(e.x, td.ey - 52, e.x, td.ey - 2, "#ffffff", 1.1, api.life(0.3));
-        g.fx.shockwave(e.x, td.ey, col, 150); g.fx.dust(e.x, td.ey, api.low ? 4 : 9); g.sfx("slam");
+      api.once("lift", 0.66, () => { g.sfx("slash", 1.6); g.fx.sparks(back, td.ey - 20, 5, col, 160, -Math.PI / 2, 1.2, 0.25); });
+      api.once("slam", 0.92, () => {
+        e.x = far; e.y = td.ey;
+        g.fx.cut(e.x, td.ey - 54, e.x, td.ey - 2, col, 3.2, api.life(0.4));
+        g.fx.cut(e.x, td.ey - 54, e.x, td.ey - 2, "#ffffff", 1.1, api.life(0.3));
+        g.fx.shockwave(e.x, td.ey, col, 160); g.fx.dust(e.x, td.ey, api.low ? 4 : 9); g.sfx("slam");
         api.finish();
       });
     },
     pose(cs, p, td) {
-      const t = td.t, ph = (a, b) => clamp((t - a) / (b - a), 0, 1);
+      const t = td.t, ph = (a, b) => clamp((t - a) / (b - a), 0, 1), e = td.e;
       const P = { wBlend: 1, legAmp: 0, legSpread: 1.9, bodyY: 2 };
-      const kbA = -1.6;
-      if (t < 0.24) {
-        const s = easeOut(ph(0, 0.24));
-        Object.assign(P, { armF: lerp(1.0, 2.6, s), elbowF: 0.2, wAngle: -1.6 - TAU * 2 * (1 - s), lean: -0.15 * s, armB: lerp(-0.3, -1.4, s), bodyY: 1 + 1.5 * s });
-        p.wExt = 0.55;
+      const w = clamp(t / 0.05, 0, 1);
+      const E = toLocal(p, e.x, e.centerY, KU_E);
+      const dd = Math.hypot(E.x, E.y);
+      if (dd > KU_L) { E.x *= KU_L / dd; E.y *= KU_L / dd; }
+      if (t < 0.28) {
+        // раскрутка груза над головой, радиус растёт
+        const s = easeOut(ph(0, 0.28));
+        Object.assign(P, { armF: lerp(1.0, 2.7, s), elbowF: 0.2, wAngle: -1.3, lean: -0.15 * s, armB: lerp(-0.3, -1.4, s), bodyY: 1 + 1.5 * s });
+        orbit(KU_W, 0, -2, lerp(12, 30, s), 9, -1.2 + t * 26);
+        chainSet(p, KU_W.x, KU_W.y, -6, 2, w);
+      } else if (t < 0.33) {
+        // бросок: рука вперёд, груз летит к врагу
+        const f = easeIn(ph(0.28, 0.33)), s = ph(0.28, 0.33);
+        Object.assign(P, { armF: lerp(2.7, 1.65, s), elbowF: 0.1, wAngle: lerp(-1.3, -0.05, s), lean: lerp(-0.15, 0.4, s), armB: lerp(-1.4, -0.6, s), sx: 1 + 0.06 * s });
+        orbit(KU_W, 0, -2, 30, 9, -1.2 + 0.28 * 26);
+        chainSet(p, lerp(KU_W.x, E.x, f), lerp(KU_W.y, E.y, f), lerp(-6, 0, f), lerp(2, 4, f), 1);
       } else if (t < 0.5) {
         Object.assign(P, { armF: 1.65, elbowF: 0.05, wAngle: -0.05, lean: 0.4, armB: -0.6, sx: 1.1, sy: 0.94, bodyY: 2.4 });
-        p.wExt = 1;
+        chainSet(p, E.x, E.y, 0, 2 * (1 - ph(0.33, 0.45)), 1);
       } else if (t < 0.66) {
+        // рывок: герой откидывается назад, выбирая цепь
         const s = easeInOut(ph(0.5, 0.66));
         Object.assign(P, { armF: lerp(1.65, 0.5, s), elbowF: lerp(0.05, 1.1, s), wAngle: -0.05, lean: lerp(0.4, -0.35, s), armB: lerp(-0.6, -1.5, s), bodyY: 2.8, legSpread: 2.1 });
-        p.wExt = 1;
+        chainSet(p, E.x, E.y, 0, 0.5, 1);
       } else if (t < 0.8) {
+        // рука с цепью уходит вверх-назад, враг взлетает за спину
         const s = easeOut(ph(0.66, 0.8));
-        Object.assign(P, { armF: lerp(0.5, 3.0, s), elbowF: lerp(1.1, 0.1, s), wAngle: lerp(-0.05, -1.1, s), lean: lerp(-0.35, -0.12, s), armB: -1.2, bodyY: lerp(2.8, 0.5, s), sy: 1 + 0.08 * s, cloak: 0.6 });
-        p.wExt = 0.7;
+        Object.assign(P, { armF: lerp(0.5, 3.0, s), elbowF: lerp(1.1, 0.1, s), wAngle: lerp(-0.05, -1.1, s), lean: lerp(-0.35, -0.3, s), armB: -1.2, bodyY: lerp(2.8, 0.8, s), sy: 1 + 0.08 * s, cloak: 0.6 });
+        chainSet(p, E.x, E.y, 0, 0, 1);
+      } else if (t < 0.92) {
+        // мах через плечо вперёд: рука идёт вниз, корпус подаётся
+        const s = easeIn(ph(0.8, 0.92));
+        Object.assign(P, { armF: lerp(3.0, 1.2, s), elbowF: 0.1, wAngle: lerp(-1.1, 0.5, s), lean: lerp(-0.3, 0.5, s), bodyY: lerp(0.8, 3, s), sx: 1 + 0.12 * s, sy: 1 - 0.08 * s, armB: lerp(-1.2, 0.2, s), legSpread: 2.0 });
+        chainSet(p, E.x, E.y, 0, 0, 1);
       } else {
-        const s = easeOut(ph(0.8, 0.9)), r = easeInOut(ph(0.9, 1.1));
-        Object.assign(P, { armF: lerp(3.0, 1.2, s) + (0.6 - 1.2) * r * 0, elbowF: 0.1, wAngle: lerp(-1.1, 0.8, s), lean: lerp(-0.12, 0.45, s) * (1 - r) , bodyY: lerp(0.5, 3, s) * (1 - r), sx: 1 + 0.15 * s * (1 - r), sy: 1 - 0.1 * s * (1 - r), armB: lerp(-1.2, 0.2, r), legSpread: lerp(1.9, 1.2, r) });
-        p.wExt = lerp(1, 0, r);
+        const r = easeInOut(ph(0.92, 1.3));
+        Object.assign(P, { armF: lerp(1.2, 0.7, r), elbowF: lerp(0.1, 0.5, r), wAngle: lerp(0.5, 1.0, r), lean: lerp(0.45, 0.04, r), bodyY: lerp(3, 0.5, r), sx: 1 + 0.1 * (1 - r), sy: 1 - 0.07 * (1 - r), armB: lerp(0.2, -0.3, r), legSpread: lerp(2, 1.3, r) });
+        reelChain(p, E, ph(0.94, 1.3), 1);
       }
       return P;
     },
@@ -13063,7 +13427,7 @@ function kitTakedown(cs, kind, e, act) {
         Object.assign(P, {
           armF: lerp(0.2 + 0.4 * (idx % 2), big ? 2.9 : 1.55, q) * (1 - r) + 0.9 * r, elbowF: lerp(1.2, 0.05, q) * (1 - r) + 1.0 * r,
           wAngle: lerp(DAG_REST, big ? 1.57 : (idx % 2 ? -0.5 : 0.3), q),
-          lean: lerp(-0.2, big ? 0.3 : 0.7, q), sx: 1 + 0.2 * q * (1 - r), sy: 1 - 0.12 * q * (1 - r), armB: lerp(1.2, -1.3, q), cloak: -0.8 * q, bodyY: 2.2 + 0.8 * q,
+          lean: lerp(-0.2, big ? 0.3 : 0.7, q), sx: 1 + 0.15 * q * (1 - r), sy: 1 - 0.1 * q * (1 - r), armB: lerp(1.2, -1.3, q), cloak: -0.8 * q, bodyY: 2.2 + 0.8 * q,
         });
         if (big) P.tuck = 0.5 * (1 - r);
         if (t > 0.6) {
