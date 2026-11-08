@@ -11323,20 +11323,30 @@ const WEAPON_DRAW = {
     },
   },
   glaive: {
-    off: -0.85,
+    // двусторонняя глефа: длинное древко, хват ПОСЕРЕДИНЕ (начало координат — кисть), изогнутые лезвия на обоих концах.
+    // Точечная симметрия (поворот на π даёт тот же силуэт), поэтому лезвие заднего конца рисуется тем же кодом с scale(-1, -1)
+    off: -0.75,
     draw(ctx, ch, p, accent, hq) {
+      ctx.scale(0.9, 0.9);
       ctx.strokeStyle = "#14151b"; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(19, 0); ctx.stroke();
-      ctx.strokeStyle = rgba(accent, 0.55); ctx.lineWidth = 0.5;
-      ctx.beginPath(); for (const x of WD_GLAIVE) { ctx.moveTo(x, -1); ctx.lineTo(x + 0.7, 1); } ctx.stroke();
-      ctx.fillStyle = "#1c1d25"; ctx.fillRect(17.5, -1.8, 1.4, 3.6);
-      // широкий изогнутый клинок («лунный серп» вперёд и вверх)
-      ctx.beginPath(); ctx.moveTo(18.5, 0.9); ctx.lineTo(19.5, -1.1); ctx.quadraticCurveTo(27, -3, 33, -9.5); ctx.quadraticCurveTo(32, -2.5, 26, 1.6); ctx.quadraticCurveTo(22, 2.2, 18.5, 0.9); ctx.closePath();
-      ctx.fillStyle = "#171820"; ctx.fill();
-      ctx.beginPath(); ctx.moveTo(19.5, -1.1); ctx.quadraticCurveTo(27, -3, 33, -9.5);
-      wGlow(ctx, hq, 3.4, accent, 0.35);
-      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(21, 0.2); ctx.quadraticCurveTo(26, -0.3, 30, -5); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.35; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-17, 0); ctx.lineTo(17, 0); ctx.stroke();
+      // хват: тёмная оплётка с неоновыми кольцами и небольшие упоры по краям
+      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-4.6, -1.3, 9.2, 2.6);
+      ctx.fillStyle = rgba(accent, 0.75);
+      for (let i = -2; i <= 2; i++) ctx.fillRect(i * 1.8 - 0.25, -1.3, 0.5, 2.6);
+      ctx.fillStyle = "#1c1d25"; ctx.fillRect(5, -2, 1, 4); ctx.fillRect(-6, -2, 1, 4);
+      for (let s = 1; s >= -1; s -= 2) {
+        ctx.save(); ctx.scale(s, s);
+        ctx.fillStyle = "#1c1d25"; ctx.fillRect(16, -1.9, 1.4, 3.8);
+        // широкий изогнутый клинок («лунный серп»: вперёд и вбок)
+        ctx.beginPath(); ctx.moveTo(17, 0.9); ctx.lineTo(18, -1.1); ctx.quadraticCurveTo(25, -3, 30.5, -9.5); ctx.quadraticCurveTo(29.6, -2.6, 24, 1.6); ctx.quadraticCurveTo(20.5, 2.2, 17, 0.9); ctx.closePath();
+        ctx.fillStyle = "#171820"; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(18, -1.1); ctx.quadraticCurveTo(25, -3, 30.5, -9.5);
+        wGlow(ctx, hq, 3.4, accent, 0.35);
+        ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(19.5, 0.2); ctx.quadraticCurveTo(24.5, -0.3, 28.2, -5); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.35; ctx.stroke();
+        ctx.restore();
+      }
     },
   },
   kusari: {
@@ -11757,9 +11767,8 @@ function kitTakedown(cs, kind, e, act) {
       // вращение древка: подготовка — копьё заводится за плечо, удар — полный оборот древка вокруг кисти
       const turns = nm === "riposte" ? 1.5 : 1;
       if (S) Object.assign(P, { armF: lerp(0.4, 1.7, easeOut(k.s)), elbowF: 0.2, wBlend: 1, wAngle: lerp(-0.2, -1.9, easeOut(k.s)), lean: -0.18, bodyY: 2.2 * k.s, legSpread: 1.9, sx: 1.05 });
-      else if (A) Object.assign(P, { armF: 1.5, elbowF: 0.2, wBlend: 1, wAngle: -1.9 + TAU * turns * easeInOut(k.a), lean: 0.3, bodyY: 2.4, legSpread: 2.0, sx: 0.55 + 0.5 * Math.abs(Math.cos(PI * k.a * turns)), sy: 0.94, cloak: -1 });
+      else if (A) Object.assign(P, { armF: 1.5, elbowF: 0.2, wBlend: 1, wAngle: -1.9 + TAU * turns * easeInOut(k.a), lean: 0.3, bodyY: 2.4, legSpread: 2.0, sy: 0.96, cloak: -1, turn: nm === "slash3" ? easeInOut(k.a) : 0 });
       else Object.assign(P, { armF: lerp(1.5, 0.5, easeInOut(k.r)), elbowF: 0.3, wBlend: 1, wAngle: lerp(0, -0.9, easeInOut(k.r)), lean: 0.2 * (1 - k.r), legSpread: lerp(1.9, 1.3, k.r) });
-      if (nm === "riposte" && A) P.sx = 0.45 + 0.65 * Math.abs(Math.cos(PI * k.a * 2));
       twoHand(P, 0.5);
       if (nm === "airSpin") P.tuck = 0.3;
       return;
@@ -11807,6 +11816,27 @@ function kitTakedown(cs, kind, e, act) {
   }
 
   const spearMoves = {
+    // контрудар после идеального уклона: шаг сквозь врага древком вперёд, задевает всех на пути, надолго оглушает
+    spear_counter: {
+      kind: "custom", name: "Контрвыпад", startup: 0.04, active: 0.16, recovery: 0.24, cancel: 0.18,
+      dmg: 17, reach: 52, knock: 260, stun: 0.9,
+      fx(g, p, act) {
+        const d = act.dir, y = p.y - 20, col = p.skin.accent;
+        g.sfx("dash"); g.camera.kick(0.012);
+        g.fx.cut(p.x - d * 10, y, p.x + d * 120, y - 2, col, 3.6, 0.22);
+        g.fx.cut(p.x - d * 10, y, p.x + d * 120, y - 2, "#ffffff", 1.3, 0.16);
+      },
+      update(cs, p, act, dt, tA) {
+        if (act.phase === "active") { act.iframes = true; p.vx = act.dir * 540 * (1 - 0.6 * (act.t - tA) / act.active); cs._passHits(p, act); cs._meleeHits(p, act, false); }
+        else p.vx = damp(p.vx, 0, 12, dt);
+      },
+      pose(P, act, p, k) {
+        if (act.phase === "startup") Object.assign(P, { armF: lerp(0.4, -0.5, easeOut(k.s)), elbowF: 1.0, wBlend: 1, wAngle: 0.05, lean: -0.25 * k.s, bodyY: 2.6 * k.s, legSpread: 2.2 });
+        else if (act.phase === "active") Object.assign(P, { armF: 1.5, elbowF: 0, wBlend: 1, wAngle: 0, lean: 0.8, tuck: 0.2, bodyY: 3.2, legSpread: 2.5, sx: 1.15, sy: 0.88, cloak: -1.1 });
+        else Object.assign(P, { armF: lerp(1.5, 0.5, easeInOut(k.r)), elbowF: 0.2, wBlend: 1, wAngle: lerp(0, -0.5, easeInOut(k.r)), lean: 0.4 * (1 - k.r), bodyY: 3 * (1 - easeOut(k.r)), legSpread: lerp(2.5, 1.4, k.r) });
+        twoHand(P, 0.45);
+      },
+    },
     // удар на сильной доле после двух точных ударов: копьё вращается над головой и бьёт по кругу три раза
     spear_whirl: {
       kind: "custom", name: "Вращение древка", startup: 0.07, active: 0.27, recovery: 0.22, cancel: 0.2,
@@ -11830,7 +11860,7 @@ function kitTakedown(cs, kind, e, act) {
       },
       pose(P, act, p, k) {
         if (act.phase === "startup") Object.assign(P, { armF: lerp(0.4, 2.7, easeOut(k.s)), elbowF: 0.1, wBlend: 1, wAngle: lerp(0, -1.57, easeOut(k.s)), lean: -0.1, bodyY: 3 * k.s, legSpread: 2.1, sx: 1.05, sy: 0.9 });
-        else if (act.phase === "active") Object.assign(P, { armF: 2.7, elbowF: 0.1, wBlend: 1, wAngle: -1.57 + TAU * 2 * easeInOut(k.a), lean: 0.08, bodyY: 2, legSpread: 2.0, sx: 0.5 + 0.5 * Math.abs(Math.cos(PI * k.a * 3)), sy: 0.96, cloak: 1.3, headTilt: 0.1 });
+        else if (act.phase === "active") Object.assign(P, { armF: 2.7, elbowF: 0.1, wBlend: 1, wAngle: -1.57 + TAU * 2 * easeInOut(k.a), lean: 0.08, bodyY: 2, legSpread: 2.0, sy: 0.96, cloak: 1.3, headTilt: 0.1, turn: easeInOut(k.a) });
         else Object.assign(P, { armF: lerp(2.7, 0.6, easeInOut(k.r)), elbowF: 0.2, wBlend: 1, wAngle: lerp(-1.57, -0.3, easeInOut(k.r)), lean: 0.2 * (1 - k.r), bodyY: 2 * (1 - k.r), legSpread: lerp(2, 1.4, k.r), cloak: 0.6 * (1 - k.r) });
         twoHand(P, 0.4);
       },
@@ -11859,55 +11889,117 @@ function kitTakedown(cs, kind, e, act) {
   };
 
   /* =====================================================================
-     ЛУННАЯ ГЛЕФА
+     ЛУННАЯ ГЛЕФА — двусторонняя: хват посередине, лезвия на обоих концах (WEAPON_DRAW.glaive, 12b_weapons.js).
+     Силуэт симметричен при повороте на π, поэтому wAngle ведёт «передний» конец, а второй идёт ему навстречу: удар одним
+     концом и сразу «перехват» — вращение доводится до стойки другим концом, а не откатывается назад. Серии чередуют
+     направление вращения (slash1 — сверху вниз, slash2 — снизу вверх, slash3 — оборот корпуса), обе руки на середине древка.
+     Оборот корпуса — параметр позы `turn` (обороты; целое значение в конце ≡ 0), не сжатие sx.
      ===================================================================== */
+  const GUARD = -0.55, GUARD2 = GUARD + PI;          // стойка: древко наискось через корпус (второй вариант — тот же силуэт)
+  const heavy = (kk, a, b) => lerp(a, b, easeInOut(kk));            // тяжёлая инерция: медленно-быстро-медленно
+  /** Обе руки на середине древка: задняя рука рядом с передней. */
+  const mid = (P, d = 0.25) => { P.armB = (P.armF || 0) - d; };
+
+  /** Один размах: завод, проход, перехват. o: a0/a1 — рука, w0/w1 — древко (начало/конец прохода), from — откуда завод,
+      wf — куда доводится вращение, body/bodyA — присед в подготовке/ударе, lean — наклон. */
+  function glSwing(P, act, p, k, o) {
+    const S = act.phase === "startup", T = act.phase === "travel", A = act.phase === "active";
+    const lean = o.lean == null ? 0.42 : o.lean, body = o.body == null ? 3 : o.body, bodyA = o.bodyA == null ? body : o.bodyA;
+    if (S) Object.assign(P, { armF: heavy(k.s, 0.35, o.a0), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.s, o.from, o.w0), lean: -0.26 * k.s, bodyY: body * 0.85 * k.s, legSpread: 2.0 + 0.3 * k.s, sx: 1 - 0.08 * k.s, cloak: 1.2 * k.s, headTilt: 0.1 * k.s });
+    else if (T) Object.assign(P, { armF: o.a0, elbowF: 0.2, wBlend: 1, wAngle: o.w0, lean: lean * 0.7, bodyY: body, legSpread: 2.3, sx: 1.05 });
+    else if (A) Object.assign(P, { armF: lerp(o.a0, o.a1, easeOut(k.a)), elbowF: 0.1, wBlend: 1, wAngle: lerp(o.w0, o.w1, easeOut(k.a)), lean, bodyY: bodyA, legSpread: 2.4, sx: 1.12, sy: 0.92, cloak: -1.1, headTilt: -0.1 });
+    else {
+      const r = easeInOut(k.r);
+      Object.assign(P, { armF: lerp(o.a1, 0.5, r), elbowF: 0.3 * k.r, wBlend: 1, wAngle: lerp(o.w1, o.wf, r), lean: lean * (1 - k.r) - 0.05 * Math.sin(k.r * PI), bodyY: bodyA * (1 - easeOut(k.r)) + Math.sin(k.r * PI) * 0.8, legSpread: lerp(2.4, 1.3, k.r), sx: 1.08 - 0.08 * k.r, cloak: -0.8 * (1 - k.r) });
+    }
+    mid(P);
+    if (!p.onGround) P.tuck = 0.35;
+  }
+
   function glaivePose(P, act, p, k) {
     if (act.def.kit) return;
     const nm = act.name, S = act.phase === "startup", A = act.phase === "active", T = act.phase === "travel";
-    const heavy = (kk, a, b) => lerp(a, b, easeInOut(kk));            // тяжёлая инерция: медленно-быстро-медленно
-    if (nm === "slash3" || nm === "airSpin" || nm === "riposte") {
-      // полный оборот корпуса: глефа чертит круг, силуэт сужается на развороте
-      if (S) Object.assign(P, { armF: heavy(k.s, 0.4, -1.5), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.s, 0, PI + 0.3), lean: -0.3 * k.s, bodyY: 2.6 * k.s, legSpread: 2.0, sx: 1 - 0.2 * k.s, cloak: 1 * k.s });
-      else if (A) Object.assign(P, { armF: lerp(-1.5, 2.2, easeInOut(k.a)), elbowF: 0.1, wBlend: 1, wAngle: PI + 0.3 + TAU * easeInOut(k.a) * (nm === "riposte" ? 1.5 : 1), lean: 0.38, bodyY: 3.2, legSpread: 2.2, sx: 0.4 + 0.65 * Math.abs(Math.cos(PI * k.a * (nm === "riposte" ? 2 : 1))), sy: 0.92, cloak: -1.3, armB: 1.3 });
-      else Object.assign(P, { armF: heavy(k.r, 2.2, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, 0.4, -0.5), lean: heavy(k.r, 0.35, 0), bodyY: 3 * (1 - easeOut(k.r)), legSpread: lerp(2.2, 1.3, k.r), cloak: -0.8 * (1 - k.r) });
+    if (nm === "slash3" || nm === "airSpin") {
+      // оборот корпуса: глефа заводится за спину и чертит круг обоими концами, силуэт поворачивается спиной и обратно
+      const w0 = -2.6;
+      if (S) Object.assign(P, { armF: heavy(k.s, 0.4, -1.5), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.s, GUARD, w0), lean: -0.28 * k.s, bodyY: 2.6 * k.s, legSpread: 2.0, cloak: 1 * k.s });
+      else if (A) Object.assign(P, { armF: lerp(-1.5, 2.2, easeInOut(k.a)), elbowF: 0.1, wBlend: 1, wAngle: w0 + TAU * easeInOut(k.a), turn: easeInOut(k.a), lean: 0.34, bodyY: 3.2, legSpread: 2.2, sy: 0.94, cloak: -1.3 });
+      else Object.assign(P, { armF: heavy(k.r, 2.2, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, w0 + TAU, GUARD2), lean: heavy(k.r, 0.34, 0), bodyY: 3 * (1 - easeOut(k.r)), legSpread: lerp(2.2, 1.3, k.r), cloak: -0.8 * (1 - k.r) });
+      mid(P, 0.3);
       if (nm === "airSpin") P.tuck = 0.3;
       return;
     }
+    if (nm === "riposte") {
+      // контрудар после уклона: два оборота древка перед собой, оба конца бьют по кругу
+      if (S) Object.assign(P, { armF: heavy(k.s, 0.4, 1.3), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.s, GUARD, -2.2), lean: -0.2 * k.s, bodyY: 3 * k.s, legSpread: 2.2, cloak: 0.8 * k.s });
+      else if (A) Object.assign(P, { armF: 1.4, elbowF: 0.15, wBlend: 1, wAngle: -2.2 + TAU * 2 * easeInOut(k.a), lean: 0.2, bodyY: 3 - Math.sin(k.a * PI), legSpread: 2.3, cloak: -1.2, headTilt: 0.08 });
+      else Object.assign(P, { armF: heavy(k.r, 1.4, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, -2.2 + TAU * 2, GUARD), lean: 0.2 * (1 - k.r), bodyY: 3 * (1 - easeOut(k.r)), legSpread: lerp(2.3, 1.3, k.r), cloak: -0.8 * (1 - k.r) });
+      mid(P, 0.3);
+      return;
+    }
     if (nm === "rise") {
-      // подъёмная дуга снизу позади — вверх через плечо
-      if (S) Object.assign(P, { armF: heavy(k.s, 0.3, -0.8), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.s, 0, 2.5), lean: 0.4 * k.s, bodyY: 4 * k.s, legSpread: 2.2, sx: 1.12, sy: 0.86 });
-      else if (A) Object.assign(P, { armF: lerp(-0.8, 3.0, easeOut(k.a)), elbowF: 0.1, wBlend: 1, wAngle: lerp(2.5, -1.5, easeOut(k.a)), lean: lerp(0.4, -0.25, k.a), bodyY: -1, legSpread: 1.5, sx: 0.9, sy: 1.14, cloak: 1, tuck: p.onGround ? 0 : 0.35 });
-      else Object.assign(P, { armF: heavy(k.r, 3.0, 0.5), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.r, -1.5, -0.4), lean: lerp(-0.2, 0.05, k.r), bodyY: 0 });
+      // подъёмная дуга снизу позади — вверх через плечо, перехват нижним концом
+      glSwing(P, act, p, k, { from: GUARD2, w0: 2.5, w1: -1.5, wf: GUARD, a0: -0.8, a1: 3.0, lean: 0.4, body: 4, bodyA: -1 });
+      if (A) { P.sx = 0.95; P.sy = 1.12; P.legSpread = 1.5; P.lean = lerp(0.4, -0.25, k.a); P.tuck = p.onGround ? 0 : 0.35; }
       return;
     }
     if (nm === "dash" || nm === "pierce") {
-      // рывок со скользящим ударом: глефа тянется сбоку-сзади, по земле, и взмывает вперёд
-      if (S) Object.assign(P, { armF: heavy(k.s, 0.3, -1.2), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.s, 0, 2.7), lean: -0.2, bodyY: 2.8 * k.s, legSpread: 2.2, sx: 1.04 });
-      else if (T) Object.assign(P, { armF: -1.2, elbowF: 0.3, wBlend: 1, wAngle: 2.7, lean: 0.8, tuck: 0.2, bodyY: 3, legSpread: 2.4, sx: 1.2, sy: 0.86, cloak: -1.1 });
-      else if (A) Object.assign(P, { armF: lerp(-1.2, 2.0, easeOut(k.a)), elbowF: 0.1, wBlend: 1, wAngle: lerp(2.7, -0.4, easeOut(k.a)), lean: 0.65, bodyY: 3.4, legSpread: 2.5, sx: 1.18, sy: 0.86, cloak: -1 });
-      else Object.assign(P, { armF: heavy(k.r, 2.0, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, -0.4, -0.5), lean: 0.4 * (1 - k.r), bodyY: 3 * (1 - easeOut(k.r)), legSpread: lerp(2.5, 1.3, k.r) });
+      // рывок со скользящим ударом: глефа тянется низко сбоку-сзади и взмывает вперёд, задний конец чертит дугу позади
+      if (S) Object.assign(P, { armF: heavy(k.s, 0.3, -1.2), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.s, GUARD, 2.7), lean: -0.2, bodyY: 2.8 * k.s, legSpread: 2.2, sx: 1.04 });
+      else if (T) Object.assign(P, { armF: -1.2, elbowF: 0.3, wBlend: 1, wAngle: 2.7, lean: 0.8, tuck: 0.2, bodyY: 3, legSpread: 2.4, sx: 1.12, sy: 0.9, cloak: -1.1 });
+      else if (A) Object.assign(P, { armF: lerp(-1.2, 2.0, easeOut(k.a)), elbowF: 0.1, wBlend: 1, wAngle: lerp(2.7, -0.4, easeOut(k.a)), lean: 0.65, bodyY: 3.4, legSpread: 2.5, sx: 1.12, sy: 0.9, cloak: -1 });
+      else Object.assign(P, { armF: heavy(k.r, 2.0, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, -0.4, GUARD), lean: 0.4 * (1 - k.r), bodyY: 3 * (1 - easeOut(k.r)), legSpread: lerp(2.5, 1.3, k.r) });
+      mid(P, 0.3);
       return;
     }
     if (act.def.kind === "dive") {
       if (S) Object.assign(P, { armF: 3.0, elbowF: 0, wBlend: 1, wAngle: -1.2, tuck: 0.3, lean: -0.2, sy: 1.1 });
-      else Object.assign(P, { armF: 2.4, elbowF: 0.1, wBlend: 1, wAngle: 1.2, lean: 0.35, tuck: 0.55, sx: 0.9, sy: 1.16, cloak: 1 });
+      else Object.assign(P, { armF: 2.4, elbowF: 0.1, wBlend: 1, wAngle: 1.45, lean: 0.3, tuck: 0.55, sx: 0.92, sy: 1.14, cloak: 1 });
+      mid(P, 0.2);
       return;
     }
-    // обычные дуги (slash1/2, thrust, flurry, cross, airSlash): широкий размах корпусом
-    const second = nm === "slash2" || (nm === "cross" && false);
-    const wide = nm === "thrust" ? 0.5 : 1;
-    // slash1: из-за плеча сверху-вниз; slash2: снизу-вверх встречной дугой
-    const w0 = second ? 2.7 : -2.5, w1 = second ? -1.0 : 0.9;
-    const a0 = second ? -0.6 : -1.7, a1 = second ? 2.4 : 2.0;
-    if (S) Object.assign(P, { armF: heavy(k.s, 0.3, a0), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.s, 0, w0), lean: -0.3 * k.s * wide, bodyY: 2.8 * k.s, legSpread: 2.0 + 0.3 * k.s, sx: 1 - 0.22 * k.s, sy: 0.96, cloak: 1.2 * k.s, headTilt: 0.12 * k.s });
-    else if (T) Object.assign(P, { armF: a0, elbowF: 0.2, wBlend: 1, wAngle: w0, lean: 0.55, bodyY: 2.6, legSpread: 2.3, sx: 1.1, sy: 0.9 });
-    else if (A) Object.assign(P, { armF: lerp(a0, a1, easeOut(k.a)), elbowF: 0.1, wBlend: 1, wAngle: lerp(w0, w1, easeOut(k.a)), lean: 0.45 * wide + 0.1, bodyY: 3.2, legSpread: 2.4, sx: 1.18, sy: 0.88, cloak: -1.1, armB: 1.2, headTilt: -0.1 });
-    else Object.assign(P, { armF: heavy(k.r, a1, 0.5), elbowF: 0.3 * k.r, wBlend: 1, wAngle: heavy(k.r, w1, -0.5), lean: 0.35 * (1 - k.r) - 0.05 * Math.sin(k.r * PI), bodyY: 3.2 * (1 - easeOut(k.r)) + Math.sin(k.r * PI) * 0.8, legSpread: lerp(2.4, 1.3, k.r), sx: 1.1 - 0.1 * k.r, cloak: -0.8 * (1 - k.r) });
-    if (!p.onGround) P.tuck = 0.35;
+    if (nm === "cross") {
+      // «Крест»: два косых росчерка накрест, между ними древко быстро перематывается
+      const u = k.a;
+      if (S || T) { glSwing(P, act, p, k, { from: GUARD, w0: -2.3, w1: 0.5, wf: GUARD2, a0: -1.5, a1: 1.9 }); return; }
+      if (A) {
+        const w = u < 0.5 ? lerp(-2.3, 0.5, easeOut(u * 2)) : u < 0.6 ? lerp(0.5, 2.9, easeInOut((u - 0.5) / 0.1)) : lerp(2.9, -0.9, easeOut((u - 0.6) / 0.4));
+        Object.assign(P, { armF: u < 0.5 ? lerp(-1.5, 1.9, easeOut(u * 2)) : lerp(0.2, 2.1, easeOut((u - 0.5) * 2)), elbowF: 0.1, wBlend: 1, wAngle: w, lean: 0.4, bodyY: 3.2, legSpread: 2.4, sx: 1.1, sy: 0.92, cloak: -1.1, headTilt: u < 0.5 ? -0.1 : 0.1 });
+        mid(P);
+        return;
+      }
+      Object.assign(P, { armF: heavy(k.r, 2.1, 0.5), elbowF: 0.3 * k.r, wBlend: 1, wAngle: heavy(k.r, -0.9, GUARD), lean: 0.4 * (1 - k.r), bodyY: 3.2 * (1 - easeOut(k.r)), legSpread: lerp(2.4, 1.3, k.r), cloak: -0.8 * (1 - k.r) });
+      mid(P);
+      return;
+    }
+    if (nm === "thrust" || nm === "flurry") {
+      // колющий выпад серединой хвата: передний конец вперёд, задний проворачивается назад; в серии — короткие тычки
+      const rep = (act.def.hits || 1) > 1, u = rep ? (k.a * act.def.hits) % 1 : k.a;
+      if (S) Object.assign(P, { armF: heavy(k.s, 0.35, -0.5), elbowF: 1.0, wBlend: 1, wAngle: heavy(k.s, GUARD, 0.15), lean: -0.2 * k.s, bodyY: 2.4 * k.s, legSpread: 2.1, sx: 1.04, cloak: 0.6 * k.s });
+      else if (A) Object.assign(P, { armF: rep ? lerp(0.9, 1.55, Math.sin(PI * Math.min(1, u * 1.3))) : lerp(-0.3, 1.5, easeOut(k.a * 1.5)), elbowF: 0, wBlend: 1, wAngle: -0.05 + 0.12 * Math.sin(k.a * PI), lean: 0.5, bodyY: 2.8, legSpread: 2.4, sx: 1.14, sy: 0.9, cloak: -0.8 });
+      else Object.assign(P, { armF: heavy(k.r, 1.5, 0.5), elbowF: 0.2 * k.r, wBlend: 1, wAngle: heavy(k.r, -0.05, GUARD), lean: 0.3 * (1 - k.r), bodyY: 2.8 * (1 - easeOut(k.r)) + Math.sin(k.r * PI) * 0.5, legSpread: lerp(2.4, 1.3, k.r), cloak: -0.5 * (1 - k.r) });
+      mid(P, 0.3);
+      if (!p.onGround) P.tuck = 0.35;
+      return;
+    }
+    // обычные дуги: slash1 — сверху вниз и перехват, slash2 — встречная снизу вверх, airSlash — как slash1 в воздухе
+    if (nm === "slash2") glSwing(P, act, p, k, { from: GUARD2, w0: 2.7, w1: -0.9, wf: GUARD, a0: -0.5, a1: 2.3 });
+    else glSwing(P, act, p, k, { from: GUARD, w0: -2.3, w1: 0.8, wf: GUARD2, a0: -1.3, a1: 1.9 });
+  }
+
+  /** Попадание по прямоугольнику (для приёмов с собственной зоной, например удар задним концом). */
+  function glHitBox(cs, p, act, box, dirSign) {
+    for (const e of cs.game.enemies) {
+      if (!e.targetable || act.hit.has(e.id)) continue;
+      const eb = { x: e.x - e.w * e.scale / 2, y: e.y - e.h * e.scale, w: e.w * e.scale, h: e.h * e.scale };
+      if (!rectsOverlap(box, eb)) continue;
+      act.hit.add(e.id);
+      cs._applyHit(e, act, dirSign || sign(e.x - p.x) || act.dir, e.x, e.centerY);
+    }
   }
 
   const glaiveMoves = {
-    // окружён вплотную и точное нажатие: полный круг глефы по всем сторонам, две половины дуги — два удара
+    // окружён (трое вплотную или двое с одной стороны) и точное нажатие: корпус делает оборот, оба лезвия чертят полные кольца — два удара
     glaive_circle: {
       kind: "custom", name: "Лунный круг", startup: 0.11, active: 0.3, recovery: 0.3, cancel: 0.26,
       dmg: 14, reach: 60, knock: 300, stun: 0.6, hits: 2,
@@ -11919,23 +12011,90 @@ function kitTakedown(cs, kind, e, act) {
         const n = Math.min(def.hits - 1, Math.floor((act.t - tA) / (def.active / def.hits)));
         if (act.tick == null || n > act.tick) {
           act.tick = n; act.sub = n; act.hit.clear();
-          const cx = p.x, cy = p.y - 20, col = p.skin.accent;
-          // половина кольца: верхняя дуга, затем нижняя (глефа чертит круг вокруг героя)
-          const a0 = n ? 0 : PI;
-          g.fx.slashArc(cx, cy, 48, a0 - 0.15, a0 + PI + 0.15, col, 10, 0.26);
-          g.fx.slashArc(cx, cy, 43, a0, a0 + PI, "#ffffff", 2, 0.16);
+          const cx = p.x, cy = p.y - 20, col = p.skin.accent, a0 = n * PI / 2;
+          // два лезвия — две встречные дуги, вместе почти полное кольцо; второе кольцо чуть шире
+          const rr = 48 + n * 8;
+          for (let i = 0; i < 2; i++) {
+            g.fx.slashArc(cx, cy, rr, a0 + i * PI, a0 + i * PI + PI * 0.9, col, 10, 0.26);
+            g.fx.slashArc(cx, cy, rr - 5, a0 + i * PI + 0.1, a0 + i * PI + PI * 0.8, "#ffffff", 2, 0.16);
+          }
           if (n === 0) { g.fx.glow(cx, cy, 10, 56, col, 0.2, 0.3); g.camera.shake(0.14); }
-          else { g.fx.ring(cx, cy, 14, 66, "#ffffff", 0.3, 2); g.camera.shake(0.26); g.sfx("slash", 1.5); }
+          else { g.fx.ring(cx, cy, 14, 70, "#ffffff", 0.3, 2); g.camera.shake(0.26); g.sfx("slash", 1.5); }
         }
         cs._meleeHits(p, act, true);
       },
       pose(P, act, p, k) {
-        if (act.phase === "startup") Object.assign(P, { armF: lerp(0.3, -1.5, easeInOut(k.s)), elbowF: 0.2, wBlend: 1, wAngle: lerp(0, PI + 0.2, easeInOut(k.s)), lean: -0.3 * k.s, bodyY: 3.4 * k.s, legSpread: 2.3, sx: 1 - 0.2 * k.s, cloak: 1.3 * k.s });
-        else if (act.phase === "active") Object.assign(P, { armF: 1.7, elbowF: 0, wBlend: 1, wAngle: PI + 0.2 + TAU * easeInOut(k.a), lean: 0.1, bodyY: 2.4, legSpread: 2.3, sx: 0.45 + 0.6 * Math.abs(Math.cos(PI * k.a * 2)), sy: 0.95, cloak: -1.4, armB: 1.0 });
-        else Object.assign(P, { armF: lerp(1.7, 0.5, easeInOut(k.r)), elbowF: 0.3, wBlend: 1, wAngle: lerp(0.2, -0.5, easeInOut(k.r)), lean: 0.2 * (1 - k.r), bodyY: 2.4 * (1 - easeOut(k.r)) + Math.sin(k.r * PI) * 0.8, legSpread: lerp(2.3, 1.3, k.r), cloak: -0.9 * (1 - k.r) });
+        if (act.phase === "startup") Object.assign(P, { armF: heavy(k.s, 0.3, -1.4), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.s, GUARD, -2.6), lean: -0.26 * k.s, bodyY: 3.4 * k.s, legSpread: 2.3, sx: 1 - 0.08 * k.s, cloak: 1.3 * k.s });
+        else if (act.phase === "active") Object.assign(P, { armF: 1.6, elbowF: 0, wBlend: 1, wAngle: -2.6 + TAU * 2 * easeInOut(k.a), turn: easeInOut(k.a), lean: 0.1, bodyY: 2.4 + Math.sin(k.a * PI), legSpread: 2.3, sy: 0.95, cloak: -1.4 });
+        else Object.assign(P, { armF: heavy(k.r, 1.6, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, -2.6 + TAU * 2, GUARD), lean: 0.2 * (1 - k.r), bodyY: 2.4 * (1 - easeOut(k.r)) + Math.sin(k.r * PI) * 0.8, legSpread: lerp(2.3, 1.3, k.r), cloak: -0.9 * (1 - k.r) });
+        mid(P, 0.3);
       },
     },
-    // «и» после двух ударов в долю: низкая подсечка у самых ног — враг теряет опору и падает
+    // «и» после одного удара в долю: древко вращается перед героем, четыре быстрых тычка-удара по обе стороны (полудоля)
+    glaive_prop: {
+      kind: "custom", name: "Пропеллер", startup: 0.05, active: 0.26, recovery: 0.22, cancel: 0.17,
+      dmg: 5, reach: 52, knock: 70, stun: 0.3, hits: 4,
+      fx(g, p, act) { stamp(g.combat, "prop"); g.sfx("slash", 1.0); g.fx.glow(p.x + act.dir * 10, p.y - 22, 6, 30, p.skin.accent, 0.14, 0.3); },
+      update(cs, p, act, dt, tA) {
+        const g = cs.game, def = act.def;
+        p.vx = act.phase === "active" ? act.dir * 55 : damp(p.vx, 0, 12, dt);
+        if (act.phase !== "active") return;
+        const n = Math.min(def.hits - 1, Math.floor((act.t - tA) / (def.active / def.hits)));
+        if (act.tick == null || n > act.tick) {
+          act.tick = n; act.sub = n; act.hit.clear();
+          const cx = p.x + act.dir * 8, cy = p.y - 22, col = p.skin.accent, a0 = n * 1.3;
+          // росчерки обоих концов, каждый тик повёрнут: по ним читается вращение винта
+          g.fx.slashArc(cx, cy, 36, a0, a0 + 1.9, col, 5, 0.16);
+          g.fx.slashArc(cx, cy, 36, a0 + PI, a0 + PI + 1.9, col, 5, 0.16);
+          g.fx.slashArc(cx, cy, 31, a0 + 0.2, a0 + 1.6, "#ffffff", 1.2, 0.1);
+          g.sfx("slash", 1.1 + 0.12 * n);
+          if (n === def.hits - 1) { act.dmgK = 1.6; g.fx.ring(cx, cy, 8, 54, "#ffffff", 0.24, 2); g.camera.shake(0.16); }
+        }
+        cs._meleeHits(p, act, true);
+      },
+      pose(P, act, p, k) {
+        if (act.phase === "startup") Object.assign(P, { armF: heavy(k.s, 0.35, 1.3), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.s, GUARD, -1.4), lean: -0.1 * k.s, bodyY: 2.2 * k.s, legSpread: 2.1, cloak: 0.6 * k.s });
+        else if (act.phase === "active") Object.assign(P, { armF: 1.45 + 0.08 * Math.sin(k.a * 25), elbowF: 0.15, wBlend: 1, wAngle: -1.4 + TAU * 2.5 * k.a, lean: 0.12 + 0.05 * Math.sin(k.a * 25), bodyY: 2.4 + 0.5 * Math.sin(k.a * 25), legSpread: 2.2, sx: 1.04, cloak: -1, headTilt: 0.06 * Math.sin(k.a * 25) });
+        else Object.assign(P, { armF: heavy(k.r, 1.45, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, -1.4 + TAU * 2.5, GUARD2), lean: 0.12 * (1 - k.r), bodyY: 2.4 * (1 - easeOut(k.r)), legSpread: lerp(2.2, 1.3, k.r), cloak: -0.7 * (1 - k.r) });
+        mid(P, 0.3);
+      },
+    },
+    // враг спереди и враг сзади, точное нажатие: передний конец рубит вперёд, древко отскакивает, и задний конец рубит назад
+    glaive_dual: {
+      kind: "custom", name: "Двойной полумесяц", startup: 0.1, active: 0.26, recovery: 0.28, cancel: 0.22,
+      dmg: 15, reach: 58, knock: 280, stun: 0.55, hits: 2,
+      fx(g, p, act) { stamp(g.combat, "dual"); g.sfx("slash", 1.1); },
+      update(cs, p, act, dt, tA) {
+        const g = cs.game, def = act.def, d = act.dir, col = p.skin.accent;
+        p.vx = damp(p.vx, 0, 12, dt);
+        if (act.phase !== "active") return;
+        const n = Math.min(def.hits - 1, Math.floor((act.t - tA) / (def.active / def.hits)));
+        if (act.tick == null || n > act.tick) {
+          act.tick = n; act.sub = n; act.hit.clear();
+          const cy = p.y - 22, side = n ? -d : d;                 // первый удар — вперёд, второй — назад
+          // косой полумесяц на своей стороне: сверху вниз
+          const a0 = side > 0 ? -1.9 : PI + 0.5, a1 = side > 0 ? 0.6 : PI + 3.0;
+          g.fx.slashArc(p.x + side * 4, cy, 44, a0, a1, col, 9, 0.24);
+          g.fx.slashArc(p.x + side * 4, cy, 39, a0 + 0.2, a1 - 0.2, "#ffffff", 1.8, 0.14);
+          g.fx.cut(p.x - side * 6, cy - 8, p.x + side * (def.reach + 8), cy + 12, "#ffffff", 1.4, 0.16);
+          g.sfx("slash", 1.2 + 0.25 * n); g.camera.shake(n ? 0.22 : 0.14);
+          if (n) g.fx.ring(p.x - d * 8, cy, 6, 40, "#ffffff", 0.22, 2);
+        }
+        // зона удара: спереди — обычная, сзади — зеркальная
+        const rear = act.tick === 1, box = { x: (rear ? -d : d) > 0 ? p.x - 4 : p.x - def.reach + 4, y: p.y - 34, w: def.reach, h: 36 };
+        glHitBox(cs, p, act, box, rear ? -d : d);
+      },
+      pose(P, act, p, k) {
+        if (act.phase === "startup") Object.assign(P, { armF: heavy(k.s, 0.3, -1.3), elbowF: 0.2, wBlend: 1, wAngle: heavy(k.s, GUARD, -2.3), lean: -0.24 * k.s, bodyY: 3 * k.s, legSpread: 2.2, sx: 1 - 0.06 * k.s, cloak: 1.2 * k.s });
+        else if (act.phase === "active") {
+          // удар вперёд (передний конец вниз), отскок — задний конец рубит назад; корпус слегка откидывается на втором ударе
+          const u = k.a, w = u < 0.5 ? lerp(-2.3, 0.6, easeOut(u * 2)) : lerp(0.6, -1.4, easeOut((u - 0.5) * 2));
+          Object.assign(P, { armF: u < 0.5 ? lerp(-1.3, 1.9, easeOut(u * 2)) : lerp(1.9, 0.9, easeOut((u - 0.5) * 2)), elbowF: 0.1, wBlend: 1, wAngle: w, lean: u < 0.5 ? 0.4 : -0.16, bodyY: 3.2, legSpread: 2.5, sx: 1.1, sy: 0.92, cloak: u < 0.5 ? -1.1 : 1.1, headTilt: u < 0.5 ? -0.1 : 0.12 });
+        } else Object.assign(P, { armF: heavy(k.r, 0.9, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, -1.4, GUARD), lean: -0.16 * (1 - k.r), bodyY: 3.2 * (1 - easeOut(k.r)) + Math.sin(k.r * PI) * 0.6, legSpread: lerp(2.5, 1.3, k.r), cloak: 0.8 * (1 - k.r) });
+        mid(P, 0.3);
+      },
+    },
+    // «и» после двух ударов в долю: низкая подсечка нижним концом у самых ног — враг теряет опору и падает; верхний конец взмывает вверх
     glaive_sweep: {
       kind: "custom", name: "Подсечка", startup: 0.07, active: 0.13, recovery: 0.27, cancel: 0.2,
       dmg: 20, reach: 64, knock: 140, stun: 1.2,
@@ -11965,14 +12124,31 @@ function kitTakedown(cs, kind, e, act) {
         }
       },
       pose(P, act, p, k) {
-        // глубокий присед, глефа скользит у самой земли
-        if (act.phase === "startup") Object.assign(P, { armF: lerp(0.3, -0.6, easeOut(k.s)), elbowF: 0.4, wBlend: 1, wAngle: lerp(0, 2.2, easeOut(k.s)), lean: 0.35 * k.s, bodyY: 5 * k.s, legSpread: 2.6, sx: 1.1, sy: 0.84 });
-        else if (act.phase === "active") Object.assign(P, { armF: lerp(-0.6, 1.35, easeOut(k.a)), elbowF: 0.2, wBlend: 1, wAngle: lerp(2.2, 0.55, easeOut(k.a)), lean: 0.65, bodyY: 5.4, legSpread: 2.8, sx: 1.22, sy: 0.82, cloak: -1 });
-        else Object.assign(P, { armF: lerp(1.35, 0.5, easeInOut(k.r)), elbowF: 0.3, wBlend: 1, wAngle: lerp(0.55, -0.5, easeInOut(k.r)), lean: 0.5 * (1 - easeOut(k.r)), bodyY: 5.4 * (1 - easeInOut(k.r)), legSpread: lerp(2.8, 1.3, k.r), sy: 0.85 + 0.15 * k.r });
-        P.armB = (P.armF || 0) - 0.5;
+        // глубокий присед, глефа скользит у самой земли нижним концом, затем верхний конец взмывает вверх (вращение доводится)
+        if (act.phase === "startup") Object.assign(P, { armF: heavy(k.s, 0.3, -0.6), elbowF: 0.4, wBlend: 1, wAngle: heavy(k.s, GUARD, 2.2), lean: 0.3 * k.s, bodyY: 5 * k.s, legSpread: 2.6, sx: 1.08, sy: 0.9 });
+        else if (act.phase === "active") Object.assign(P, { armF: lerp(-0.6, 1.35, easeOut(k.a)), elbowF: 0.2, wBlend: 1, wAngle: lerp(2.2, 0.55, easeOut(k.a)), lean: 0.6, bodyY: 5.4, legSpread: 2.8, sx: 1.14, sy: 0.9, cloak: -1 });
+        else Object.assign(P, { armF: heavy(k.r, 1.35, 0.5), elbowF: 0.3, wBlend: 1, wAngle: heavy(k.r, 0.55, GUARD), lean: 0.5 * (1 - easeOut(k.r)), bodyY: 5.4 * (1 - easeInOut(k.r)), legSpread: lerp(2.8, 1.3, k.r), sy: 0.9 + 0.1 * k.r });
+        mid(P, 0.4);
       },
     },
   };
+
+  // базовые приёмы глефой: задний конец чертит свою дугу (в дополнение к дуге переднего), оба лезвия на виду
+  {
+    const slashFx0 = CombatSystem.prototype._slashFx;
+    CombatSystem.prototype._slashFx = function (p, act, sub = 0) {
+      slashFx0.call(this, p, act, sub);
+      const def = act.def;
+      if (!def.w || def.w.id !== "glaive" || def.kit || !def.arc) return;
+      const [a0, a1] = sub % 2 && !def.spin ? [def.arc[1] - 2.2, def.arc[0] + 2.2] : def.arc;
+      const toWorld = a => (act.dir > 0 ? PI / 2 - a : PI / 2 + a);
+      let w0 = toWorld(a0 - 0.4), w1 = toWorld(a1);
+      if (act.dir < 0) { const t = w0; w0 = w1; w1 = t; }
+      if (w1 < w0) w1 += TAU;
+      const r = (def.spin ? 34 : 26) * (def.fxR || 1) * 0.72, g = this.game;
+      g.fx.slashArc(p.x + act.dir * 6, p.y - 20, r, w0 + PI, w1 + PI, p.skin.accent, (act.empowered ? 6 : 4) * (def.fxW || 1), 0.16);
+    };
+  }
 
   /* =====================================================================
      БОЕВОЙ ТОПОР
@@ -11986,7 +12162,7 @@ function kitTakedown(cs, kind, e, act) {
     if (nm === "slash3" || nm === "airSpin" || nm === "riposte") {
       // размашистый круговой удар: топор тянет корпус за собой
       if (S) Object.assign(P, { armF: lerp(0.3, 2.6, easeOut(k.s)), elbowF: 0.2, wBlend: 1, wAngle: lerp(0, -2.3, easeOut(k.s)), lean: -0.3 * k.s, bodyY: 3.2 * k.s, legSpread: 2.2, sx: 1.06, sy: 0.92 });
-      else if (A) Object.assign(P, { armF: 2.0 - 0.6 * k.a, elbowF: 0.1, wBlend: 1, wAngle: -2.3 + TAU * easeIn(k.a) * (nm === "riposte" ? 1.4 : 1), lean: 0.55, bodyY: 4, legSpread: 2.5, sx: 0.5 + 0.6 * Math.abs(Math.cos(PI * k.a)), sy: 0.88, cloak: -1.3, armB: 1.4 });
+      else if (A) Object.assign(P, { armF: 2.0 - 0.6 * k.a, elbowF: 0.1, wBlend: 1, wAngle: -2.3 + TAU * easeIn(k.a) * (nm === "riposte" ? 1.4 : 1), lean: 0.55, bodyY: 4, legSpread: 2.5, sy: 0.9, cloak: -1.3, armB: 1.4, turn: nm === "slash3" ? easeIn(k.a) : 0 });
       else Object.assign(P, { armF: lerp(1.4, 0.7, easeInOut(k.r)), elbowF: 0.3, wBlend: 1, wAngle: lerp(0.9, 0.2, easeInOut(k.r)), lean: 0.45 * stuck + 0.05, bodyY: 4 * Math.max(stuck, 1 - easeOut(k.r)) , legSpread: lerp(2.5, 1.4, k.r), sy: 0.9 + 0.1 * k.r, headTilt: 0.15 * stuck });
       if (nm === "airSpin") P.tuck = 0.3;
       P.armB = P.armB == null ? (P.armF || 0) - 0.5 : P.armB;
@@ -12041,6 +12217,27 @@ function kitTakedown(cs, kind, e, act) {
   }
 
   const axeMoves = {
+    // враг заносит удар (замах), точное нажатие вплотную: короткий удар торцом рукояти сбивает замах и надолго оглушает
+    axe_pommel: {
+      kind: "custom", name: "Оглушение обухом", startup: 0.06, active: 0.08, recovery: 0.26, cancel: 0.18,
+      dmg: 9, reach: 40, knock: 520, stun: 1.5,
+      fx(g, p, act) {
+        const d = act.dir, col = p.skin.accent;
+        stamp(g.combat, "pommel"); g.sfx("hit", 1.3); g.camera.shake(0.2); g.hitstop(0.05);
+        g.fx.ring(p.x + d * 30, p.y - 20, 4, 30, "#ffffff", 0.2, 2); g.fx.sparks(p.x + d * 30, p.y - 20, 6, col, 220, d > 0 ? 0 : PI, 0.9, 0.25);
+      },
+      update(cs, p, act, dt, tA) {
+        p.vx = act.phase === "active" ? act.dir * 80 : damp(p.vx, 0, 12, dt);
+        if (act.phase === "active") cs._meleeHits(p, act, false);
+      },
+      pose(P, act, p, k) {
+        // топор перехвачен: головка назад, торец рукояти вперёд
+        if (act.phase === "startup") Object.assign(P, { armF: lerp(0.3, -0.2, easeOut(k.s)), elbowF: 0.8, wBlend: 1, wAngle: lerp(0, PI, easeOut(k.s)), lean: -0.2 * k.s, bodyY: 2.4 * k.s, legSpread: 2.2 });
+        else if (act.phase === "active") Object.assign(P, { armF: lerp(-0.2, 1.45, easeOut(k.a)), elbowF: 0, wBlend: 1, wAngle: PI, lean: 0.6, bodyY: 3, legSpread: 2.5, sx: 1.14, sy: 0.9, cloak: -0.9 });
+        else Object.assign(P, { armF: lerp(1.45, 0.6, easeInOut(k.r)), elbowF: 0.3, wBlend: 1, wAngle: lerp(PI, 0.3 + 0 * TAU, easeInOut(k.r)), lean: 0.3 * (1 - k.r), bodyY: 3 * (1 - easeOut(k.r)), legSpread: lerp(2.5, 1.4, k.r) });
+        P.armB = (P.armF || 0) - 0.4;
+      },
+    },
     // сильная доля + точный удар вплотную: топор вгоняется в землю, по полу бежит ударная волна
     axe_cleave: {
       kind: "custom", name: "Раскол земли", startup: 0.13, active: 0.1, recovery: 0.42, cancel: 0.36,
@@ -12116,6 +12313,8 @@ function kitTakedown(cs, kind, e, act) {
       if (name === "slash3" && c.j.strong && c.good && cs.chain >= 2 && !c.j.offbeat) return "spear_whirl";
       // Бросок-возврат: точное нажатие по дальней цели вместо рывка (не чаще раза в 3 с)
       if (name === "dash" && c.j.rating === "perfect" && c.dx >= 80 && ready(cs, "spearThrow", 3)) return "spear_throw";
+      // Контрвыпад: атака в окне после идеального уклона
+      if (name === "riposte") return "spear_counter";
     },
     takedown(cs, kind, e) { return kind === "colossus" ? "spear_impale_big" : kind === "xcut" ? "spear_impale" : null; },
   });
@@ -12124,9 +12323,16 @@ function kitTakedown(cs, kind, e, act) {
     pose: capPose(glaivePose),
     choose(cs, name, c) {
       if (c.air || !c.target) return;
-      // Лунный круг: окружён (двое и более вплотную) + точное нажатие
-      if (MELEE_NAMES.includes(name) && name !== "cross" && c.good && !c.j.offbeat && around(cs, 66).n >= 2 && ready(cs, "circle", 2.2)) return "glaive_circle";
-      // Подсечка: нажатие на «и» после двух ударов серии (slash1, slash2) вместо «Шквала»; после одного удара «Шквал» остаётся
+      // двусторонняя глефа: окружён — кольцо, враги с двух сторон — «Двойной полумесяц»
+      const ar = around(cs, 66);
+      if (MELEE_NAMES.includes(name) && name !== "cross" && c.good && !c.j.offbeat) {
+        // Лунный круг: трое вплотную (или двое с одной стороны) + точное нажатие
+        if ((ar.n >= 3 || (ar.n >= 2 && (!ar.l || !ar.r))) && ready(cs, "circle", 2.2)) return "glaive_circle";
+        // Двойной полумесяц: по врагу спереди и сзади — удар передним концом, затем задним
+        if (ar.l >= 1 && ar.r >= 1 && ready(cs, "dual", 1.6)) return "glaive_dual";
+      }
+      // «и» после первого удара — Пропеллер; после двух ударов — Подсечка (после третьего остаётся «Шквал»)
+      if (name === "flurry" && cs.comboStep === 1 && ready(cs, "prop", 1.2)) return "glaive_prop";
       if (name === "flurry" && cs.comboStep === 2 && ready(cs, "sweep", 0.8)) return "glaive_sweep";
     },
     takedown(cs, kind, e) { return kind === "colossus" ? "glaive_moon_big" : kind === "xcut" ? "glaive_moon" : null; },
@@ -12136,6 +12342,8 @@ function kitTakedown(cs, kind, e, act) {
     pose: capPose(axePose),
     choose(cs, name, c) {
       if (c.air || !c.target) return;
+      // Оглушение обухом: враг в замахе рядом + точное нажатие
+      if (MELEE_NAMES.includes(name) && name !== "cross" && c.good && c.target.state === "windup" && c.dx <= 40 && Math.abs(c.dy) < 40 && ready(cs, "pommel", 1.5)) return "axe_pommel";
       // Раскол земли: сильная доля + точный удар вплотную
       if (MELEE_NAMES.includes(name) && name !== "cross" && name !== "flurry" && c.j.strong && c.good && !c.j.offbeat && c.dx <= 36 && Math.abs(c.dy) < 40 && ready(cs, "cleave", 1.8)) return "axe_cleave";
       // Бросок топора: хороший удар по цели на средней дистанции вместо рывка
@@ -12223,10 +12431,11 @@ function kitTakedown(cs, kind, e, act) {
   }
 
   /* ---------- глефа: «ЛУННЫЙ СЕРП» ----------
-     Герой подходит и разворачивается через плечо; глефа чертит вокруг врага кольцо из трёх дуг. Кольцо схлопывается,
-     и косой разрез разваливает врага на половины. Для громилы — двойное кольцо. */
+     Двусторонняя глефа: герой подходит, перебрасывая древко в руках, и раскручивает её вокруг себя (оборот корпуса — `turn`):
+     лезвия попеременно, верхним и нижним концом, рубят врага (три удара, для громилы — шесть) и вспыхивают кольцом.
+     Кольцо схлопывается, и косой разрез разваливает врага на половины. */
   function glaiveMoon(big) {
-    const arcT = big ? [0.3, 0.37, 0.44, 0.52, 0.59, 0.66] : [0.27, 0.35, 0.43], tc = big ? 0.8 : 0.52;
+    const arcT = big ? [0.3, 0.37, 0.44, 0.52, 0.59, 0.66] : [0.27, 0.35, 0.43], tc = big ? 0.8 : 0.52, turns = big ? 2 : 1;
     return {
       name: big ? "ЗАТМЕНИЕ" : "ЛУННЫЙ СЕРП", dur: big ? 1.28 : 0.98, death: big ? "topple" : "split",
       update(cs, td, api) {
@@ -12237,10 +12446,11 @@ function kitTakedown(cs, kind, e, act) {
         p.x = lerp(td.px, stand, easeInOut(ph3(t, 0.02, 0.26)));
         if (t > tc + 0.12) p.x = lerp(stand, clamp(stand - d * 14, 40, WORLD.w - 40), easeOut(ph3(t, tc + 0.12, tc + 0.4)));
         p.facing = d;
-        // кольцо вокруг врага: каждая дуга охватывает 125°, шагая по окружности
+        // удары по очереди: верхний конец рубит сверху вниз, нижний — снизу вверх; дуги охватывают врага с двух сторон
         arcT.forEach((at, i) => api.once("arc" + i, at, () => {
           const outer = big && i >= 3, rr = outer ? R * 1.28 : R, a0 = (i % 3) * 2.2 - 1.2 + (outer ? 0.5 : 0);
           g.fx.slashArc(e.x, cy, rr, a0, a0 + 2.3, col, outer ? 5 : 6, life(0.7));
+          g.fx.slashArc(e.x, cy, rr, a0 + PI, a0 + PI + 2.3, col, outer ? 4 : 5, life(0.6));
           g.fx.slashArc(e.x, cy, rr - 3, a0 + 0.2, a0 + 2.1, "#ffffff", 1.4, life(0.5));
           g.sfx("slash", 1.1 + 0.12 * i);
           g.camera.shake(0.08); e.flash = 0.35;
@@ -12263,23 +12473,22 @@ function kitTakedown(cs, kind, e, act) {
         else e.tdPose = null;
       },
       pose(cs, p, td) {
-        const t = td.t, tc = big ? 0.8 : 0.52, a0 = big ? 0.3 : 0.27, a1 = tc - 0.04;
-        // 0–0.26: тяжёлый шаг, глефа волочится позади; затем оборот через плечо; после разреза — упор древком и медленный вдох
+        const t = td.t, a0 = big ? 0.3 : 0.27, a1 = tc - 0.04;
+        // 0–a0: тяжёлый шаг, древко перебрасывается из руки в руку (оборот); затем раскрутка с оборотом корпуса; после разреза — упор и вдох
         if (t < a0 - 0.04) {
           const k = easeInOut(ph3(t, 0, a0 - 0.04));
-          return { armF: lerp(0.4, -1.55, k), elbowF: 0.3, wBlend: 1, wAngle: lerp(0, PI + 0.25, k), lean: -0.25 * k, bodyY: 3.2 * k, legSpread: 2.2, sx: 1 - 0.18 * k, cloak: 1.2 * k, headTilt: 0.1 * k, armB: 1.0 };
+          return { armF: lerp(0.4, 1.2, k), elbowF: 0.3, wBlend: 1, wAngle: GUARD + TAU * k, lean: -0.15 * k, bodyY: 2.6 * k, legSpread: 2.2, cloak: 0.8 * k, headTilt: 0.1 * k, armB: lerp(0.2, 1.0, k) };
         }
         if (t < a1) {
-          const k = easeInOut(ph3(t, a0 - 0.04, a1)), turns = big ? 2 : 1;
-          return { armF: lerp(-1.55, 2.0, easeInOut(k)), elbowF: 0.1, wBlend: 1, wAngle: PI + 0.25 + TAU * turns * k, lean: 0.12, bodyY: 3, legSpread: 2.4, sx: 0.4 + 0.65 * Math.abs(Math.cos(PI * k * turns * 2)), sy: 0.95, cloak: -1.4, armB: 1.0, spin: 0 };
+          const k = easeInOut(ph3(t, a0 - 0.04, a1));
+          return { armF: lerp(1.2, 1.7, k), elbowF: 0.1, wBlend: 1, wAngle: GUARD + TAU * 2 * turns * k, turn: turns * k, lean: 0.12, bodyY: 3 + Math.sin(k * PI), legSpread: 2.4, sy: 0.95, cloak: -1.4, armB: 1.3, spin: 0 };
         }
-        if (t < tc + 0.16) return { armF: lerp(2.0, 1.4, ph3(t, a1, tc + 0.16)), elbowF: 0, wBlend: 1, wAngle: lerp(0.5, 0.9, ph3(t, tc, tc + 0.16)), lean: 0.65, bodyY: 3.6, legSpread: 2.6, sx: 1.2, sy: 0.86, cloak: -1.2, armB: 1.2 };
+        if (t < tc + 0.16) return { armF: lerp(1.9, 1.4, ph3(t, a1, tc + 0.16)), elbowF: 0, wBlend: 1, wAngle: lerp(GUARD, 0.9, easeOut(ph3(t, a1, tc + 0.1))), lean: 0.6, bodyY: 3.6, legSpread: 2.6, sx: 1.12, sy: 0.9, cloak: -1.2, armB: 1.2 };
         const r = ph3(t, tc + 0.16, td.dur);
-        return { armF: lerp(1.4, 0.5, easeInOut(r)), elbowF: 0.3, wBlend: 1, wAngle: lerp(0.9, -0.5, easeInOut(r)), lean: lerp(0.6, 0, easeInOut(r)), bodyY: lerp(3.6, 0, easeInOut(r)), legSpread: lerp(2.6, 1.2, r), sx: 1.15 - 0.15 * r, cloak: -0.6 * (1 - r), headTilt: -0.14 * Math.sin(r * PI), armB: lerp(1.2, -0.25, r) };
+        return { armF: lerp(1.4, 0.5, easeInOut(r)), elbowF: 0.3, wBlend: 1, wAngle: lerp(0.9, GUARD, easeInOut(r)), lean: lerp(0.6, 0, easeInOut(r)), bodyY: lerp(3.6, 0, easeInOut(r)), legSpread: lerp(2.6, 1.2, r), sx: 1.1 - 0.1 * r, cloak: -0.6 * (1 - r), headTilt: -0.14 * Math.sin(r * PI), armB: lerp(1.2, -0.25, r) };
       },
     };
   }
-
   /* ---------- топор: «ПАЛАЧ» ----------
      Шаг, топор медленно поднимается над головой и замирает (камера наезжает); один рубящий удар сверху вниз
      раскалывает врага пополам и вгоняет топор в землю. Герой долго и тяжело вытягивает его.
