@@ -24,7 +24,7 @@ const WEAPONS = {
     mod: { reach: 1.3, st: 1.22, rc: 1.18, ac: 1.2, dmg: 1, knock: 1.2, stun: 1.1, lunge: 1, fxR: 1.4, fxW: 1.25 },
   },
   kusari: {
-    slot: "melee", name: "Цепной серп", info: "Дальний хлёст цепью, но слабее по силе.", stats: [5, 3, 2], rangeK: 1.36,
+    slot: "melee", name: "Цепной серп", info: "Длинная цепь с грузом: бьёт издалека и по дуге, вблизи — серпом.", stats: [5, 3, 2], rangeK: 1.36,
     mod: { reach: 1.6, st: 0.96, rc: 1.1, dmg: 0.95, knock: 0.8, stun: 1, lunge: 0.9, fxR: 1.35, fxW: 0.7, lash: true },
   },
   katana: {
@@ -133,9 +133,7 @@ function weaponPose(P, act, p) {
   if (!w) return;
   const tA = act.startup + act.travel;
   if (w.id === "kusari") {
-    // цепь выбрасывается к удару и втягивается на восстановлении
-    const kS = clamp(act.t / Math.max(0.01, act.startup), 0, 1), kR = clamp((act.t - tA - act.active) / Math.max(0.01, act.recovery), 0, 1);
-    p.wExt = act.phase === "startup" ? 0.25 * kS : act.phase === "recovery" ? 1 - easeInOut(kR) : 1;
+    p.wExt = 0;      // форму цепи задают позы набора (12k_b_blades); без набора — цепь в покое
   } else if (w.id === "glaive" || w.id === "axe") {
     if (act.phase === "active" && !act.def.thrust) { P.bodyY = (P.bodyY || 0) + 0.6; P.legSpread = Math.max(P.legSpread || 1, 1.6); }
   } else if (w.id === "katana") {
@@ -203,30 +201,50 @@ const WEAPON_DRAW = {
   },
   kusari: {
     off: -0.6,
+    /* Кусаригама: серп в руке и ДЛИННАЯ цепь с грузом (фундо) на его рукояти. Цепь рисуется в «мировых» осях героя
+       (x — вперёд по взгляду, y — вниз) от рукояти до груза; положение груза задают позы приёмов (12k_b_blades):
+       ch.kuX/kuY — груз относительно кисти (ед. мира), kuB — боковой изгиб (хвост за движением), kuS — провис вниз,
+       ch.wExt — доля «боевой» формы 0..1 (0 — в покое цепь висит петлёй с грузом). Без аллокаций, одна обводка на звенья. */
     draw(ctx, ch, p, accent, hq) {
       const ext = ch.wExt || 0;
-      // рукоять
-      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-3, -0.9, 5, 1.8);
-      ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(-2.2, -0.9, 0.4, 1.8); ctx.fillRect(-0.8, -0.9, 0.4, 1.8);
-      const hx = 4 + 17 * ext, hy = -1 * ext;        // положение серпа: в руке или на конце цепи
-      // цепь: звенья по провисающей кривой от рукояти к серпу; в покое — короткая петля вниз с гирькой
-      const sag = 7 * (1 - ext);
-      ctx.strokeStyle = "#2a2c36"; ctx.lineWidth = 1; ctx.setLineDash(WD_DASH);
-      ctx.beginPath(); ctx.moveTo(2, 0); ctx.quadraticCurveTo((2 + hx) / 2, sag + 0.5, hx, hy); ctx.stroke();
-      ctx.setLineDash(WD_NODASH);
-      if (ext < 0.5) {      // гирька на втором конце цепи
-        ctx.beginPath(); ctx.moveTo(-3, 0.4); ctx.quadraticCurveTo(-7, 3, -5.5, 8); ctx.strokeStyle = "#2a2c36"; ctx.lineWidth = 1; ctx.setLineDash(WD_DASH); ctx.stroke(); ctx.setLineDash(WD_NODASH);
-        ctx.fillStyle = "#1c1d25"; ctx.beginPath(); ctx.arc(-5.5, 8.6, 1.5, 0, TAU); ctx.fill();
-        ctx.strokeStyle = accent; ctx.lineWidth = 0.5; ctx.stroke();
-      }
-      // серп: короткая рукоять и загнутый клинок
-      ctx.save(); ctx.translate(hx, hy);
-      ctx.fillStyle = "#14151b"; ctx.fillRect(-0.5, -0.7, 4, 1.4);
-      ctx.beginPath(); ctx.moveTo(3, -0.8); ctx.quadraticCurveTo(9, -1.4, 9.5, -7); ctx.quadraticCurveTo(6.5, -3.6, 3, 1); ctx.closePath();
+      // серп: рукоять с кольцом на конце и широкий загнутый клинок
+      ctx.fillStyle = "#0b0c10"; ctx.fillRect(-3.4, -0.9, 9.6, 1.8);
+      ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(-2.4, -0.9, 0.4, 1.8); ctx.fillRect(-1, -0.9, 0.4, 1.8); ctx.fillRect(0.4, -0.9, 0.4, 1.8);
+      ctx.beginPath(); ctx.arc(-4.3, 0, 1.15, 0, TAU); ctx.strokeStyle = "#8a90a2"; ctx.lineWidth = 0.6; ctx.stroke();
+      ctx.fillStyle = "#1c1d25"; ctx.fillRect(5.6, -1.5, 1, 3);
+      ctx.beginPath(); ctx.moveTo(6.4, -0.9); ctx.quadraticCurveTo(14.5, -1.6, 14.6, -9.6); ctx.quadraticCurveTo(10.6, -5, 6.4, 1.1); ctx.closePath();
       ctx.fillStyle = "#171820"; ctx.fill();
-      ctx.beginPath(); ctx.moveTo(3, -0.8); ctx.quadraticCurveTo(9, -1.4, 9.5, -7);
+      ctx.beginPath(); ctx.moveTo(6.4, -0.9); ctx.quadraticCurveTo(14.5, -1.6, 14.6, -9.6);
       wGlow(ctx, hq, 3, accent, 0.35);
-      ctx.strokeStyle = accent; ctx.lineWidth = 0.75; ctx.stroke();
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(7.6, -1.3); ctx.quadraticCurveTo(12.4, -2.2, 13.2, -7); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.35; ctx.stroke();
+      // цепь — в осях «вперёд/вниз»: поворачиваем систему так, чтобы убрать наклон корпуса и угол оружия
+      const m = ctx.getTransform(), al = Math.atan2(m.b, (ch.facing || 1) * m.a);
+      ctx.save(); ctx.rotate(-al);
+      const ca = Math.cos(al), sa = Math.sin(al);
+      const x0 = -4.3 * ca, y0 = -4.3 * sa;                                      // кольцо рукояти
+      const tx = lerp(-1.5, ch.kuX == null ? 30 : ch.kuX, ext), ty = lerp(8.5, ch.kuY == null ? 8 : ch.kuY, ext);
+      const bend = (ch.kuB || 0) * ext, sag = lerp(2.5, ch.kuS || 0, ext);
+      const dx = tx - x0, dy = ty - y0, len = Math.hypot(dx, dy) || 1;
+      // управляющая точка: середина + боковой изгиб + провис (вершина кривой смещена на половину)
+      const cx = (x0 + tx) / 2 + (-dy / len) * bend * 2, cy = (y0 + ty) / 2 + (dx / len) * bend * 2 + sag * 2;
+      const n = clamp(Math.round(len / 4.4), 4, 44);
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n, u = 1 - t;
+        const px = u * u * x0 + 2 * u * t * cx + t * t * tx, py = u * u * y0 + 2 * u * t * cy + t * t * ty;
+        const tgx = 2 * u * (cx - x0) + 2 * t * (tx - cx), tgy = 2 * u * (cy - y0) + 2 * t * (ty - cy), ang = Math.atan2(tgy, tgx);
+        const rx = i % 2 ? 1.2 : 2;
+        ctx.moveTo(px + Math.cos(ang) * rx, py + Math.sin(ang) * rx);
+        ctx.ellipse(px, py, rx, i % 2 ? 0.55 : 1, ang, 0, TAU);
+      }
+      if (hq) { ctx.globalAlpha *= 0.22; ctx.lineWidth = 2.6; ctx.strokeStyle = accent; ctx.stroke(); ctx.globalAlpha /= 0.22; }
+      ctx.strokeStyle = "#9aa1b4"; ctx.lineWidth = 0.7; ctx.stroke();
+      // груз (фундо): тёмный шар с неоновой кромкой
+      ctx.fillStyle = "#1c1d25"; ctx.beginPath(); ctx.arc(tx, ty, 2.9, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(tx, ty, 2.9, 0, TAU); wGlow(ctx, hq, 3.4, accent, 0.4);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.beginPath(); ctx.arc(tx - 0.8, ty - 0.8, 0.7, 0, TAU); ctx.fillStyle = rgba("#ffffff", 0.3); ctx.fill();
       ctx.restore();
     },
   },
@@ -332,7 +350,7 @@ function drawWeaponPreview(c, id, skin, size, act = "idle") {
   if (gun) Object.assign(P, { armF: 1.45, elbowF: 0.05, lean: -0.04, armB: 0.3, wAngle: 0, wBlend: 0 });
   else if (act === "strike") Object.assign(P, id === "spear" ? { armF: Math.PI / 2, elbowF: 0, wBlend: 1, wAngle: 0, lean: 0.4, legSpread: 1.7 } : { armF: 1.9, elbowF: 0.1, lean: 0.25, legSpread: 1.6 });
   else Object.assign(P, { armF: 0.55, elbowF: 0.5, lean: 0.05 });
-  if (id === "kusari") ch.wExt = act === "strike" ? 1 : 0;
+  if (id === "kusari") { ch.wExt = act === "strike" ? 1 : 0; ch.kuX = 23; ch.kuY = 6; ch.kuB = -4; ch.kuS = 5; }     // на карточке цепь короче: груз у края кадра
   if (id === "smg") P.armB = 1.45;
   CharacterRenderer.draw(c, ch);
 }
