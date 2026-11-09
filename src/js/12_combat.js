@@ -551,6 +551,9 @@ class CombatSystem {
     const g = this.game, def = act.def;
     const hand = CharacterRenderer.handWorld(p, def.muzzle || 8);
     if (n === 1) hand.y += 3;
+    // дуло не ниже пола под героем: поза «с колена» при сокращённой подготовке (выстрел в долю) не успевает подняться,
+    // и пуля, родившаяся ниже пола, тут же удалялась — выстрел пропадал (Дальнобойная винтовка)
+    hand.y = Math.min(hand.y, p.y - 5);
     let ang;
     if (act.target) ang = Math.atan2(act.target.centerY - hand.y, act.target.x - hand.x);
     else ang = act.dir > 0 ? 0 : Math.PI;
