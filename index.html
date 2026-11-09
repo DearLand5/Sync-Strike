@@ -7073,54 +7073,85 @@ class ArenaRenderer {
   }
 
   /* ---------- облака «Ливневых крыш» ---------- */
-  // Три гряды (дальняя светлее и туманнее, ближняя темнее и крупнее). Гряда — ряд перекрывающихся кругов-«клубов»,
-  // нарисованных тремя проходами: широкое мягкое гало → тонкое ядро. Все клубы одной гряды заливаются ОДНИМ путём
-  // (объединение без наложения альфы — чистый силуэт). Подсветка кромок без градиентов: тот же путь, сдвинутый
-  // вниз на пару пикселей неоном города (виден узкой полоской по нижней кромке) и вверх — отсветом луны.
-  // Молния: вся гряда светлеет, а клубы возле удара — сильнее. Дрейф медленный, привязан к времени и параллаксу.
-  const CLOUD_BANKS = [
-    // y — высота центра (доля пола), th — толщина, r — радиусы (доли пола), col/a — цвет и плотность ядра, rim — подсветка снизу
-    { y: 0.3, th: 0.09, sq: 0.4, r0: 0.05, r1: 0.1, n: 22, col: "#1b3050", a: 0.42, sp: 3.5, par: 0.02, rim: 0.25, up: 0.5 },
-    { y: 0.2, th: 0.1, sq: 0.38, r0: 0.055, r1: 0.12, n: 24, col: "#0a1626", a: 0.6, sp: 7, par: 0.045, rim: 0.5, up: 0.35 },
-    { y: 0.09, th: 0.1, sq: 0.36, r0: 0.065, r1: 0.14, n: 20, col: "#03060d", a: 0.8, sp: 12, par: 0.08, rim: 0.7, up: 0.15 },
-  ];
-  /** Клубы гряд: x в долях периода, y в долях толщины, радиус в долях [r0, r1] (с огибающей: середина толще). */
-  const buildClouds = rng => CLOUD_BANKS.map(B => {
-    const n = B.n, x = new Float32Array(n), y = new Float32Array(n), r = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const u = (i + 0.3 + 0.4 * rng()) / n, env = 0.5 + 0.5 * Math.sin(u * TAU * 2 + rng() * 0.8) * Math.sin(u * TAU * 3.1 + 1);
-      x[i] = u; r[i] = lerp(B.r0, B.r1, Math.pow(rng(), 1.4) * (0.45 + 0.55 * env)); y[i] = (rng() - 0.5) * 2 * (0.4 + 0.6 * env);
+  // Грозовые тучи-спрайты (считаются один раз в build темы: пересоздаются со сборкой тайлов и после сброса GPU, как у темы moon).
+  // Каждая туча — три холста одного размера: base (тёмное тело: плотное ядро, лунная кромка по верхним граням, рваный низ),
+  // rim (нижняя кромка, освещённая неоном города: голубой слева → розовый справа) и glow (внутренний свет для молнии).
+  // Поле плотности: параболический профиль по высоте + закручивание (domain warp) + fBm; низ рвётся высокочастотным шумом (клочья),
+  // верх — крупными клубами. В кадре — только drawImage (rim/glow — режим lighter), без аллокаций.
+  const sst = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const sfbm = (x, y, sd, oct) => { let a = 0, amp = 0.5, f = 1, n = 0; for (let o = 0; o < oct; o++) { a += amp * vnoise2(x * f, y * f, sd + o * 7); n += amp; amp *= 0.5; f *= 2.03; } return a / n; };
+  /** Грозовая туча w×h: { base, rim, glow } (холсты). o: { seed, col — тело, lit — лунный отсвет, litK — сила отсвета }. */
+  const makeStormSprite = (w, h, o) => {
+    const mk = () => { const cv = document.createElement("canvas"); cv.width = w; cv.height = h; return cv; };
+    const cvB = mk(), cvR = mk(), cvG = mk();
+    const gB = cvB.getContext("2d"), gR = cvR.getContext("2d"), gG = cvG.getContext("2d");
+    const iB = gB.createImageData(w, h), iR = gR.createImageData(w, h), iG = gG.createImageData(w, h);
+    const dB = iB.data, dR = iR.data, dG = iG.data, fld = new Float32Array(w * h), sd = o.seed;
+    const c0 = hexRgb(o.col), c1 = hexRgb(o.lit), cA = hexRgb("#43d6ff"), cB2 = hexRgb("#ff4fa0"), cG = hexRgb("#b4d0ff");
+    const aspect = w / h;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const nx = x / h, ny = y / h;
+      const ef = sst(0, 0.55, nx) * sst(0, 0.55, aspect - nx);                              // тает к левому/правому краю спрайта
+      const cy = 0.5 + 0.1 * (vnoise2(nx * 0.9, 3, sd) - 0.5) * 2, th = (0.27 + 0.17 * vnoise2(nx * 1.3 + 7, 5, sd)) * (0.45 + 0.55 * ef);
+      const wx = nx + 0.28 * (sfbm(nx * 1.8, ny * 1.8, sd + 11, 3) - 0.5), wy = ny + 0.2 * (sfbm(nx * 1.8 + 9, ny * 1.8, sd + 17, 3) - 0.5);   // закручивание
+      const yy = (wy - cy) / th;                                                         // −1 (верх) … +1 (низ)
+      let f = 1 - yy * yy;
+      f += (sfbm(wx * 2.6, wy * 2.6, sd + 23, 4) - 0.5) * 1.1;                           // клубы
+      if (yy > -0.1) f += (sfbm(wx * 8, wy * 17, sd + 31, 3) - 0.5) * 0.85 * clamp(yy + 0.2, 0, 1.2);   // рваный низ: клочья вытянуты по горизонтали
+      fld[y * w + x] = f * (0.25 + 0.75 * ef) - 0.05 * (1 - ef);
     }
-    return { x, y, r };
-  });
-  /** Один проход: объединённый путь всех видимых клубов гряды (масштаб радиуса k, сдвиг по y — dy, только клубы с |x−bx| < near). */
-  const cloudPath = (c, B, G, P, off, F, k, dy, w, bx, near) => {
-    c.beginPath();
-    for (let i = 0; i < B.n; i++) {
-      const ry = G.r[i] * F * B.sq, rx = G.r[i] * F * 2.3, cy = F * B.y + G.y[i] * F * B.th + dy;   // вытянутые «слоистые» клубы
-      for (let xx = off + G.x[i] * P; xx < w + rx * 1.5; xx += P) {
-        if (xx < -rx * 1.5 || (near > 0 && Math.abs(xx - bx) > near)) continue;
-        c.moveTo(xx + rx * k, cy); c.ellipse(xx, cy, rx * k, ry * k, 0, 0, TAU);
-      }
+    const at = (x, y) => fld[clamp(y, 0, h - 1) * w + clamp(x, 0, w - 1)];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, f = fld[i], a = sst(0.0, 0.5, f);
+      if (a <= 0.003) continue;
+      const k = i * 4, nx = x / h, ny = y / h;
+      const up = at(x, y - 5), dn = at(x, y + 5);
+      const litUp = clamp((f - up) * 2.6, 0, 1), under = clamp((f - dn) * 1.9, 0, 1);   // поверхность смотрит вверх / вниз
+      const tex = 0.8 + 0.4 * sfbm(nx * 11, ny * 11, sd + 41, 3);                      // зернистость тела
+      const core = sst(0.25, 1.0, f);                                                  // плотное ядро темнее, края светлее и прозрачнее
+      const lit = clamp(litUp * o.litK * (1 - 0.5 * core) * tex + 0.07 * (1 - core) * (1 - ny), 0, 1);
+      dB[k] = lerp(c0[0], c1[0], lit) * tex; dB[k + 1] = lerp(c0[1], c1[1], lit) * tex; dB[k + 2] = lerp(c0[2], c1[2], lit) * tex;
+      dB[k + 3] = 255 * Math.pow(a, 0.85);
+      const rim = under * a * (0.55 + 0.45 * tex), mx = clamp(nx / aspect + 0.15 * (vnoise2(nx * 2, 1, sd) - 0.5), 0, 1);
+      dR[k] = lerp(cA[0], cB2[0], mx); dR[k + 1] = lerp(cA[1], cB2[1], mx); dR[k + 2] = lerp(cA[2], cB2[2], mx); dR[k + 3] = 255 * clamp(rim, 0, 1);
+      const gl = Math.pow(a, 1.4) * (0.35 + 0.65 * sfbm(nx * 4.5, ny * 6, sd + 53, 3)) * (1 - 0.5 * under);   // внутренний свет молнии
+      dG[k] = cG[0]; dG[k + 1] = cG[1]; dG[k + 2] = cG[2]; dG[k + 3] = 255 * clamp(gl, 0, 1);
     }
+    gB.putImageData(iB, 0, 0); gR.putImageData(iR, 0, 0); gG.putImageData(iG, 0, 0);
+    return { base: cvB, rim: cvR, glow: cvG, w, h };
   };
+  const freeStorm = list => { if (list) for (const S of list) { S.base.width = 0; S.rim.width = 0; S.glow.width = 0; } };
+  // слои: y — высота центра (доля пола), sc — масштаб спрайта, n — число туч, a — плотность, sp — дрейф px/с, par — параллакс, rim — подсветка снизу
+  const STORM_BANKS = [
+    { y: 0.26, y1: 0.36, sc: 1.4, n: 4, a: 0.55, sp: 3, par: 0.02, rim: 0.3, k: 0, glow: 0.5 },
+    { y: 0.15, y1: 0.28, sc: 1.9, n: 4, a: 0.8, sp: 6, par: 0.045, rim: 0.6, k: 1, glow: 0.85 },
+    { y: 0.03, y1: 0.12, sc: 2.4, n: 3, a: 0.97, sp: 10, par: 0.08, rim: 0.85, k: 2, glow: 1 },
+  ];
   const cloudWarm = { v: 0 };
+  /** Рисует три слоя туч. fl — вспышка молнии (0..1), bx — x удара, soft — ослабление без «ярких вспышек». */
   const drawClouds = (c, v, m, R, th, fl, bx, soft) => {
-    const F = v.floorY, P = v.w + 720, cl = th.clouds, low = R.amount < 1;
+    const F = v.floorY, low = R.amount < 1, sp = th.storm;
+    if (!sp) return;
     cloudWarm.v = damp(cloudWarm.v, 0.55 + 0.45 * m.I, 0.8, Math.min(R.dt || 0.016, 0.05));   // медленный отсвет города
-    for (let b = 0; b < 3; b++) {
-      const B = CLOUD_BANKS[b], G = cl[b];
-      const off = -((m.time * B.sp + v.camX * v.scale * B.par) % P + P) % P;
-      if (!low) { cloudPath(c, B, G, P, off, F, 1.3, 0, v.w, 0, 0); c.fillStyle = rgba(B.col, B.a * 0.2); c.fill(); }   // мягкий край: слой гало вокруг ядра
-      if (b > 0 || fl > 0.05) {   // подсветка снизу неоном города (ядро закроет всё, кроме полоски у нижней кромки); дальняя гряда — только при молнии
-        cloudPath(c, B, G, P, off, F, 1.0, 2.5 + 2 * b, v.w, 0, 0); c.fillStyle = rgba(R.arena.neon(b === 1 ? 1 : 0), 0.2 * B.rim * cloudWarm.v + 0.5 * fl * soft); c.fill();
-      }
-      cloudPath(c, B, G, P, off, F, 1.0, 0, v.w, 0, 0); c.fillStyle = rgba(B.col, B.a); c.fill();   // ядро
-      if (fl > 0.02) {   // молния: гряда целиком чуть светлеет, клубы возле удара — сильнее
-        cloudPath(c, B, G, P, off, F, 1.0, 0, v.w, 0, 0); c.fillStyle = rgba("#9cc8ff", 0.22 * fl * soft * (1 - 0.3 * b)); c.fill();
-        cloudPath(c, B, G, P, off, F, 1.15, 0, v.w, bx, v.w * 0.22); c.fillStyle = rgba("#dcebff", 0.3 * fl * soft); c.fill();
+    for (let b = low ? 1 : 0; b < 3; b++) {
+      const B = STORM_BANKS[b], L = sp[b];
+      for (let i = 0; i < B.n; i++) {
+        const S = L[i % L.length], sc = B.sc * (0.85 + 0.3 * hash1(b * 11 + i + 4)) * (v.h / 420), W = S.w * sc, H = S.h * sc;
+        const P = v.w + W * 1.3;
+        const x = ((m.time * B.sp * (0.75 + 0.5 * hash1(b * 5 + i + 9)) + hash1(b * 7 + i + 2) * P - v.camX * v.scale * B.par) % P + P) % P - W * 0.65;
+        const y = F * (B.y + (B.y1 - B.y) * hash1(b * 13 + i + 21)) - H * 0.12;
+        if (x + W * 0.5 < 0 || x - W * 0.5 > v.w) continue;
+        const X = x - W / 2, Y = y - H / 2;
+        c.globalAlpha = B.a * (0.9 + 0.1 * hash1(b * 3 + i)); c.drawImage(S.base, X, Y, W, H);
+        c.globalCompositeOperation = "lighter";
+        const prox = fl > 0.02 ? 1 / (1 + Math.pow((x - bx) / (v.w * 0.35), 2)) : 0;     // сильнее у места удара
+        c.globalAlpha = 0.5 * B.rim * cloudWarm.v * (0.7 + 0.3 * m.pulse) + 0.35 * fl * soft * B.rim;   // нижняя кромка в неоне города
+        c.drawImage(S.rim, X, Y, W, H);
+        if (prox > 0) { c.globalAlpha = Math.min(1, fl * soft * B.glow * (0.45 + 0.55 * prox)); c.drawImage(S.glow, X, Y, W, H); }   // молния изнутри
+        c.globalCompositeOperation = "source-over";
       }
     }
+    c.globalAlpha = 1;
   };
 
   /* ---------- состояние молний «Ливневых крыш» ---------- */
@@ -7143,7 +7174,12 @@ class ArenaRenderer {
     pal: { sky: ["#050b16", "#1a2b44"], glow: "#4aa8ff", neonA: "#43d6ff", neonB: "#ff4fa0", floor: "#05080e", edge: "#43d6ff", fog: "#15263a" },
     profile: { bpm: [98, 22], high: [0.32, 0.1], bright: [0.45, 0.14], dynamics: [0.5, 0.3], density: [3, 2.2] },
     fogA: 0.34,
-    build(rng) { this.clouds = buildClouds(rng); },
+    // грозовые тучи: холсты пересоздаются при каждой сборке тайлов (в т.ч. после сброса GPU)
+    build() {
+      if (this.storm) for (const L of this.storm) freeStorm(L);
+      const col = ["#0b1626", "#050c18", "#02050b"], lit = ["#9cbbe0", "#7898c4", "#5a7aa4"], K = [0.75, 0.9, 1];
+      this.storm = STORM_BANKS.map((B, b) => [0, 1, 2].map(i => makeStormSprite(448, 160, { seed: 101 + b * 29 + i * 13, col: col[b], lit: lit[b], litK: K[b] })));
+    },
     layers: [
       // дальние башни с антеннами; на антеннах — красные огни
       { top: 0.84, f: 0.07, haze: 0.55, paint(c, w, h, rng, A) {
@@ -8396,17 +8432,18 @@ class ArenaRenderer {
         const qx = fbm(X + sx, Y, o.px, 3), qy = fbm(X + 5.2, Y + 1.3 + sx, o.px, 3);
         const n = fbm(X + 1.9 * qx, Y + 1.9 * qy, o.px, 4);
         const rd = 1 - Math.abs(2 * vnoise((X + 3.1 * qx) * 4, (Y + 2.3 * qy) * 4, o.px * 4) - 1);   // тонкие пряди (гребни)
-        const dk = fbm(X * 1.3 + 2.4 * qy + 11.7, Y * 1.3 + 2.1 * qx, Math.round(o.px * 1.3) || 1, 4);
+        // ВАЖНО: по X масштаб не меняем — период решётки должен быть ровно o.px, иначе на шве тайлов шум рвётся (резкая вертикальная граница тёмных масс)
+        const dk = fbm(X + 2.4 * qy + 11.7, Y * 1.3 + 2.1 * qx, o.px, 4);
         let fall = 1;
         if (o.radial) { const ex = (xN - 0.5) * 2, ey = (yN - 0.5) * 2, r = Math.sqrt(ex * ex + ey * ey); fall = 1 - sstep(0.35, 1, r); }
         const pl = prof ? prof[0] : 1, pd = prof ? prof[1] : 1;
-        const la = sstep(0.42, 0.8, n) * (0.65 + 0.5 * rd * rd * rd) * o.light * pl * fall;
+        const la = sstep(0.42, 0.8, n) * (0.78 + 0.3 * rd * rd) * o.light * pl * fall;
         const da = sstep(0.44, 0.78, dk) * o.dark * pd * fall;
         const A = da + la * (1 - da);
         const k = (i + j * w) * 4;
         if (A < 0.004) { d[k + 3] = 0; continue; }
         const lc = la * (1 - da) / A;                     // доля светлого дыма в цвете
-        const grey = 8 + 200 * lc + 14 * rd * lc;
+        const grey = 8 + 200 * lc + 6 * rd * lc;
         d[k] = grey; d[k + 1] = grey + 3 * lc; d[k + 2] = grey + 8 * lc; d[k + 3] = Math.min(255, A * 255);
       }
     }
@@ -8418,7 +8455,7 @@ class ArenaRenderer {
     const tmp = document.createElement("canvas"); tmp.width = W; tmp.height = H;
     const tc = tmp.getContext("2d"), prof = o.prof;
     tc.putImageData(smokeImage(tc, W, H, Object.assign({}, o, { py: o.py * (y1 - y0), prof: prof ? (yN => prof(y0 + yN * (y1 - y0))) : null })), 0, 0);
-    c.save(); c.imageSmoothingEnabled = true; c.drawImage(tmp, 0, 0, W, H, 0, H0 * q, W * q, H * q); c.restore();
+    c.save(); c.imageSmoothingEnabled = true; c.drawImage(tmp, 0, 0, W, H, 0, H0 * q, w, H * q); c.restore();   // ширина назначения ровно w: период шума = ширина тайла, шов не смещается
     tmp.width = 0; tmp.height = 0;
   };
   /** Спрайт клуба дыма (для клубов вокруг окна и тел теней): края тают по эллипсу. Холст пересоздаётся в build. */
