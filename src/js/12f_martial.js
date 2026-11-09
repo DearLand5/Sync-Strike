@@ -386,6 +386,8 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
   const RANGED_A = { shot: 1, twin: 1, hip: 1, charged: 1, fan: 1 };                      // простые выстрелы в воздухе: у висящего врага джагл важнее
   /** Чередование на «развилке»: первый раз рукопашный, затем n−1 раз обычный приём (счётчик по развилкам — детерминированно). */
   const alt = (cs, key, n = 2) => { const m = cs.mAlt || (cs.mAlt = {}); const c = m[key] || 0; m[key] = c + 1; return c % n === 0; };
+  /** Номер шага чередования 0..n−1 (для «раз в n» / «кроме каждого n-го»; alt даёт только «да/нет»). */
+  const altN = (cs, key, n) => { const m = cs.mAlt || (cs.mAlt = {}); const c = m[key] || 0; m[key] = c + 1; return c % n; };
 
   /** Подмена выбранного приёма рукопашным (или null). cur — то, что выбрала общая логика и набор оружия. */
   martialChooseFn = function (cs, cur, target, j) {
@@ -396,7 +398,7 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
       // удар «в воздух» (врагов рядом нет): серия всё равно чередует клинок и ногу — приёмы выглядят одинаково с любым исходом
       if (!p.onGround || !PLAIN_G[cur] || j.rating === "miss") return null;
       const st = cs.time - cs.lastMeleeT < 0.75 ? cs.comboStep : 0;
-      if (st === 1 && alt(cs, "s1n", 5) !== 4) return "kickFront";
+      if (st === 1 && altN(cs, "s1n", 5) !== 4) return "kickFront";
       if (st === 2 && alt(cs, "s2n", 2)) return j.strong ? "roundKick" : "kneeStrike";
       return null;
     }
@@ -446,18 +448,18 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
       if (!slash) return null;
       // серия: клинок → нога → клинок → колено/локоть/подсечка …; в начале серии — подшаг и фронт-кик с места
       if (step === 0) {
-        if (ok && gap > 14 && alt(cs, "open", 3) === 0) return pick("kickFront", "kneeStrike");
-        if (good && gap <= 16 && alt(cs, "openK", 3) === 0) return pick("kneeStrike", "elbow");
+        if (ok && gap > 14 && altN(cs, "open", 3) === 0) return pick("kickFront", "kneeStrike");
+        if (good && gap <= 16 && altN(cs, "openK", 3) === 0) return pick("kneeStrike", "elbow");
         return null;
       }
-      if (step === 1) return ok && alt(cs, "s1", 5) !== 4 ? pick(gap <= 14 ? "kneeStrike" : "kickFront", gap <= 14 ? "elbow" : "kneeStrike") : null;
+      if (step === 1) return ok && altN(cs, "s1", 5) !== 4 ? pick(gap <= 14 ? "kneeStrike" : "kickFront", gap <= 14 ? "elbow" : "kneeStrike") : null;
       if (good && step === 2 && alt(cs, "s2", 2)) return pick(gap <= 20 ? "elbow" : "sweepKick", "kickFront");
       return null;
     }
     // средняя дистанция вместо рывка — подшаг с фронт-киком или двойной удар ногами в прыжке
     if (cur === "dash" && ok && !hang && Math.abs(dyc) < 40) {
-      if (gap <= 60 && alt(cs, "mid", 3) !== 2) return pick("kickFront", "dropKick");
-      if (good && gap >= 50 && gap <= 140 && alt(cs, "drop", 3) === 0) return pick("dropKick");
+      if (gap <= 60 && altN(cs, "mid", 3) !== 2) return pick("kickFront", "dropKick");
+      if (good && gap >= 50 && gap <= 140 && altN(cs, "drop", 3) === 0) return pick("dropKick");
     }
     return null;
   }

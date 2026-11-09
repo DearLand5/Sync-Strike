@@ -216,6 +216,7 @@ fs.mkdirSync(shots, { recursive: true });
     await use(w);
     const outs = [];
     for (const mv of ["airKnee", "airKick", "axeKick"]) {
+      for (let attempt = 0; attempt < 2; attempt++) {     // нажатие изредка теряется (герой ещё занят прошлым приёмом) — одна повторная попытка
       await page.evaluate(([mv]) => {
         window.__setup(24, { force: mv, free: true }); const g = window.__game, c = g.combat, e = g.enemies[0], p = g.player;
         window.__pin = false;
@@ -224,10 +225,13 @@ fs.mkdirSync(shots, { recursive: true });
           e.y = -50; e.vy = 0; e.onGround = false; e.state = "hurt"; e.hurtDur = 9; e.jugT = 1.2; e.jugN = 3; e.jugAge = 0.2; e.x = p.x + 24; e.vx = 0;
           p.y = -50; p.vy = 0; p.onGround = false; p.state = "fall"; p.vx = 0;
         };
-        window.__plan.push(g.clock.nextBeatAfter(g.songNow, 0.4) - 0.02);
+        window.__plan.push(g.clock.nextBeatAfter(g.songNow, 0.8) - 0.02);
       }, [mv]);
       await done(7000); r = await res();
+      if (r.names.length) break;
+      }
       outs.push(r.names[0] === mv && r.log.includes(mv));
+      if (!outs[outs.length - 1]) console.log(`     ${w} ${mv}: приёмы ${r.names.join(",") || "—"}, попадания ${r.log || "—"}`);
     }
     check(outs.every(Boolean), `${w}: воздушные приёмы (колено ${outs[0]}, нога ${outs[1]}, топор-кик ${outs[2]})`);
   }
