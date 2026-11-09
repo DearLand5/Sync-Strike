@@ -142,7 +142,9 @@ const path = require("path");
     check(r.onBeat >= 3, `${nm}: выстрелов в долю ${r.onBeat} из ${r.acts} (≥ 3)`);
     const ratio = r.dmg / base.gun;
     console.log(`     урон за 5 нажатий на дистанции 380: ${Math.round(r.dmg)} (${(ratio * 100).toFixed(0)}% пистолета)`);
-    check(ratio > 0.5 && ratio < 1.8, `${nm}: урон в пределах 50–180% пистолета`);
+    // винтовка стреляет редко: за нажатие бьёт сильнее (крит «В голову» на сильной доле), по времени — как пистолет (balance-test)
+    const hi = id === "sniper" ? 2.5 : 1.8;
+    check(ratio > 0.5 && ratio < hi, `${nm}: урон в пределах 50–${hi * 100}% пистолета`);
     // 2) дальность 200 (ср. дистанция выстрелов), каждый выстрел по отдельности (не в такт, чтобы не было Веера)
     await page.evaluate(() => { window.__setup(230); window.__beats(1, -0.02); });
     await done(); await wait(300); r = await res();
