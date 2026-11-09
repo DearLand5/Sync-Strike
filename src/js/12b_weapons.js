@@ -274,21 +274,37 @@ const WEAPON_DRAW = {
   axe: {
     off: -0.7,
     draw(ctx, ch, p, accent, hq) {
-      ctx.strokeStyle = "#17181f"; ctx.lineWidth = 1.7;
-      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(18, 0); ctx.stroke();
+      // боевой топор: длинное древко с обмоткой у хвата, на конце — бородовидное лезвие с ОДНОЙ стороны
+      // (выпуклая режущая кромка, «борода» оттянута к рукояти), с другой — короткий обух; втулка на древке
+      ctx.strokeStyle = "#17181f"; ctx.lineWidth = 1.7; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(23.5, 0); ctx.stroke();
       ctx.strokeStyle = rgba(accent, 0.5); ctx.lineWidth = 0.5;
       ctx.beginPath(); for (const x of WD_AXE) { ctx.moveTo(x, -1); ctx.lineTo(x + 0.7, 1); } ctx.stroke();
-      // широкое лезвие-полумесяц и обух
-      ctx.beginPath(); ctx.moveTo(13.5, -1); ctx.lineTo(14, -6.5); ctx.quadraticCurveTo(22.5, -8, 23, 0); ctx.quadraticCurveTo(22.5, 8, 14, 6.5); ctx.lineTo(13.5, 1); ctx.closePath();
-      ctx.fillStyle = "#1a1b22"; ctx.fill();
-      ctx.fillStyle = "#101117"; ctx.fillRect(10.5, -2.2, 3.4, 4.4);
-      ctx.beginPath(); ctx.moveTo(14, -6.5); ctx.quadraticCurveTo(22.5, -8, 23, 0); ctx.quadraticCurveTo(22.5, 8, 14, 6.5);
-      wGlow(ctx, hq, 3.4, accent, 0.35);
-      ctx.strokeStyle = accent; ctx.lineWidth = 0.8; ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(17, -4.2); ctx.quadraticCurveTo(20.4, 0, 17, 4.2); ctx.strokeStyle = rgba("#ffffff", 0.16); ctx.lineWidth = 0.4; ctx.stroke();
+      // обух: короткий клин на обратной стороне
+      ctx.beginPath(); ctx.moveTo(17.4, 1.2); ctx.lineTo(18, 3.6); ctx.lineTo(21.8, 3.9); ctx.lineTo(22.2, 1.2); ctx.closePath();
+      ctx.fillStyle = "#1d1e26"; ctx.fill();
+      // лезвие: шейка от втулки, «борода» вниз к рукояти, выпуклая кромка, верхний рог
+      ctx.beginPath();
+      ctx.moveTo(16.8, -1.2); ctx.quadraticCurveTo(16.6, -3.6, 14.6, -5.6);
+      ctx.quadraticCurveTo(12.4, -7.4, 11.2, -10.6);                               // борода
+      ctx.quadraticCurveTo(18.4, -13.6, 25.6, -10.4);                              // режущая кромка
+      ctx.quadraticCurveTo(24.4, -7.2, 23.4, -4.4); ctx.quadraticCurveTo(22.6, -2.4, 22.6, -1.2);   // верхний рог и шейка
+      ctx.closePath();
+      ctx.fillStyle = "#23252e"; ctx.fill();
+      // скос к кромке — светлее (сталь), без отдельного пути
+      ctx.beginPath(); ctx.moveTo(12.2, -9.6); ctx.quadraticCurveTo(18.4, -12.2, 24.8, -9.6); ctx.lineTo(24.2, -8.4); ctx.quadraticCurveTo(18.4, -10.6, 12.9, -8.5); ctx.closePath();
+      ctx.fillStyle = "#3b3f4c"; ctx.fill();
+      // втулка
+      ctx.fillStyle = "#101117"; ctx.fillRect(16.6, -1.9, 6.2, 3.8);
+      ctx.fillStyle = rgba(accent, 0.6); ctx.fillRect(17.1, -1.9, 0.5, 3.8); ctx.fillRect(21.8, -1.9, 0.5, 3.8);
+      // неон только по режущей кромке
+      ctx.beginPath(); ctx.moveTo(11.2, -10.6); ctx.quadraticCurveTo(18.4, -13.6, 25.6, -10.4);
+      wGlow(ctx, hq, 3.4, accent, 0.4);
+      ctx.strokeStyle = accent; ctx.lineWidth = 0.85; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(13.4, -9.1); ctx.quadraticCurveTo(18.4, -11.2, 23.6, -9);
+      ctx.strokeStyle = rgba("#ffffff", 0.22); ctx.lineWidth = 0.35; ctx.stroke();
     },
-  },
-  sawed: {
+  },  sawed: {
     off: 0,
     draw(ctx, ch, p, accent, hq) {
       // два коротких ствола, обрезанный приклад-рукоять

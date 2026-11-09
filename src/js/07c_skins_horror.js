@@ -9,7 +9,7 @@
 Object.assign(SKINS, {
   // --- Хоррор ---
   stalker:   { cat: "horror", from: "ужасы о маньяках", name: "Безликий", mask: "#e4e8ee", eye: "#07080c", accent: "#5fd0ff", cloak: "#090b11", head: "blank", scarf: null, hem: "jag", mark: "tally", back: "machete", wide: 1.1 },
-  clown:     { cat: "horror", from: "жуткий цирк", name: "Паяц", mask: "#f1edf6", eye: "#12041a", accent: "#39ff6a", cloak: "#0a0710", head: "clown", scarf: null, hem: "ruffle", mark: "pompoms", back: "balloon", wide: 1.2 },
+  clown:     { cat: "horror", from: "жуткий цирк", name: "Паяц", mask: "#f3eff4", eye: "#12041a", accent: "#ff3b4e", cloak: "#0a0710", head: "clown", scarf: null, hem: "ruffle", mark: "pompoms", back: "balloon", wide: 1.2 },
   doll:      { cat: "horror", from: "одержимые игрушки", name: "Фарфоровая", mask: "#f3e6dc", eye: "#2f7bff", accent: "#e8c36a", cloak: "#0b080c", head: "doll", scarf: null, hem: "lace", mark: "ribbon", back: "windkey", wide: 1.1 },
   onryo:     { cat: "horror", from: "японские хорроры", name: "Онрё", mask: "#dfe8f0", eye: "#07080c", accent: "#d6e8ff", cloak: "#0a0b10", head: "longhair", scarf: null, hem: "wisp", mark: "drip", back: null, mono: true, rim: true },
   nun:       { cat: "horror", from: "готика в монастыре", name: "Инокиня", mask: "#e9e2d4", eye: "#ff7a3d", accent: "#ff7a3d", cloak: "#08080b", head: "habit", scarf: null, hem: "robe", mark: "rosary", back: null, wide: 1.2 },
@@ -17,6 +17,8 @@ Object.assign(SKINS, {
 });
 
 /* ---------- головы ---------- */
+// пучки волос клоуна (x, y, r): за затылком и над ухом; лицо и макушка свободны
+const CLOWN_TUFTS = [[-7.4, -3.6, 2.8], [-9.2, -0.4, 2.3], [-5.4, -6.8, 2.5], [-8.6, -6, 2], [-6.6, 1.6, 1.9]];
 Object.assign(HEAD_PARTS, {
   blank: {
     back(ctx, c) {
@@ -43,40 +45,52 @@ Object.assign(HEAD_PARTS, {
   },
   clown: {
     back(ctx, c) {
-      // два пучка волос по бокам (передний — над лбом, задний — за затылком)
-      ctx.fillStyle = c.tint || c.A(0.95);
-      ctx.beginPath(); ctx.arc(-6.4, -4.6, 3.4, 0, TAU); ctx.arc(-8.6, -0.8, 2.6, 0, TAU); ctx.arc(-4.6, -8.4, 2.8, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(4.2, -9.2, 3.2, 0, TAU); ctx.arc(7.6, -7, 2.6, 0, TAU); ctx.arc(1.4, -10.6, 2.4, 0, TAU); ctx.fill();
+      // лысая макушка, по бокам и на затылке — вьющиеся рыжие пучки: тёмная глубина, клубки и светлые завитки сверху
+      const tufts = CLOWN_TUFTS;
+      for (let k = 0; k < 2; k++) {
+        ctx.fillStyle = c.tint || (k ? "#e0452f" : "#8e1c16");
+        ctx.beginPath();
+        for (const t of tufts) { const r = t[2] * (k ? 0.82 : 1); ctx.moveTo(t[0] + r - (k ? 0.5 : 0), t[1] - (k ? 0.5 : 0)); ctx.arc(t[0] - (k ? 0.5 : 0), t[1] - (k ? 0.5 : 0), r, 0, TAU); }
+        ctx.fill();
+        if (c.tint) return;
+      }
+      ctx.strokeStyle = "rgba(255,210,170,.55)"; ctx.lineWidth = 0.45; ctx.lineCap = "round";
+      ctx.beginPath(); for (const t of tufts) { ctx.moveTo(t[0] - t[2] * 0.6, t[1] - t[2] * 0.2); ctx.quadraticCurveTo(t[0] - t[2] * 0.2, t[1] - t[2] * 0.9, t[0] + t[2] * 0.4, t[1] - t[2] * 0.5); } ctx.stroke();
+      ctx.beginPath(); for (const t of tufts) { ctx.moveTo(t[0] + t[2], t[1]); ctx.arc(t[0], t[1], t[2], -0.2, 1.4); }
+      ctx.strokeStyle = c.A(0.55); ctx.lineWidth = 0.5; ctx.stroke();
     },
     front(ctx, c) {
       if (c.tint) {
         // силуэт воротника для вспышки
-        ctx.beginPath(); ctx.moveTo(-7.6, 6.4);
-        for (let i = 0; i < 6; i++) ctx.quadraticCurveTo(-6.4 + i * 2.6, 12.6, -5 + i * 2.6, 6.8);
+        ctx.beginPath(); ctx.moveTo(-6.8, 6.4);
+        for (let i = 0; i < 5; i++) ctx.quadraticCurveTo(-5.6 + i * 2.7, 11.2, -4.2 + i * 2.7, 6.8);
         ctx.fillStyle = c.tint; ctx.fill();
         return;
       }
-      // широкая улыбка до ушей с зубами
-      ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(-3.4, 2.2); ctx.quadraticCurveTo(1.6, 8.4, 6.2, 2); ctx.quadraticCurveTo(1.6, 5.2, -3.4, 2.2); ctx.closePath();
-      ctx.fillStyle = "#16041b"; ctx.fill();
-      ctx.strokeStyle = c.A(0.95); ctx.lineWidth = 0.7; ctx.stroke();
-      ctx.strokeStyle = "#f1edf6"; ctx.lineWidth = 0.5;
-      for (let i = 0; i < 4; i++) { const x = -1.6 + i * 1.9; ctx.beginPath(); ctx.moveTo(x, 3.3 + Math.abs(i - 1.5) * -0.3); ctx.lineTo(x + 0.1, 4.8 - Math.abs(i - 1.5) * 0.9); ctx.stroke(); }
-      // слеза-линия из-под глаза и ромб над ним
-      ctx.strokeStyle = c.A(0.95); ctx.lineWidth = 0.8;
-      ctx.beginPath(); ctx.moveTo(0.4, 2.4); ctx.quadraticCurveTo(-1.4, 4, -1.8, 6.4); ctx.stroke();
-      _poly(ctx, [0.6, -5.8, 2.2, -4, 0.6, -2.8, -1, -4]); ctx.fillStyle = c.A(0.85); ctx.fill();
-      // красный нос-шар
-      ctx.beginPath(); ctx.arc(7, 1.4, 2.1, 0, TAU); ctx.fillStyle = c.A(1); ctx.fill();
-      ctx.beginPath(); ctx.arc(6.5, 0.8, 0.7, 0, TAU); ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.fill();
-      // жабо: волнистый воротник из лепестков
-      ctx.beginPath(); ctx.moveTo(-7.8, 6.2);
-      for (let i = 0; i < 6; i++) ctx.quadraticCurveTo(-6.4 + i * 2.6, 12.8, -5.1 + i * 2.6, 6.6);
-      ctx.lineTo(7.6, 6); ctx.closePath();
-      ctx.fillStyle = "#ece7f6"; ctx.fill(); ctx.strokeStyle = c.A(0.95); ctx.lineWidth = 0.7; ctx.stroke();
-      ctx.strokeStyle = c.A(0.45); ctx.lineWidth = 0.4;
-      ctx.beginPath(); for (let i = 0; i < 5; i++) { ctx.moveTo(-5.1 + i * 2.6, 7.2); ctx.lineTo(-5.1 + i * 2.6, 10.2); } ctx.stroke();
+      ctx.lineCap = "round"; ctx.lineJoin = "round";
+      // чёрные ромбы грима над глазом и под ним, тонкие высокие брови
+      ctx.fillStyle = "#14060c";
+      _poly(ctx, [1.6, -7, 2.5, -5.2, 1.6, -4.2, 0.7, -5.2]); ctx.fill();
+      _poly(ctx, [1.5, 1.2, 2.3, 2.6, 1.5, 4.6, 0.7, 2.6]); ctx.fill();
+      ctx.strokeStyle = "#14060c"; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(-1.4, -3.6); ctx.quadraticCurveTo(0, -5.4, 1.4, -4.2); ctx.moveTo(3.2, -4.2); ctx.quadraticCurveTo(4.8, -5.6, 6, -3.8); ctx.stroke();
+      // широкая красная ухмылка с тёмным провалом и зубами
+      ctx.beginPath(); ctx.moveTo(-2.6, 3.4); ctx.quadraticCurveTo(1.8, 8.6, 6.4, 2.8); ctx.quadraticCurveTo(2, 5.4, -2.6, 3.4); ctx.closePath();
+      ctx.fillStyle = "#1a0408"; ctx.fill();
+      ctx.strokeStyle = "#e42634"; ctx.lineWidth = 1.1; ctx.stroke();
+      ctx.strokeStyle = "#f4f0ea"; ctx.lineWidth = 0.45;
+      ctx.beginPath(); for (let i = 0; i < 4; i++) { const x = -0.6 + i * 1.7, y0 = 4.3 + (i === 0 || i === 3 ? -0.2 : 0.2); ctx.moveTo(x, y0); ctx.lineTo(x + 0.15, y0 + 1.3); } ctx.stroke();
+      // красный нос-шар с бликом
+      ctx.beginPath(); ctx.arc(6.9, 1, 2, 0, TAU); ctx.fillStyle = "#e42634"; ctx.fill();
+      ctx.strokeStyle = c.A(0.9); ctx.lineWidth = 0.4; ctx.stroke();
+      ctx.beginPath(); ctx.arc(6.3, 0.3, 0.65, 0, TAU); ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.fill();
+      // жабо: белые складки с тонкой красной кромкой
+      ctx.beginPath(); ctx.moveTo(-6.8, 6.2);
+      for (let i = 0; i < 5; i++) ctx.quadraticCurveTo(-5.6 + i * 2.7, 11, -4.2 + i * 2.7, 6.6);
+      ctx.lineTo(6.6, 6); ctx.closePath();
+      ctx.fillStyle = "#eee9ee"; ctx.fill(); ctx.strokeStyle = c.A(0.85); ctx.lineWidth = 0.55; ctx.stroke();
+      ctx.strokeStyle = "rgba(60,30,40,.35)"; ctx.lineWidth = 0.4;
+      ctx.beginPath(); for (let i = 0; i < 4; i++) { ctx.moveTo(-2.9 + i * 2.7, 7); ctx.lineTo(-2.9 + i * 2.7, 9.4); } ctx.stroke();
     },
   },
   doll: {
@@ -213,13 +227,15 @@ Object.assign(BACK_PARTS, {
   },
   balloon: {
     back(ctx, g) {
-      // шарик на нитке: болтается за плечом
-      const sw = Math.sin(g.now / 700) * 1.6, bx = -9 * g.wide + sw, by = g.shoulderY - 19 + Math.sin(g.now / 900) * 0.8;
-      ctx.beginPath(); ctx.moveTo(-3, g.shoulderY + 1); ctx.quadraticCurveTo(-8 + sw * 0.4, g.shoulderY - 8, bx, by + 6.4);
-      ctx.strokeStyle = g.A(0.7); ctx.lineWidth = 0.4; ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(bx, by, 4.2, 5.2, 0.1 * sw, 0, TAU); ctx.fillStyle = g.A(0.92); ctx.fill();
-      _poly(ctx, [bx - 0.9, by + 6.6, bx + 0.9, by + 6.6, bx, by + 5.2]); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(bx - 1.4, by - 1.8, 1, 1.7, 0.5, 0, TAU); ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.fill();
+      // красный шарик на нитке: висит за спиной ниже и дальше от головы, медленно покачивается
+      const sw = Math.sin(g.now / 700) * 1.4, bx = -13 * g.wide + sw, by = g.shoulderY - 12 + Math.sin(g.now / 900) * 0.8;
+      ctx.beginPath(); ctx.moveTo(-3, g.shoulderY + 2); ctx.quadraticCurveTo(-9 + sw * 0.4, g.shoulderY - 2, bx, by + 4.6);
+      ctx.strokeStyle = "rgba(230,230,240,.6)"; ctx.lineWidth = 0.35; ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(bx, by, 3, 3.8, 0.1 * sw, 0, TAU); ctx.fillStyle = g.tint || "#d8202e"; ctx.fill();
+      if (g.tint) return;
+      ctx.strokeStyle = g.A(0.8); ctx.lineWidth = 0.4; ctx.stroke();
+      _poly(ctx, [bx - 0.7, by + 4.8, bx + 0.7, by + 4.8, bx, by + 3.7]); ctx.fillStyle = "#b5141f"; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(bx - 1, by - 1.3, 0.7, 1.2, 0.5, 0, TAU); ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.fill();
     },
   },
   windkey: {
