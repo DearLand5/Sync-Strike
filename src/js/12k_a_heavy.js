@@ -140,9 +140,9 @@
     if (S) Object.assign(P, {
       armF: lerp(0.5, -0.55, easeOut(k.s)), elbowF: 1.1, wBlend: 1, wAngle: lowJab ? -0.5 : 0.05 - 0.3 * k.s, lean: -0.2 * k.s, bodyY: 2.4 * k.s, legSpread: 1.9 + 0.3 * k.s, sx: 1.04, sy: 0.95,
     });
-    else if (T) Object.assign(P, { armF: 1.45, elbowF: 0, wBlend: 1, wAngle: aim, lean: 0.6, bodyY: 2.5, legSpread: 2.3, sx: 1.15, sy: 0.88 });
+    else if (T) Object.assign(P, { armF: 1.5, elbowF: 0, wBlend: 1, wAngle: aim, lean: 0.66, bodyY: 3, legSpread: 2.55, sx: 1.2, sy: 0.86 });
     else if (A) Object.assign(P, {
-      armF: rep ? lerp(1.0, 1.5, Math.sin(PI * Math.min(1, u * 1.4))) : lerp(-0.2, 1.5, easeOut(k.a * 1.6)), elbowF: 0, wBlend: 1, wAngle: aim, lean: 0.5, bodyY: 2.8, legSpread: 2.3 + 0.2 * k.a, sx: 1.16, sy: 0.9, cloak: -0.7,
+      armF: rep ? lerp(1.0, 1.5, Math.sin(PI * Math.min(1, u * 1.4))) : lerp(-0.2, 1.5, easeOut(k.a * 1.6)), elbowF: 0, wBlend: 1, wAngle: aim, lean: 0.58, bodyY: 3.3, legSpread: 2.6 + 0.2 * k.a, sx: 1.22, sy: 0.88, cloak: -0.9,
     });
     else Object.assign(P, { armF: lerp(1.5, 0.5, easeInOut(k.r)), elbowF: 0.2 * k.r, wBlend: 1, wAngle: lerp(aim, -0.4, easeInOut(k.r)), lean: 0.3 * (1 - k.r), bodyY: 2.8 * (1 - easeOut(k.r)) + Math.sin(k.r * PI) * 0.5, legSpread: lerp(2.3, 1.4, k.r), sx: 1 + 0.1 * (1 - k.r) });
     twoHand(P, 0.5);
@@ -467,22 +467,7 @@
     },
   };
 
-  // базовые приёмы глефой: задний конец чертит свою дугу (в дополнение к дуге переднего), оба лезвия на виду
-  {
-    const slashFx0 = CombatSystem.prototype._slashFx;
-    CombatSystem.prototype._slashFx = function (p, act, sub = 0) {
-      slashFx0.call(this, p, act, sub);
-      const def = act.def;
-      if (!def.w || def.w.id !== "glaive" || def.kit || !def.arc) return;
-      const [a0, a1] = sub % 2 && !def.spin ? [def.arc[1] - 2.2, def.arc[0] + 2.2] : def.arc;
-      const toWorld = a => (act.dir > 0 ? PI / 2 - a : PI / 2 + a);
-      let w0 = toWorld(a0 - 0.4), w1 = toWorld(a1);
-      if (act.dir < 0) { const t = w0; w0 = w1; w1 = t; }
-      if (w1 < w0) w1 += TAU;
-      const r = (def.spin ? 34 : 26) * (def.fxR || 1) * 0.72, g = this.game;
-      g.fx.slashArc(p.x + act.dir * 6, p.y - 20, r, w0 + PI, w1 + PI, p.skin.accent, (act.empowered ? 6 : 4) * (def.fxW || 1), 0.16);
-    };
-  }
+  // задний конец глефы чертит свою дугу в фирменном следе 12k_g_fx_classic (registerWeaponFx)
 
   /* =====================================================================
      БОЕВОЙ ТОПОР
@@ -539,11 +524,11 @@
     const w0 = side ? -2.9 : -2.35, w1 = side ? 0.35 : 1.15;
     const a0 = side ? 2.2 : 3.0, a1 = side ? 1.5 : 1.2;
     const rep = (act.def.hits || 1) > 1, sub = Math.min((act.def.hits || 1) - 1, Math.floor(k.a * (act.def.hits || 1))), u = k.a * (act.def.hits || 1) - sub;
-    if (S) Object.assign(P, { armF: lerp(0.3, a0, easeOut(k.s)) + shake, elbowF: 0.15, wBlend: 1, wAngle: lerp(0, w0, easeOut(k.s)), lean: -0.28 * k.s, bodyY: -0.8 * k.s, legSpread: 1.9 + 0.3 * k.s, sx: 1 - 0.04 * k.s, sy: 1 + 0.1 * k.s, headTilt: -0.12 * k.s });
+    if (S) Object.assign(P, { armF: lerp(0.3, a0, easeOut(k.s)) + shake, elbowF: 0.15, wBlend: 1, wAngle: lerp(0, w0, easeOut(k.s)), lean: -0.28 * k.s, bodyY: -1.8 * k.s, legSpread: 1.9 + 0.3 * k.s, sx: 1 - 0.05 * k.s, sy: 1 + 0.15 * k.s, headTilt: -0.18 * k.s, cloak: 0.8 * k.s });
     else if (T) Object.assign(P, { armF: a0, elbowF: 0.15, wBlend: 1, wAngle: w0, lean: 0.4, bodyY: 1, legSpread: 2.3 });
     else if (A) Object.assign(P, {
       armF: rep ? lerp(a0, a1, easeOut(sub % 2 ? 1 - u : u)) : lerp(a0, a1, easeIn(k.a * 1.1)), elbowF: 0.05, wBlend: 1, wAngle: rep ? lerp(w0, w1, easeOut(sub % 2 ? 1 - u : u)) : lerp(w0, w1, easeIn(k.a * 1.1)),
-      lean: 0.6, bodyY: 4.6, legSpread: 2.6, sx: 1.2, sy: 0.82, cloak: -1.1, headTilt: 0.12,
+      lean: 0.62, bodyY: 5.2, legSpread: 2.8, sx: 1.22, sy: 0.8, cloak: -1.3, headTilt: 0.16,
     });
     else Object.assign(P, { armF: lerp(a1, 0.6, easeInOut(clamp((k.r - 0.5) / 0.5, 0, 1))), elbowF: 0.2, wBlend: 1, wAngle: lerp(w1, 0.3, easeInOut(clamp((k.r - 0.5) / 0.5, 0, 1))), lean: 0.55 * stuck + 0.05, bodyY: 4.6 * Math.max(stuck, 1 - easeOut(k.r)) + Math.sin(k.r * 40) * 0.3 * stuck, legSpread: lerp(2.6, 1.4, k.r), sx: 1.1 - 0.1 * (1 - stuck), sy: 0.85 + 0.15 * (1 - stuck), headTilt: 0.2 * stuck });
     P.armB = (P.armF || 0) - 0.4;
