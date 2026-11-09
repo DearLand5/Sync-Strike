@@ -11,8 +11,8 @@
    ===================================================================== */
 Object.assign(SKINS, {
   // --- Хоррор ---
-  mime:      { cat: "horror", from: "по мотивам хоррор-цирка", name: "Мим-мясник", mask: "#f6f6f8", eye: "#07080c", accent: "#b46bff", cloak: "#0a0a0d", head: "mimeface", scarf: null, hem: "scallop", mark: "mimesuit", back: "trashbag", wide: 1.1 },
-  wail:      { cat: "horror", from: "по мотивам слэшеров", name: "Вопль", mask: "#f4f3ee", eye: "#ffffff", accent: "#9fe8ff", cloak: "#07080b", head: "longmask", scarf: null, hem: "jag", mark: "rips", back: "kitchenknife", wide: 1.15 },
+  mime:      { cat: "horror", from: "по мотивам хоррор-цирка", name: "Мим-мясник", mask: "#f6f6f8", eye: "#07080c", accent: "#e9ecf4", cloak: "#0a0a0d", head: "mimeface", scarf: null, hem: "scallop", mark: "mimesuit", back: "trashbag", wide: 1.1 },
+  wail:      { cat: "horror", from: "по мотивам слэшеров", name: "Вопль", mask: "#f4f3ee", eye: "#ffffff", accent: "#9fe8ff", cloak: "#07080b", head: "longmask", scarf: null, hem: "jag", mark: "rips", back: "kitchenknife", wide: 1.15, noEyes: true },
   // --- Кино ---
   hitman:    { cat: "cinema", from: "по мотивам неонуара", name: "Контрактник", mask: "#d3b9a0", eye: "#0b0d12", accent: "#ffb02e", cloak: "#08090c", head: "suithair", scarf: null, hem: "straight", mark: "armorsuit", back: null, wide: 1.2 },
   popking:   { cat: "cinema", from: "по мотивам поп-сцены 80-х", name: "Король танца", mask: "#e6c5a2", eye: "#120a08", accent: "#ff3fcf", cloak: "#430b17", head: "popfedora", scarf: null, hem: "straight", mark: "marchjacket", back: null, wide: 1.1, glove: "#f7f9ff", socks: "#f7f9ff" },
@@ -24,15 +24,14 @@ Object.assign(HEAD_PARTS, {
     front(ctx, c) {
       // острый нос
       _poly(ctx, [4.6, 0.2, 8.6, 2.4, 4.8, 3.4]); _fr(ctx, c, "#f6f6f8", 0.5, 0.75);
-      // колпачок: маленький чёрный конус, завалившийся назад, с белой каймой и помпоном
-      ctx.beginPath(); ctx.moveTo(-5.6, -3.8); ctx.quadraticCurveTo(-6, -9.6, -2.4, -9.8); ctx.quadraticCurveTo(-4.4, -12.2, -7.8, -12.6);
-      ctx.quadraticCurveTo(-1.2, -13.4, 2.2, -9.4); ctx.quadraticCurveTo(5.8, -9, 5.8, -4.4); ctx.quadraticCurveTo(0, -6.6, -5.6, -3.8); ctx.closePath();
-      _fr(ctx, c, "#09090c", 0.7, 0.9);
-      ctx.beginPath(); ctx.arc(-7.8, -12.6, 1.5, 0, TAU); ctx.fillStyle = c.tint || "#f6f6f8"; ctx.fill();
+      // крошечный чёрный цилиндр, сдвинут набок и чуть наклонён (без свисающего колпака и помпона)
+      ctx.save(); ctx.translate(1.6, -7); ctx.rotate(0.22);
+      ctx.beginPath(); ctx.ellipse(0, 0, 4.4, 1.05, 0, 0, TAU); _fr(ctx, c, "#09090c", 0.6, 0.8);
+      ctx.beginPath(); ctx.moveTo(-2.5, -0.2); ctx.lineTo(-2.2, -5.2); ctx.quadraticCurveTo(0, -5.9, 2.2, -5.2); ctx.lineTo(2.5, -0.2); ctx.quadraticCurveTo(0, 0.6, -2.5, -0.2); ctx.closePath();
+      _fr(ctx, c, "#09090c", 0.6, 0.8);
+      if (!c.tint) { ctx.fillStyle = "#f6f6f8"; ctx.fillRect(-2.4, -1.9, 4.8, 0.7); }
+      ctx.restore();
       if (c.tint) return;
-      // белая кайма колпачка
-      ctx.beginPath(); ctx.moveTo(-5.6, -3.8); ctx.quadraticCurveTo(0, -6.6, 5.8, -4.4);
-      ctx.strokeStyle = "#f6f6f8"; ctx.lineWidth = 1.1; ctx.stroke();
       // чёрный грим: высокие брови, чёрточки под глазами, губки
       ctx.lineCap = "round"; ctx.strokeStyle = "#07070a"; ctx.lineWidth = 0.7;
       ctx.beginPath(); ctx.moveTo(-1.4, -2.6); ctx.quadraticCurveTo(0.6, -4.4, 2, -3); ctx.moveTo(2.4, -2.8); ctx.quadraticCurveTo(4.2, -4.6, 6, -3); ctx.stroke();
@@ -46,42 +45,50 @@ Object.assign(HEAD_PARTS, {
   },
   longmask: {
     back(ctx, c) {
-      // капюшон позади маски с колышущимся хвостом
-      const w = Math.sin(c.now / 260);
-      ctx.beginPath(); ctx.moveTo(-3, 8); ctx.bezierCurveTo(-11, 4, -10.6, -9, -0.8, -11.8); ctx.bezierCurveTo(7.8, -11.6, 8.4, -6, 6.4, -2);
-      ctx.lineTo(-1, -4); ctx.closePath();
-      _fr(ctx, c, "#07080b", 0.7, 0.85);
-      ctx.beginPath(); ctx.moveTo(-6.6, 2); ctx.quadraticCurveTo(-10.4 + w, 8, -8.6 + w * 1.4, 14); ctx.lineTo(-3, 8); ctx.closePath();
-      _fr(ctx, c, "#07080b", 0.7, 0.8);
+      // капюшон-колпак: плотный, с острой макушкой, откинутой назад, и складкой до плеч (не волосы, а ткань)
+      const w = Math.sin(c.now / 300) * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-6.4, 9.4);
+      ctx.bezierCurveTo(-9.4, 3, -9.6, -6.4, -6.6, -10.2);
+      ctx.quadraticCurveTo(-8.6 + w, -12.8, -11.2 + w, -12.4);     // кончик капюшона, откинутый назад
+      ctx.quadraticCurveTo(-5.6, -14.2, 0.6, -11.2);
+      ctx.bezierCurveTo(6.6, -9.8, 8.6, -4, 7.6, 1.4);
+      ctx.bezierCurveTo(7.2, 5, 6.2, 8, 4.6, 10);
+      ctx.closePath();
+      _fr(ctx, c, "#07080b", 0.75, 0.9);
+      if (c.tint) return;
+      // складка ткани по затылку
+      ctx.beginPath(); ctx.moveTo(-7.2, -6); ctx.quadraticCurveTo(-8.2, 1, -6, 7.6);
+      ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = 0.6; ctx.stroke();
     },
     front(ctx, c) {
-      // длинная вытянутая маска
-      ctx.beginPath(); ctx.moveTo(0, -7.6); ctx.bezierCurveTo(5.8, -7.6, 7, -1, 5.4, 4); ctx.bezierCurveTo(4.6, 8, 3.8, 12.4, 1.2, 13.2);
-      ctx.bezierCurveTo(-1.6, 12, -3.6, 8, -5, 4); ctx.bezierCurveTo(-6.6, -1, -5.4, -7.6, 0, -7.6); ctx.closePath();
-      ctx.fillStyle = c.tint || c.mc; ctx.fill();
+      // вытянутая белая маска — в пределах лица (−6,8…8,6), чтобы не уходить на грудь под руку
+      const face = () => {
+        ctx.beginPath(); ctx.moveTo(0.4, -6.8); ctx.bezierCurveTo(4.8, -6.8, 5.6, -1.6, 4.8, 2.6); ctx.bezierCurveTo(4.3, 5.4, 3.4, 8, 1.4, 8.6);
+        ctx.bezierCurveTo(-0.8, 8.4, -2.6, 6, -3.8, 2.8); ctx.bezierCurveTo(-5, -1, -4.4, -6.8, 0.4, -6.8); ctx.closePath();
+      };
+      face(); ctx.fillStyle = c.tint || c.mc; ctx.fill();
       if (c.tint) return;
-      ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = 0.5; ctx.stroke();
-      // тень по левой щеке
-      ctx.beginPath(); ctx.moveTo(-5, 4); ctx.bezierCurveTo(-3.6, 8, -1.6, 12, 1.2, 13.2); ctx.bezierCurveTo(-1.4, 9, -3, 5, -3.8, 0); ctx.closePath();
-      ctx.fillStyle = "rgba(20,24,36,.18)"; ctx.fill();
-      // провалы глаз-капли
+      ctx.strokeStyle = "rgba(0,0,0,.45)"; ctx.lineWidth = 0.45; ctx.stroke();
+      // тень по нижней щеке — маска объёмная
+      ctx.save(); face(); ctx.clip();
+      ctx.fillStyle = "rgba(20,24,36,.2)"; ctx.beginPath(); ctx.ellipse(-2.4, 5, 3.4, 5, 0.3, 0, TAU); ctx.fill();
+      ctx.restore();
+      // провалы глаз-капли (наклонены к переносице) и длинный «кричащий» рот
       ctx.fillStyle = "#040406";
-      for (let i = 0; i < 2; i++) {
-        ctx.save(); ctx.translate(3.6 * i, 0); if (i) ctx.scale(0.9, 0.95);
-        ctx.beginPath(); ctx.moveTo(0.4, -3.4); ctx.bezierCurveTo(2.8, -3.4, 2.9, 0.2, 1.1, 4.4); ctx.bezierCurveTo(0.2, 2.8, -1.9, 0.6, -1.3, -1.8); ctx.bezierCurveTo(-0.9, -3, -0.2, -3.4, 0.4, -3.4); ctx.fill();
-        ctx.restore();
-      }
-      // вытянутый рот-провал и складка у носа
-      ctx.beginPath(); ctx.moveTo(2.6, 5.6); ctx.bezierCurveTo(5, 6, 5, 11, 2.8, 11.6); ctx.bezierCurveTo(0.6, 11.4, 0.4, 6, 2.6, 5.6); ctx.fill();
-      ctx.strokeStyle = "rgba(10,12,18,.55)"; ctx.lineWidth = 0.45; ctx.lineCap = "round";
-      ctx.beginPath(); ctx.moveTo(3, 3.4); ctx.lineTo(2.2, 4.6); ctx.stroke();
-      // неоновая кромка маски
-      ctx.beginPath(); ctx.moveTo(-5, 4); ctx.bezierCurveTo(-3.6, 8, -1.6, 12, 1.2, 13.2);
-      ctx.strokeStyle = c.A(0.6); ctx.lineWidth = 0.6; ctx.stroke();
-      // капюшон поверх лба и висков
-      ctx.beginPath(); ctx.moveTo(-7.2, 7); ctx.bezierCurveTo(-10, -2, -7.6, -11, 0, -11.6); ctx.bezierCurveTo(7, -11.2, 8.8, -5, 7.4, -1);
-      ctx.bezierCurveTo(6.6, -4.6, 3, -7.4, 0, -7.6); ctx.bezierCurveTo(-4.6, -7.4, -5.4, -2, -5.2, 4); ctx.closePath();
-      ctx.fillStyle = "#06070a"; ctx.fill(); ctx.strokeStyle = c.A(0.8); ctx.lineWidth = 0.7; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0.2, -3.6); ctx.bezierCurveTo(1.8, -3.6, 1.9, -0.6, 0.6, 1.8); ctx.bezierCurveTo(-0.4, 0.6, -1.4, -1, -1.1, -2.6); ctx.bezierCurveTo(-0.9, -3.3, -0.4, -3.6, 0.2, -3.6); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(3.4, -3.4); ctx.bezierCurveTo(4.7, -3.4, 4.6, -0.6, 3.4, 1.5); ctx.bezierCurveTo(2.5, 0.4, 2, -1.2, 2.3, -2.5); ctx.bezierCurveTo(2.5, -3.1, 2.9, -3.4, 3.4, -3.4); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(2, 3.4); ctx.bezierCurveTo(3.6, 3.6, 3.6, 7.2, 2.1, 7.6); ctx.bezierCurveTo(0.6, 7.4, 0.5, 3.8, 2, 3.4); ctx.fill();
+      // край капюшона вокруг лица: тёмная рамка (снаружи маски) с неоновой кромкой — капюшон обнимает лицо, а не лежит чёлкой
+      ctx.beginPath();
+      ctx.moveTo(-6, 8.6); ctx.bezierCurveTo(-7.6, 2, -7.2, -8.4, 0.4, -9); ctx.bezierCurveTo(6.6, -8.8, 7.6, -2, 6.6, 3); ctx.bezierCurveTo(6.2, 6, 5.4, 8.4, 4, 9.6);
+      ctx.lineTo(1.4, 8.6); ctx.bezierCurveTo(3.4, 8, 4.3, 5.4, 4.8, 2.6); ctx.bezierCurveTo(5.6, -1.6, 4.8, -6.8, 0.4, -6.8);
+      ctx.bezierCurveTo(-4.4, -6.8, -5, -1, -3.8, 2.8); ctx.bezierCurveTo(-3, 5.2, -2, 7.2, -0.6, 8.4); ctx.closePath();
+      ctx.fillStyle = "#06070a"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-3.8, 2.8); ctx.bezierCurveTo(-5, -1, -4.4, -6.8, 0.4, -6.8); ctx.bezierCurveTo(4.8, -6.8, 5.6, -1.6, 4.8, 2.6);
+      ctx.strokeStyle = c.A(0.75); ctx.lineWidth = 0.55; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-6, 8.6); ctx.bezierCurveTo(-7.6, 2, -7.2, -8.4, 0.4, -9);
+      ctx.strokeStyle = c.A(0.45); ctx.lineWidth = 0.6; ctx.stroke();
     },
   },
   suithair: {
