@@ -68,7 +68,7 @@ function weaponOf(slot, set) {
 /** Приём с поправкой на оружие: копия ATTACKS[name] (создаётся один раз и кэшируется). Базовое оружие — исходный объект. */
 function weaponDef(name, set) {
   const base = ATTACKS[name];
-  if (base.kit) return base;          // приёмы набора оружия (12d_kits) уже настроены под своё оружие
+  if (base.kit || base.martial) return base;          // приёмы набора оружия (12d_kits) уже настроены под своё оружие
   const w = base.kind === "ranged" ? weaponOf("gun", set) : base.kind === "melee" || base.kind === "dash" ? weaponOf("melee", set) : null;
   if (!w || !w.mod) return base;
   return w._defs[name] || (w._defs[name] = buildWeaponDef(base, w));
@@ -130,7 +130,7 @@ function rayBox(x0, y0, dx, dy, b) {
 /** Поправка позы атаки под оружие (вызывается в конце CombatSystem.actionPose). */
 function weaponPose(P, act, p) {
   const w = act.def.w;
-  if (!w) return;
+  if (!w || act.def.martial) return;
   const tA = act.startup + act.travel;
   if (w.id === "kusari") {
     p.wExt = 0;      // форму цепи задают позы набора (12k_b_blades); без набора — цепь в покое

@@ -47,6 +47,7 @@ function kitOf(slot, set) { const w = weaponOf(slot, set); return WEAPON_KITS[w.
 /** Подмена выбора приёма набором оружия. */
 function kitChoose(cs, name, target, j) {
   const g = cs.game, p = g.player, base = ATTACKS[name];
+  if (base.martial) return null;      // рукопашные удары (12f_martial) набор оружия не подменяет
   const kit = kitOf(base.kind === "ranged" ? "gun" : "melee", g.settings.v);
   if (!kit || !kit.choose) return null;
   const ctx = { target, j, p, air: !p.onGround, good: j.rating === "perfect" || j.rating === "good", away: Math.abs(g.input.moveX) > 0.4 && target && sign(g.input.moveX) !== sign(target.x - p.x),
@@ -58,6 +59,7 @@ function kitChoose(cs, name, target, j) {
 /** Анимация атаки: поза оружия для всех приёмов + поза собственного приёма набора. */
 function kitPose(P, act, p, k, set) {
   const def = act.def;
+  if (def.martial) { if (def.pose) def.pose(P, act, p, k); return; }     // рукопашный удар: своя поза, поза оружия не нужна
   const kit = def.kit ? WEAPON_KITS[def.kit] : kitOf(def.kind === "ranged" ? "gun" : "melee", set);
   if (kit && kit.pose) kit.pose(P, act, p, k);
   if (def.pose) def.pose(P, act, p, k);
@@ -66,6 +68,7 @@ function kitPose(P, act, p, k, set) {
 /** Добивание набора: id из TD_KITS или null. */
 function kitTakedown(cs, kind, e, act) {
   const def = act.def, set = cs.game.settings.v;
+  if (def.martial) return null;       // добивание рукопашным ударом — встроенное, не оружия
   const kit = def.kit ? WEAPON_KITS[def.kit] : kitOf(def.kind === "ranged" ? "gun" : "melee", set);
   if (!kit || !kit.takedown) return null;
   const id = kit.takedown(cs, kind, e, act);

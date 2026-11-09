@@ -15,7 +15,7 @@ const path = require("path");
   let bad = 0;
   const check = (ok, msg) => { console.log((ok ? "ok   " : "FAIL ") + msg); if (!ok) bad++; };
   for (const id of ids) {
-    await page.evaluate(id => { const g = window.__game; g.settings.v.meleeWeapon = id; g.settings.v.slowmoMode = "off"; g.startBattle("waves"); }, id);
+    await page.evaluate(id => { const g = window.__game; g.settings.v.martial = false; g.settings.v.meleeWeapon = id; g.settings.v.slowmoMode = "off"; g.startBattle("waves"); }, id);
     await page.waitForFunction(() => window.__game.state === "battle", null, { timeout: 60000 });
     // (1) покой: врагов нет, практика без спавна — смотрим 6 с
     const idle = await page.evaluate(async () => {
