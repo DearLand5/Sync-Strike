@@ -227,6 +227,12 @@ const CharacterRenderer = {
       ctx.strokeStyle = legC;
       ctx.lineWidth = brute ? 3.6 : 2.6;
       ctx.stroke();
+      // белые носки над ботинком (необязательное поле скина socks)
+      if (skin && skin.socks && !tint) {
+        const u = 0.76, v = 1 - u, cx = hx + (fx - hx) * 0.5 + 1.8, cy = (hipY + fy) * 0.5;
+        ctx.beginPath(); ctx.moveTo(v * v * hx + 2 * u * v * cx + u * u * fx, v * v * (hipY + 1) + 2 * u * v * cy + u * u * fy); ctx.lineTo(fx, fy - 0.3);
+        ctx.strokeStyle = side > 0 ? skin.socks : mixc(skin.socks, "#000000", 0.35); ctx.lineWidth = 2.8; ctx.stroke();
+      }
       // ботинок с носком
       ctx.fillStyle = legC;
       ctx.beginPath(); ctx.ellipse(fx + 0.9, fy - 0.6, brute ? 2.8 : 2.0, 1.15, 0, 0, TAU); ctx.fill();
@@ -304,7 +310,7 @@ const CharacterRenderer = {
       this._arm(ctx, p.armB, elB, shoulderY, tint ? ink : mixc(ink, accent, 0.3), wide, tint ? null : accent);
       if (!tint) { ctx.fillStyle = rgba(accent, 0.9); ctx.beginPath(); ctx.arc(1 + Math.sin(p.armB) * 6, shoulderY + 0.5 + Math.cos(p.armB) * 6, 1.3, 0, TAU); ctx.fill(); }
     }
-    this._arm(ctx, p.armF, p.elbowF, shoulderY, ink, wide, tint ? null : accent);
+    this._arm(ctx, p.armF, p.elbowF, shoulderY, ink, wide, tint ? null : accent, !tint && skin ? skin.glove : null);
     if (!tint) this._weapon(ctx, ch, p, J, accent, hq);
     ctx.restore();
 
@@ -334,7 +340,7 @@ const CharacterRenderer = {
   },
 
   /** Рука из двух звеньев; brace — цвет неонового наруча у запястья (null — без него). */
-  _arm(ctx, a, elbow, shoulderY, color, wide, brace) {
+  _arm(ctx, a, elbow, shoulderY, color, wide, brace, glove) {
     const sx = 1, sy = shoulderY + 0.5;
     const ex = sx + Math.sin(a) * 6, ey = sy + Math.cos(a) * 6;
     const hx = ex + Math.sin(a + elbow) * 6, hy = ey + Math.cos(a + elbow) * 6;
@@ -346,6 +352,13 @@ const CharacterRenderer = {
       ctx.moveTo(ex + (hx - ex) * 0.5, ey + (hy - ey) * 0.5); ctx.lineTo(ex + (hx - ex) * 0.78, ey + (hy - ey) * 0.78);
       ctx.lineCap = "butt"; ctx.strokeStyle = rgba(brace, 0.7); ctx.lineWidth = 2.2 * wide + 0.5; ctx.stroke();
       ctx.lineCap = "round";
+    }
+    // перчатка (необязательное поле скина glove): светлая кисть с блеском
+    if (glove) {
+      ctx.fillStyle = glove; ctx.beginPath(); ctx.arc(hx, hy, 2.1 * wide, 0, TAU); ctx.fill();
+      ctx.strokeStyle = rgba(brace || "#ffffff", 0.8); ctx.lineWidth = 0.5; ctx.stroke();
+      const tw = Math.sin(performance.now() / 170);
+      if (tw > 0.3) { const k = (tw - 0.3) * 2.2; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(hx + 1.2, hy - 3.6 - k); ctx.lineTo(hx + 1.2, hy - 1.8 + k); ctx.moveTo(hx - 0.6 - k, hy - 2.7); ctx.lineTo(hx + 3 + k, hy - 2.7); ctx.stroke(); }
     }
   },
 
