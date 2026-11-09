@@ -37,7 +37,7 @@ fs.mkdirSync(shots, { recursive: true });
       g.waves.queue = []; g.waves.pending = []; g.waves.between = 999;
       for (const e of g.enemies) e.dead = true; g.enemies = [];
       const p = g.player; p.x = 600; p.y = 0; p.vx = 0; p.vy = 0; p.onGround = true; p.action = null; p.setState("idle"); p.facing = 1; p.counterT = 0;
-      Object.assign(c, { comboStep: 0, lastMeleeT: -9, lastRiseT: -9, shotChain: 0, lastAction: null, lastActionT: -9, chain: opts.chain || 0, airChain: 0, lastPress: null, lastTdT: 99, kbGrabT: -9, kbDagT: -9, kuWrapT: -9, kuPendT: -9 });
+      Object.assign(c, { comboStep: 0, lastMeleeT: -9, lastRiseT: -9, shotChain: 0, lastAction: null, lastActionT: -9, chain: opts.chain || 0, airChain: 0, lastPress: null, lastTdT: 99, kbGrabT: -9, kbDagT: -9, kuWrapT: -9, kuPendT: -9, kuReapT: -9 });
       const e = g.waves.spawn(opts.kind || "blade", true);
       e.x = p.x + dist; e.y = 0; e.maxHp = e.hp = 1e5; e.attackCD = 99;
       window.__pin = { x: e.x }; window.__free = !!opts.free; window.__recent = !!opts.recent;
@@ -88,6 +88,19 @@ fs.mkdirSync(shots, { recursive: true });
   await done(); r = await res();
   check(r.names[0] === "kusariWhirl" && r.hits >= 3, `Вихрь цепи: ${r.names.join(" → ")}, попаданий ${r.hits}`);
   console.log(`     урон ${Math.round(r.dmg)}`);
+
+  // «и» после удара в долю — двойной хлёст грузом (вместо «Шквала»)
+  await page.evaluate(() => { window.__setup(60); const g = window.__game, t = window.__beat(false); window.__plan.push(t + g.clock.period / 2 - 0.02); });
+  await done(); r = await res();
+  check(r.names[1] === "kusariCrack" && r.log.split(" ").filter(n => n === "kusariCrack").length >= 2, `Двойной хлёст: ${r.names.join(" → ")}, попаданий ${r.hits}`);
+  // сильная доля, впереди двое — «Жнец» подсекает обоих
+  await page.evaluate(() => {
+    const g = window.__game, e = window.__setup(85, { free: true }), e2 = g.waves.spawn("blade", true);
+    e2.x = e.x + 45; e2.y = 0; e2.maxHp = e2.hp = 1e5; e2.attackCD = 99; window.__e2 = e2; window.__beat(true);
+  });
+  await done(); r = await res();
+  const reap = r.log.split(" ").filter(n => n === "kusariReap").length;
+  check(r.names[0] === "kusariReap" && reap >= 2, `Жнец: ${r.names.join(" → ")}, подсечено ${reap}`);
 
   console.log("— Багровая катана —");
   await use("katana");

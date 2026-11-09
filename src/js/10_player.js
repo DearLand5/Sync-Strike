@@ -269,7 +269,7 @@ class Player {
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
     const wset = game.settings.v;       // оружие из «Арсенала» (id совпадает с ключом WEAPON_DRAW / базовым рисунком)
     this.weapon = this.pistolT > 0 ? weaponOf("gun", wset).id : weaponOf("melee", wset).id;
-    if (!this.action) this.wExt = 0;     // длина выброса цепи у кусаригамы
+    if (!this.action) { this.wExt = 0; this.kuLen = 9; }     // цепь кусаригамы: доля позы и длина свободной цепи
     // ускорение → наклон корпуса: разгон вперёд, торможение назад (плавно, независимо от кадра)
     const ax = (this.vx - this.prevVx) / Math.max(dt, 1e-4) * this.facing; this.prevVx = this.vx;
     this.accLean = damp(this.accLean, clamp(ax / 1600 * 0.1, -0.16, 0.1), 14, dt);
@@ -415,5 +415,6 @@ class Player {
     // разворот на месте: множитель ширины на этот кадр (раньше умножался сам pose.sx каждый кадр — сжатие накапливалось)
     this.anim.turnMul = this.turnT > 0 ? 1 - 0.28 * Math.sin(Math.PI * (1 - this.turnT / 0.14)) : 1;
     AnimationSystem.secondary(this.anim, this, dt);
+    if (this.weapon === "kusari") kusariSim(this, dt); else if (this.kuSim) this.kuSim.ok = false;
   }
 }

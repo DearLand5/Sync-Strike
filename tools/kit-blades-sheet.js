@@ -6,7 +6,7 @@ const wid = process.argv[2] || "kusari";
 const out = process.argv[3] || path.join(__dirname, `../.shots/kit-${wid}.png`);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 const MOVES = {
-  kusari: ["slash1", "slash2", "slash3", "thrust", "cross", "kusariLash", "kusariPendulum", "kusariGrab", "kusariWrap", "kusariWhirl"],
+  kusari: (process.env.MOVES || "slash1,slash2,slash3,thrust,cross,kusariLash,kusariPendulum,kusariGrab,kusariWrap,kusariWhirl,kusariCrack,kusariReap").split(","),
   katana: ["slash1", "slash2", "slash3", "thrust", "rise", "dash", "cross", "katanaSwallow", "katanaIai", "katanaPetals"],
   dagger: ["slash1", "slash2", "slash3", "thrust", "rise", "dash", "cross", "daggerWhirl", "daggerStep", "daggerKnives"],
 }[wid];

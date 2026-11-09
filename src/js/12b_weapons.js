@@ -223,9 +223,15 @@ const WEAPON_DRAW = {
       ctx.save(); ctx.rotate(-al);
       const ca = Math.cos(al), sa = Math.sin(al);
       const x0 = -4.3 * ca, y0 = -4.3 * sa;                                      // кольцо рукояти
-      const tx = lerp(-1.5, ch.kuX == null ? 30 : ch.kuX, ext), ty = lerp(8.5, ch.kuY == null ? 8 : ch.kuY, ext);
-      const bend = (ch.kuB || 0) * ext, sag = lerp(2.5, ch.kuS || 0, ext);
+      // груз: у героя в бою — физическая точка (kusariSim, в ней уже учтена поза приёма через wExt), в превью — по позе
+      const S = ch.kuSim, sc = ch.scale || 1;
+      let tx, ty;
+      if (S && S.ok) { const h = CharacterRenderer.handWorld(ch, 0); tx = (S.x - h.x) * (ch.facing || 1) / sc; ty = (S.y - h.y) / sc; }
+      else { tx = lerp(-1.5, ch.kuX == null ? 30 : ch.kuX, ext); ty = lerp(8.5, ch.kuY == null ? 8 : ch.kuY, ext); }
       const dx = tx - x0, dy = ty - y0, len = Math.hypot(dx, dy) || 1;
+      // провис: в позе — заданный, свободная цепь — по слабине (длина цепи больше расстояния до груза)
+      const slack = S && S.ok ? clamp((S.L / sc - len) * 0.45 + 0.8, 0.5, 9) : 2.5;
+      const bend = (ch.kuB || 0) * ext, sag = lerp(slack, ch.kuS || 0, ext);
       // управляющая точка: середина + боковой изгиб + провис (вершина кривой смещена на половину)
       const cx = (x0 + tx) / 2 + (-dy / len) * bend * 2, cy = (y0 + ty) / 2 + (dx / len) * bend * 2 + sag * 2;
       const n = clamp(Math.round(len / 4.4), 4, 44);
@@ -337,6 +343,37 @@ const WEAPON_DRAW = {
     },
   },
 };
+
+/** Физика груза кусаригамы (герой в бою): точка на цепи-верёвке с инерцией, гравитацией и полом. Поза приёма задаёт груз
+ *  через p.kuX/kuY и долю p.wExt: при wExt = 1 груз идёт точно по позе (скорость точки — движение позы), при 0 — свободно
+ *  летит и висит на цепи длиной p.kuLen (её длина меняется плавно — цепь выбирается и отпускается, а не дёргается).
+ *  Так переход «бросок → свободный хлыст → втягивание» непрерывен, а в беге и прыжке груз отстаёт и качается.
+ *  Вызывается раз в кадр после позы (Player._pose); подшаги 1/120 — результат не зависит от частоты кадров. */
+function kusariSim(p, dt) {
+  const h = CharacterRenderer.handWorld(p, 0), sc = p.scale || 1;
+  let S = p.kuSim;
+  if (!S) S = p.kuSim = { x: h.x, y: h.y + 9 * sc, px: h.x, py: h.y + 9 * sc, L: 9 * sc, ok: false };
+  if (!S.ok || Math.hypot(S.x - h.x, S.y - h.y) > 400) { S.x = S.px = h.x - p.facing * 1.5 * sc; S.y = S.py = h.y + 8.5 * sc; S.L = 9 * sc; }
+  S.ok = true;
+  const ext = clamp(p.wExt || 0, 0, 1);
+  const ex = h.x + (p.kuX || 0) * p.facing * sc, ey = h.y + (p.kuY || 0) * sc;
+  const floor = (p.groundY == null ? 0 : p.groundY) - 2;
+  const n = clamp(Math.round(dt * 120), 1, 8), hs = dt / n, Lw = (p.kuLen || 9) * sc;
+  // толчок груза (хлёст на ударе серпом): скорость, ед./с
+  if (p.kuKick) { S.px = S.x - p.kuKick[0] * sc * hs; S.py = S.y - p.kuKick[1] * sc * hs; p.kuKick = null; }
+  for (let i = 0; i < n; i++) {
+    const vx = (S.x - S.px) * 0.988, vy = (S.y - S.py) * 0.988;
+    S.px = S.x; S.py = S.y;
+    S.x += vx; S.y += vy + 1500 * hs * hs;
+    // длина цепи: пока груз в позе — не короче расстояния до него; свободно — плавно к нужной
+    const d0 = Math.hypot(S.x - h.x, S.y - h.y);
+    S.L = ext > 0.02 ? Math.max(S.L + (Lw - S.L) * Math.min(1, hs * 6), Math.min(d0, 175 * sc)) : S.L + (Lw - S.L) * Math.min(1, hs * 7);
+    const d = Math.hypot(S.x - h.x, S.y - h.y);
+    if (d > S.L && d > 1e-3) { const k = S.L / d; S.x = h.x + (S.x - h.x) * k; S.y = h.y + (S.y - h.y) * k; }
+    if (S.y > floor) { S.y = floor; S.px = S.x - (S.x - S.px) * 0.6; S.py = S.y; }    // груз по полу — трение
+    if (ext > 0) { S.x = lerp(S.x, ex, ext); S.y = lerp(S.y, ey, ext); }
+  }
+}
 
 /** Кадр героя с оружием на канвасе size×size (для карточек «Арсенала» и контактного листа). act — "idle" | "strike". */
 function drawWeaponPreview(c, id, skin, size, act = "idle") {

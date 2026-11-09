@@ -93,8 +93,8 @@ const path = require("path");
       window.__plan.push(t - 0.02, t + cl.period / 2 - 0.02);
     });
     await done(); r = await res();
-    // свои подмены «Шквала»: у глефы «Пропеллер», у катаны «Ласточка» (2 разреза); у кусаригамы вместо «Сквозного рывка» — «Обмотка»/«Маятник»
-    check(id === "katana" ? r.names[1] === "katanaSwallow" && r.hits >= 3 : (r.names[1] === "flurry" || (id === "glaive" && r.names[1] === "glaive_prop")) && r.hits >= 4, `${nm}: Шквал ${r.names.join(" → ")}, попаданий ${r.hits}`);
+    // свои подмены «Шквала»: у глефы «Пропеллер», у катаны «Ласточка» (2 разреза), у кусаригамы «Двойной хлёст»; у кусаригамы вместо «Сквозного рывка» — «Обмотка»/«Маятник»
+    check(id === "katana" ? r.names[1] === "katanaSwallow" && r.hits >= 3 : id === "kusari" ? r.names[1] === "kusariCrack" && r.hits >= 3 : (r.names[1] === "flurry" || (id === "glaive" && r.names[1] === "glaive_prop")) && r.hits >= 4, `${nm}: Шквал ${r.names.join(" → ")}, попаданий ${r.hits}`);
     // 3) Ответ
     await page.evaluate(() => { window.__setup(30); window.__beats(1); setTimeout(() => { window.__game.player.counterT = 1; }, 700); });
     await done(); r = await res();
