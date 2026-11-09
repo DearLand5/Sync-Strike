@@ -473,6 +473,8 @@ class CombatSystem {
   }
 
   _thrustFx(p, act) {
+    const wf = weaponFxOf(act, this.game.settings.v);
+    if (wf && wf.thrust && wf.thrust(this.game, p, act) !== false) return;      // фирменный след оружия (12d_kits)
     const g = this.game, col = p.skin.accent, y = p.y - 20;
     const x0 = p.x + act.dir * 6, x1 = p.x + act.dir * (act.def.reach + 18);
     g.fx.line(x0, y, x1, y, col, 5, 0.16);
@@ -481,6 +483,8 @@ class CombatSystem {
   }
 
   _slashFx(p, act, sub = 0) {
+    const wf = weaponFxOf(act, this.game.settings.v);
+    if (wf && wf.slash && wf.slash(this.game, p, act, sub) !== false) return;   // фирменный след оружия (12d_kits)
     const g = this.game, def = act.def, col = p.skin.accent;
     const cx = p.x + act.dir * 6, cy = p.y - 20;
     const r = (def.spin ? 34 : 26) * (def.fxR || 1), fw = def.fxW || 1;
@@ -635,8 +639,10 @@ class CombatSystem {
     if (act.name === "slash3") this.lastSlash3HitT = this.time;
     // эффекты по силе
     const col = g.player.skin.accent;
+    const wf = weaponFxOf(act, g.settings.v);
     if (act.hitSound) act.hitSound = false;     // первый звук попадания уже стоит на доле (execute)
-    else g.sfx("hit", killed ? 1.3 : act.empowered ? 1.2 : 1, perfect);
+    else g.sfx("hit", (killed ? 1.3 : act.empowered ? 1.2 : 1) * (wf && wf.hitRate || 1), perfect);
+    if (wf && wf.hit) wf.hit(g, e, act, hx, hy, dirX, perfect, killed);       // фирменное попадание оружия
     g.fx.sparks(hx, hy, perfect ? 14 : 8, col, perfect ? 340 : 240, dirX > 0 ? 0 : Math.PI, 1.6);
     g.fx.sparks(hx, hy, 4, "#ffffff", 200, null);
     g.fx.ring(hx, hy, 4, perfect ? 30 : 20, perfect ? "#ffffff" : col, 0.22, perfect ? 3 : 2);

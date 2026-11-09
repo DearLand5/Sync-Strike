@@ -74,3 +74,18 @@ function kitTakedown(cs, kind, e, act) {
   const id = kit.takedown(cs, kind, e, act);
   return id && TD_KITS[id] ? id : null;
 }
+
+/* ---------- фирменные эффекты оружия (уникальность ударов в быстром бою) ----------
+   registerWeaponFx(id, { slash(g, p, act, sub), thrust(g, p, act), hit(g, e, act, hx, hy, dirX, perfect, killed), hitRate }):
+     slash/thrust — свой след удара вместо общей дуги/укола (вернуть false — общий след тоже рисуется);
+     hit — свои искры/следы попадания поверх общих; hitRate — высота звука попадания (тяжёлое ниже, лёгкое выше).
+   Для рукопашных приёмов (def.martial) не вызывается. */
+const WEAPON_FX = {};
+function registerWeaponFx(id, fx) { WEAPON_FX[id] = fx; }
+/** Эффекты оружия, которым выполнен приём (или null). */
+function weaponFxOf(act, set) {
+  const def = act.def;
+  if (!def || def.martial) return null;
+  const id = def.kit || (def.w && def.w.id) || weaponOf(def.kind === "ranged" ? "gun" : "melee", set).id;
+  return WEAPON_FX[id] || null;
+}
