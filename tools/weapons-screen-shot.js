@@ -33,7 +33,7 @@ fs.mkdirSync(out, { recursive: true });
   page.on("pageerror", e => errors.push(e.message));
   await page.goto("file://" + path.join(__dirname, "../index.html"));
   await page.waitForTimeout(300);
-  await page.evaluate(() => { const g = window.__game; g.settings.v.poseMode = "off"; g.settings.set("difficulty", "easy"); });
+  await page.evaluate(() => { const g = window.__game; g.settings.set("difficulty", "easy"); });
   for (const [m, gn] of [["spear", "sawed"], ["kusari", "smg"], ["katana", "rail"], ["axe", "revolver"]]) {
     await page.evaluate(([m, gn]) => { const g = window.__game; g.settings.set("meleeWeapon", m); g.settings.set("gunWeapon", gn); g.startBattle("waves"); }, [m, gn]);
     await page.waitForFunction(() => window.__game.state === "battle", null, { timeout: 60000 });

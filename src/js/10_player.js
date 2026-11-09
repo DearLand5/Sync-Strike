@@ -97,7 +97,8 @@ class Player {
     this.killT = 0; this.killAmt = 1;                        // жест после убийства
     this.turnT = 0; this.prevFacing = 1;                     // разворот на месте
     this.airT = 0;                                           // время в воздухе (высота прыжка)
-    this.poseAct = null;                                     // пафосная поза (10b_poses), состояние "pose"
+    this.trick = null; this.trickWait = 1.5; this.trickLast = -1;   // трюки оружия (12e_tricks)
+    this._hadAct = false; this._actHit = false; this._fast = false;
     this.anim = new AnimState();
   }
 
@@ -232,12 +233,6 @@ class Player {
       if (this.stateT >= PL.dodgeT) { this.setState(this.onGround ? "idle" : "fall"); this.vx *= 0.5; }
     }
     if (this.state === "hurt" && this.stateT >= PL.hurtT) this.setState(this.onGround ? "idle" : "fall");
-    // пафосная поза: прерывается движением, прыжком, атакой, уклоном, уроном
-    if (this.state === "pose") {
-      if (!this.poseAct || Math.abs(inp.moveX) > 0.35 || !this.onGround || this.action) this.setState("idle");
-      else { this.vx = damp(this.vx, 0, 12, dt); if (!game.poses.tick(this, dt)) this.setState("idle"); }
-    }
-    if (this.state !== "pose") this.poseAct = null;
 
     const px = this.x, vyBefore = this.vy;
     moveBody(this, dt);
@@ -289,6 +284,7 @@ class Player {
     if (this.facing !== this.prevFacing) { this.prevFacing = this.facing; if (!this.action && this.state !== "dodge") { this.turnT = 0.14; this.anim.cloakV -= 4 * this.facing; } }
     this.turnT = Math.max(0, this.turnT - dt);
     this.killT = Math.max(0, this.killT - dt);
+    trickUpdate(this, dt, game);
     this.queuePose(dt, game);
   }
 
@@ -303,9 +299,8 @@ class Player {
     if (this.state !== "idle" || this.action || !this.onGround) { this.idleT = 0; this.idleVar = 0; this.idleVarT = 0; return; }
     this.idleT += dt;
     if (this.idleVarT > 0) { this.idleVarT -= dt; if (this.idleVarT <= 0) this.idleVar = 0; return; }
-    if (this.idleT < 2.0 || !c.events.some(e => e.type === "strongBeat")) return;
-    const calm = game.battleActive && game.waves && game.waves.mode === "waves" && !game.enemies.some(e => e.alive);
-    this.idleVar = calm && Math.random() < 0.7 ? 4 : randi(1, 3);
+    if (this.trick || this.idleT < 2.0 || !c.events.some(e => e.type === "strongBeat")) return;
+    this.idleVar = Math.random() < 0.5 ? 1 : 3;      // осмотр и трюк с клинком — теперь трюки оружия (12e_tricks)
     this.idleVarDur = [0, 0.9, 1.1, 0.8, 1.0][this.idleVar];
     this.idleVarT = this.idleVarDur;
     this.idleT = 0.6;
@@ -332,10 +327,12 @@ class Player {
             Object.assign(P, { armF: lerp(0.25, 1.9, k), elbowF: 0.6, wBlend: k > 0.05 ? 1 : 0, wAngle: -0.6 + TAU * 2 * sp, headTilt: -0.12 * k, lean: P.lean - 0.05 * k, bodyY: P.bodyY - 0.6 * k, legSpread: 1 + 0.25 * k });
           }
         }
+        trickPose(this, P, false);
         break;
       }
       case "walk":
         Object.assign(P, { legPhase: this.runPhase, legAmp: 0.55, lean: 0.08 + acc, bodyY: Math.abs(Math.sin(this.runPhase)) * -0.6 + pulse * 0.5, armF: 0.1 + Math.sin(this.runPhase) * 0.3, elbowF: 0.5, armB: -0.1 - Math.sin(this.runPhase) * 0.3, tuck: 0, sx: 1, sy: 1, wBlend: 0, headTilt: 0 });
+        trickPose(this, P, true);
         break;
       case "run": {
         // руки работают в противофазе шагам, корпус чуть покачивается, голова ловит шаг
@@ -405,12 +402,6 @@ class Player {
       case "attack":
         if (this.action) { Object.assign(P, game.combat.actionPose(this, this.action)); rate = 40; }
         break;
-      case "pose": {
-        const a = this.poseAct;
-        if (a) Object.assign(P, POSES[a.id].pose(clamp(a.t / a.dur, 0, 1), clamp((a.t - a.dur) / a.rel, 0, 1), this, game));
-        rate = 24;
-        break;
-      }
     }
     // занос при развороте на бегу: корпус откинут против движения, ноги широко, руки для баланса
     if (this.skid > 0 && (st === "run" || st === "walk" || st === "idle")) Object.assign(P, { lean: -0.32, legAmp: 0.2, legSpread: 2.0, bodyY: 2, armF: 1.0, armB: -1.2, sx: 1.04, sy: 0.94, cloak: -0.9, headTilt: 0.1 });

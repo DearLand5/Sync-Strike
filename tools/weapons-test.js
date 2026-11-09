@@ -12,7 +12,7 @@ const path = require("path");
   page.on("pageerror", e => errors.push(e.message + "\n" + e.stack));
   await page.goto("file://" + path.join(__dirname, "../index.html"));
   await page.waitForTimeout(300);
-  await page.evaluate(() => { const g = window.__game; g.settings.v.poseMode = "off"; g.settings.v.slowmoMode = "off"; g.settings.v.assist = true; g.startBattle("waves"); });
+  await page.evaluate(() => { const g = window.__game; g.settings.v.slowmoMode = "off"; g.settings.v.assist = true; g.startBattle("waves"); });
   await page.waitForFunction(() => window.__game.state === "battle", null, { timeout: 60000 });
   await page.evaluate(() => {
     const g = window.__game, c = g.combat;
@@ -195,7 +195,7 @@ const path = require("path");
   const fb = await page.evaluate(() => { const s = { meleeWeapon: "zzz", gunWeapon: "katana" }; return [window.weaponDefRef("slash1", s).name, window.weaponDefRef("shot", s).name]; });
   check(fb.join() === "Теневой кинжал,Неоновый пистолет", `неизвестный id → базовое: ${fb.join(", ")}`);
   // бой с катаной и рельсой идёт без ошибок (≈ 6 с автоигры)
-  await page.evaluate(() => { const g = window.__game; g.settings.v.poseMode = "off"; g.startBattle("waves"); });
+  await page.evaluate(() => { const g = window.__game; g.startBattle("waves"); });
   await page.waitForFunction(() => window.__game.state === "battle", null, { timeout: 60000 });
   for (let i = 0; i < 10; i++) { await page.keyboard.press("KeyJ"); await wait(300); await page.keyboard.press("KeyD"); }
   const w = await page.evaluate(() => window.__game.player.weapon);

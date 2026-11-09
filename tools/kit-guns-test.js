@@ -16,7 +16,7 @@ fs.mkdirSync(shots, { recursive: true });
   page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto("file://" + path.join(__dirname, "../index.html"));
   await page.waitForTimeout(300);
-  await page.evaluate(() => { const g = window.__game; g.settings.v.poseMode = "off"; g.settings.v.slowmoMode = "off"; g.settings.v.assist = true; g.startBattle("waves"); });
+  await page.evaluate(() => { const g = window.__game; g.settings.v.slowmoMode = "off"; g.settings.v.assist = true; g.startBattle("waves"); });
   await page.waitForFunction(() => window.__game.state === "battle", null, { timeout: 60000 });
   await page.evaluate(() => {
     const g = window.__game, c = g.combat;
