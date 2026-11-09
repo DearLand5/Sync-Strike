@@ -88,31 +88,31 @@ fs.mkdirSync(shots, { recursive: true });
   console.log("— приёмы по условиям (кинжал) —");
   await use("dagger");
   // Фронт-кик: второй удар серии в такт (не на сильной доле)
-  await page.evaluate(() => { window.__setup(36); const t = window.__beatPair(1.0), t2 = window.__pair2; window.__plan.push(t - 0.02, t2 - 0.02); });
+  await page.evaluate(() => { window.__setup(36, { alt: { open: 1 } }); const t = window.__beatPair(1.0), t2 = window.__pair2; window.__plan.push(t - 0.02, t2 - 0.02); });
   await waitAct("kickFront", "active", 20); await shot("kickfront");
   await done(); r = await res();
   check(r.names.join(",") === "slash1,kickFront", `Фронт-кик: ${r.names.join(" → ")}`);
   check(r.log.includes("kickFront"), `Фронт-кик: попал, урон ${r.dmg}`);
   // Вертушка: два удара в такт и третий на сильной доле
-  await page.evaluate(() => { window.__setup(28); const ts = window.__beatAt(true, 1.8), P = window.__game.clock.period; window.__plan.push(ts - 2 * P - 0.02, ts - P - 0.02, ts - 0.02); });
+  await page.evaluate(() => { window.__setup(28, { alt: { open: 1 } }); const ts = window.__beatAt(true, 1.8), P = window.__game.clock.period; window.__plan.push(ts - 2 * P - 0.02, ts - P - 0.02, ts - 0.02); });
   await waitAct("roundKick", "active", 30); await shot("roundkick");
   await done(); r = await res();
   check(r.names[2] === "roundKick" && r.names.length === 3, `Вертушка: ${r.names.join(" → ")}`);
   check(r.log.includes("roundKick"), `Вертушка: попала (${r.log})`);
   // Подбив: то же, но чередование выбрало подброс
-  await page.evaluate(() => { window.__setup(28, { alt: { strong3: 1 } }); const ts = window.__beatAt(true, 1.8), P = window.__game.clock.period; window.__plan.push(ts - 2 * P - 0.02, ts - P - 0.02, ts - 0.02); });
+  await page.evaluate(() => { window.__setup(28, { alt: { strong3: 1, open: 1 } }); const ts = window.__beatAt(true, 1.8), P = window.__game.clock.period; window.__plan.push(ts - 2 * P - 0.02, ts - P - 0.02, ts - 0.02); });
   await waitAct("liftKick", "active", 30); await shot("liftkick");
   await done(); r = await res();
   check(r.names[2] === "liftKick", `Подбив: ${r.names.join(" → ")}`);
   check(r.juggles >= 1 && r.maxY >= 40, `Подбив: враг подброшен (подбросов ${r.juggles}, высота ${r.maxY})`);
   // Колено вплотную: после удара в долю
-  await page.evaluate(() => { window.__setup(24); const t = window.__beatPair(1.0), t2 = window.__pair2; window.__plan.push(t - 0.02, t2 - 0.02); });
+  await page.evaluate(() => { window.__setup(24, { alt: { openK: 1 } }); const t = window.__beatPair(1.0), t2 = window.__pair2; window.__plan.push(t - 0.02, t2 - 0.02); });
   await waitAct("kneeStrike", "active", 30); await shot("knee");
   await done(); r = await res();
   check(r.names[1] === "kneeStrike", `Колено: ${r.names.join(" → ")}`);
   check(r.log.includes("kneeStrike"), `Колено: попало (${r.log})`);
   // Локоть вплотную после серии: клинок → фронт-кик (шаг 2) → локоть
-  await page.evaluate(() => { window.__setup(36, { alt: { step2: 1 } }); const [a, b, c] = window.__beatTriple(1.0); window.__plan.push(a - 0.02, b - 0.02, c - 0.02); });
+  await page.evaluate(() => { window.__setup(36, { alt: { open: 1 } }); const [a, b, c] = window.__beatTriple(1.0); window.__plan.push(a - 0.02, b - 0.02, c - 0.02); });
   await waitAct("elbow", "active", 30); await shot("elbow");
   await done(); r = await res();
   check(r.names.join(",") === "slash1,kickFront,elbow", `Локоть вплотную после серии: ${r.names.join(" → ")}`);
@@ -137,7 +137,7 @@ fs.mkdirSync(shots, { recursive: true });
   // ---- 2) джагл ----
   console.log("— джагл: подбив → удары в воздухе → Топор-кик —");
   await page.evaluate(() => {
-    window.__setup(28, { alt: { strong3: 1 }, free: true });
+    window.__setup(28, { alt: { strong3: 1, open: 1 }, free: true });
     const cl = window.__game.clock, P = cl.period;
     const ts = window.__beatAt(true, 2.0);
     // два удара в такт, подбив на сильной доле, затем удары на каждой доле

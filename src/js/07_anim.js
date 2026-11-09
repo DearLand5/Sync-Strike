@@ -333,7 +333,9 @@ const CharacterRenderer = {
     const mx = lerp((hx + fx) * 0.5 + 1.2, kx, w), my = lerp((hy + fy) * 0.5, ky, w);
     const px = lerp(fx, ex, w), py = lerp(fy, ey, w);
     ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(mx, my); ctx.lineTo(px, py);
-    ctx.strokeStyle = color; ctx.lineWidth = 2.6; ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = lerp(2.6, 3.1, w); ctx.stroke();
+    // в ударе нога обведена неоном по всей длине — тёмная нога на тёмном фоне иначе не читается
+    if (accent && w > 0.35) { ctx.strokeStyle = rgba(accent, (near ? 0.75 : 0.4) * w); ctx.lineWidth = 1.0; ctx.stroke(); }
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.ellipse(px, py, 2.0, 1.15, Math.atan2(py - my, px - mx) - Math.PI / 2, 0, TAU); ctx.fill();
     if (accent && near) { ctx.fillStyle = rgba(accent, 0.7); ctx.beginPath(); ctx.arc(px, py, 0.85, 0, TAU); ctx.fill(); }

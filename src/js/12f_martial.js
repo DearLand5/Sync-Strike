@@ -46,8 +46,6 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
   /** Вес ноги по ходу приёма: входит в удар на подготовке, держится, выходит к концу доводки. */
   const wLeg = k => k.r > 0.55 ? 1 - easeIn((k.r - 0.55) / 0.45) : easeOut(clamp(k.s * 1.6, 0, 1));
   const lenAt = (k, L = 7) => lerp(MIN_L, L, k.r > 0.4 ? 1 - easeInOut((k.r - 0.4) / 0.6) : easeOut(k.s));
-  /** Угол локальной «вниз-вперёд» (a от «вниз», π/2 вперёд) → мировой угол холста для дуг. */
-  const worldAng = (a, d) => (d > 0 ? PI / 2 - a : PI / 2 + a);
 
   /* ---------- хитбокс по позе: там, где нарисована нога/колено/локоть ---------- */
   const SC = {};
@@ -88,15 +86,45 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     const gap = Math.abs(e.x - p.x) - e.w * e.scale / 2 - p.w / 2;
     p.vx = act.dir * clamp((gap - 6) * 12, 0, vxMax);
   };
-  /** Дуга ноги (след удара) из-за бедра. */
-  const legArc = (g, p, act, r, a0, a1, flip = false, w = 5) => {
-    const d = act.dir * (flip ? -1 : 1), y = p.y - 8, col = p.skin.accent;
-    let w0 = worldAng(a0, d), w1 = worldAng(a1, d);
-    if (w1 < w0) { const t = w0; w0 = w1; w1 = t; }
-    g.fx.slashArc(p.x + d * 2, y, r, w0, w1, col, act.empowered ? w + 3 : w, 0.2);
-    g.fx.slashArc(p.x + d * 2, y, r - 4, w0, w1, "#ffffff", 1.6, 0.12);
+  /** Звук: взмах + глухой низкий «толчок» (удар ногой/коленом/локтем весомее и ниже клинка). */
+  const kickSound = (g, v = 1.15, f = 135, vol = 0.3) => {
+    g.sfx("slash", v);
+    const s = g.audio && g.audio.sfx;
+    if (s && s.tone) {
+      s.tone({ f, f2: f * 0.33, dur: 0.13, vol });
+      if (s.noiseBurst) s.noiseBurst({ ft: "lowpass", f: 650, f2: 180, dur: 0.09, vol: vol * 0.8 });
+    }
   };
-  const kickSound = (g, v = 1.15) => g.sfx("slash", v);
+  /** Мировая точка конечности (стопа / колено / локоть) в доле frac активной фазы — по той же позе, что и хитбокс. */
+  const limbPoint = (def, p, act, frac) => {
+    const a2 = Object.assign({}, act, { t: act.startup + act.travel + act.active * frac, phase: "active" });
+    const S = shape(def, p, a2), d = act.dir;
+    const tc = S.turn ? Math.cos(TAU * S.turn) : 1, X = d * (tc < 0 ? -1 : 1);
+    let lx, ly;
+    if (def.limb === "elbow") {
+      const hipY = -9 + S.bodyY, sy = hipY - 9.5 + 0.5, ln = S.lean || 0;
+      const ex = 1 + Math.sin(S.armB) * 6, ey = sy + Math.cos(S.armB) * 6;
+      lx = ex * Math.cos(ln) - (ey - hipY) * Math.sin(ln); ly = hipY + ex * Math.sin(ln) + (ey - hipY) * Math.cos(ln);
+    } else {
+      const L = kickLeg(S, true);
+      if (def.limb === "knee") { lx = L.kx; ly = L.ky; } else { lx = L.ex; ly = L.ey; }
+    }
+    return { x: p.x + X * lx, y: p.y + ly };
+  };
+  /** Яркий след удара: росчерк по пути стопы/колена/локтя (неон + белая сердцевина), вспышка и кольцо в точке удара, пыль. */
+  const strikeFx = (g, p, act, def, o = {}) => {
+    const col = p.skin.accent, w = (o.w || 5) + (act.empowered ? 2 : 0), low = g.fx.low;
+    const a = limbPoint(def, p, act, 0), b = limbPoint(def, p, act, 0.45), c = limbPoint(def, p, act, 1);
+    g.fx.cut(a.x, a.y, b.x, b.y, col, w, 0.24); g.fx.cut(b.x, b.y, c.x, c.y, col, w + 1, 0.26);
+    g.fx.cut(a.x, a.y, b.x, b.y, "#ffffff", 1.5, 0.16); g.fx.cut(b.x, b.y, c.x, c.y, "#ffffff", 1.8, 0.18);
+    g.fx.ring(c.x, c.y, 3, o.ring || 24, col, 0.26, 3);
+    if (!low) g.fx.glow(c.x, c.y, 4, (o.ring || 24) * 0.8, "#ffffff", 0.16, 0.6);
+    g.fx.sparks(c.x, c.y, 5, col, 220, act.dir > 0 ? 0 : Math.PI, 1.3, 0.3);
+    if (o.dust !== false) g.fx.dust(p.x - act.dir * 2, p.y, 4);
+    return c;
+  };
+  /** Подскок при ударе ногой: видно, что удар с выпадом/прыжком, а не «шевеление» ноги. */
+  const hop = (p, act, v, vx) => { if (p.onGround) { p.vy = -v; p.onGround = false; if (vx) p.vx = act.dir * vx; } };
 
   /** Общий шаг приёма: инициализация (серия, оружие в защите), гашение скорости, попадания в активной фазе. */
   function mstep(def) {
@@ -124,33 +152,42 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
   const MOVES = {
     /* Фронт-кик: после клинка. Короткий толчок бедром и прямая нога на уровне корпуса — отбрасывает. */
     kickFront: {
-      name: "Фронт-кик", startup: 0.07, active: 0.09, recovery: 0.24, cancel: 0.17, dmg: 14, knock: 430, stun: 0.5, lunge: 100, mstep: 2, limb: "n",
-      fx(g, p, act) { kickSound(g, 1.2); legArc(g, p, act, 15, 1.9, 1.1); g.fx.dust(p.x + act.dir * 6, p.y, 3); if (p.onGround) p.vx = act.dir * this.lunge; },
-      step(cs, p, act, dt) { if (act.phase !== "active") grounded(p, dt, act.phase === "startup" ? 12 : 9); },
+      name: "Фронт-кик", startup: 0.08, active: 0.1, recovery: 0.24, cancel: 0.17, dmg: 14, knock: 430, stun: 0.5, lunge: 130, mstep: 2, limb: "n",
+      fx(g, p, act) { kickSound(g, 1.2, 150); strikeFx(g, p, act, this); hop(p, act, 120, this.lunge); },
+      step(cs, p, act, dt) {
+        // подшаг: в подготовке герой подходит к врагу, чтобы нога дотянулась (зазор до ~40)
+        if (act.phase === "startup" || act.phase === "travel") {
+          const e = act.target, gap = e ? Math.abs(e.x - p.x) - e.w * e.scale / 2 - p.w / 2 : 0;
+          const left = Math.max(0.03, act.startup - act.t + 0.03);
+          if (e && gap > 12 && p.onGround) p.vx = act.dir * clamp((gap - 10) / left, 0, 340); else grounded(p, dt, 12);
+        } else if (act.phase === "recovery") grounded(p, dt, 9);
+      },
       pose(P, act, p, k) {
         const ph = act.phase;
         const ext = ph === "startup" ? 0 : ph === "active" ? easeOut(Math.min(1, k.a * 2.2)) : 1 - easeInOut(Math.min(1, k.r * 1.6));
-        const ch = ph === "startup" ? easeOut(k.s) : 1;                 // колено подтянуто (бедро поднято)
-        leg(P, true, wLeg(k), lerp(0.2, 1.8, ch) + (ph === "recovery" ? -0.9 * easeInOut(k.r) : 0.2 * ext), lerp(0.1, 1.62, ext) - (ph === "startup" ? 0.1 * k.s : 0), lenAt(k, 6.8));
-        Object.assign(P, { lean: ph === "startup" ? -0.1 * k.s : ph === "active" ? -0.22 : -0.22 * (1 - k.r), bodyY: 0.3 + 0.5 * (1 - ext), legSpread: 1.35, armB: -1.15, elbowB: 0.5, headTilt: -0.05, cloak: ph === "active" ? -0.5 : 0, sy: 0.99 });
+        const ch = ph === "startup" ? easeOut(k.s) : 1;                 // колено подтянуто вперёд-вверх, голень свисает
+        const a = lerp(0.2, 1.75, ch) + 0.4 * ext + (ph === "recovery" ? -1.3 * easeInOut(k.r) : 0);
+        const b = lerp(0.1, 0.0, ch) + 2.3 * ext;                        // выпрямление: стопа выше бедра, на уровне корпуса
+        leg(P, true, wLeg(k), a, b, lenAt(k, 8.8));
+        Object.assign(P, { lean: ph === "startup" ? -0.12 * k.s : ph === "active" ? -0.3 : -0.3 * (1 - k.r), bodyY: 0.3 + 0.5 * (1 - ext) - 0.9 * ext, legSpread: 1.35, armB: -1.15, elbowB: 0.5, headTilt: -0.08, cloak: ph === "active" ? -0.6 : 0, sy: 0.99 });
         guard(P);
       },
     },
 
     /* Вертушка: удар ногой с разворота. Корпус делает оборот (turn), нога идёт назад-вверх из-за спины и бьёт по дуге. */
     roundKick: {
-      name: "Вертушка", startup: 0.1, active: 0.12, recovery: 0.26, cancel: 0.2, dmg: 21, knock: 330, stun: 0.45, lunge: 70, mstep: 3, limb: "n",
-      fx(g, p, act) { kickSound(g, 1.5); legArc(g, p, act, 16, 1.8, 0.2, true, 7); g.fx.ring(p.x, p.y - 12, 8, 40, p.skin.accent, 0.25, 3); g.fx.dust(p.x, p.y, 4); if (p.onGround) p.vx = act.dir * this.lunge; },
+      name: "Вертушка", startup: 0.1, active: 0.12, recovery: 0.26, cancel: 0.2, dmg: 21, knock: 330, stun: 0.45, lunge: 90, mstep: 3, limb: "n",
+      fx(g, p, act) { kickSound(g, 1.5, 120, 0.36); strikeFx(g, p, act, this, { w: 7, ring: 30 }); hop(p, act, 150, this.lunge); },
       step(cs, p, act, dt) { if (act.phase !== "active") grounded(p, dt, 11); },
       pose(P, act, p, k) {
         const ph = act.phase;
         // оборот: 0 → 0.25 на подготовке, 0.25 → 0.75 в ударе (спиной к врагу — нога идёт «назад» в локальных осях), до 1 в доводке
         const turn = ph === "startup" ? 0.25 * easeInOut(k.s) : ph === "active" ? 0.25 + 0.5 * k.a : 0.75 + 0.25 * easeOut(k.r);
         const ext = ph === "active" ? Math.pow(Math.sin(PI * clamp(k.a * 0.9 + 0.05, 0, 1)), 0.55) : 0;
-        const wind = ph === "startup" ? easeOut(k.s) : 1;            // нога заведена назад-вниз (бедро −1.0, голень −0.5) к концу подготовки
-        leg(P, true, wLeg(k), ph === "recovery" ? lerp(-1.2, 0.1, easeInOut(k.r)) : lerp(0.4, -1.0, wind) - 0.9 * ext,
-          ph === "recovery" ? lerp(-0.7, 0.1, easeInOut(k.r)) : lerp(0.3, -0.5, wind) - 1.3 * ext, lenAt(k, 7));
-        Object.assign(P, { turn, lean: ph === "active" ? -0.12 : 0.04, bodyY: ph === "startup" ? 1.5 * k.s : ph === "active" ? 0.8 : 0.8 * (1 - k.r), legSpread: 1.4, armB: 0.9, elbowB: 0.5, cloak: ph === "active" ? 1.2 : 0.3, sx: 1, sy: 1, headTilt: 0.05 });
+        const wind = ph === "startup" ? easeOut(k.s) : 1;            // нога заведена назад-вниз к концу подготовки, в ударе — назад-вверх на высоту корпуса
+        leg(P, true, wLeg(k), ph === "recovery" ? lerp(-1.4, 0.1, easeInOut(k.r)) : lerp(0.4, -1.0, wind) - 1.15 * ext,
+          ph === "recovery" ? lerp(-0.9, 0.1, easeInOut(k.r)) : lerp(0.3, -0.5, wind) - 1.8 * ext, lenAt(k, 9));
+        Object.assign(P, { turn, lean: ph === "active" ? -0.12 : 0.04, bodyY: ph === "startup" ? 1.5 * k.s : ph === "active" ? -0.4 : -0.4 * (1 - k.r), legSpread: 1.4, armB: 0.9, elbowB: 0.5, cloak: ph === "active" ? 1.2 : 0.3, sx: 1, sy: 1, headTilt: 0.05 });
         guard(P);
       },
     },
@@ -159,7 +196,7 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     liftKick: {
       name: "Подбив", startup: 0.08, active: 0.1, recovery: 0.27, cancel: 0.2, dmg: 13, knock: 40, stun: 0.7, lunge: 0, mstep: 0, limb: "n", launch: true, launchV: 320,
       fx(g, p, act) {
-        kickSound(g, 1.4); legArc(g, p, act, 15, -0.2, 2.5, false, 6); g.fx.dust(p.x, p.y, 5);
+        kickSound(g, 1.4, 160); strikeFx(g, p, act, this, { w: 6 });
         if (p.onGround) { p.vy = -320; p.onGround = false; p.airJumps = 1; p.vx = act.dir * 110; g.addAfterimage(p); }
       },
       step(cs, p, act, dt) { if (act.phase === "startup") grounded(p, dt, 12); },
@@ -167,27 +204,30 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
         const ph = act.phase;
         const up = ph === "startup" ? 0 : ph === "active" ? easeOut(Math.min(1, k.a * 1.8)) : 1 - easeInOut(Math.min(1, k.r * 1.4));
         const cock = ph === "startup" ? easeOut(k.s) : 0;
-        leg(P, true, wLeg(k), lerp(-0.5 * cock, 2.35, up), lerp(-0.9 * cock + 0.1 * (1 - cock), 2.55, up), lenAt(k, 7.2));
-        Object.assign(P, { lean: ph === "startup" ? 0.1 * k.s : -0.3 * (ph === "recovery" ? 1 - k.r : 1), bodyY: ph === "startup" ? 2.4 * k.s : -0.8 * up, sy: ph === "startup" ? 1 - 0.07 * k.s : 1.04, sx: 1, legSpread: 1.3, armB: -1.5, elbowB: 0.5, headTilt: -0.15, cloak: ph === "active" ? 0.8 : 0, tuck: 0 });
+        leg(P, true, wLeg(k), lerp(-0.5 * cock, 2.45, up), lerp(-0.9 * cock + 0.1 * (1 - cock), 2.65, up), lenAt(k, 8.8));
+        Object.assign(P, { lean: ph === "startup" ? 0.1 * k.s : -0.34 * (ph === "recovery" ? 1 - k.r : 1), bodyY: ph === "startup" ? 2.4 * k.s : -0.8 * up, sy: ph === "startup" ? 1 - 0.07 * k.s : 1.04, sx: 1, legSpread: 1.3, armB: -1.5, elbowB: 0.5, headTilt: -0.15, cloak: ph === "active" ? 0.8 : 0, tuck: 0 });
         guard(P);
       },
     },
 
     /* Колено: вплотную — подскок и удар коленом; висящего в воздухе врага догоняет прыжком. */
     kneeStrike: {
-      name: "Колено", startup: 0.06, active: 0.1, recovery: 0.21, cancel: 0.14, dmg: 13, knock: 140, stun: 0.5, lunge: 100, mstep: 2, limb: "knee", chase: true,
-      fx(g, p, act) { kickSound(g, 1.2); g.fx.ring(p.x + act.dir * 8, p.y - 14, 3, 20, p.skin.accent, 0.2, 2); g.fx.dust(p.x, p.y, 2); },
+      name: "Колено", startup: 0.06, active: 0.1, recovery: 0.21, cancel: 0.14, dmg: 13, knock: 140, stun: 0.5, lunge: 130, mstep: 2, limb: "knee", chase: true,
+      fx(g, p, act) { kickSound(g, 1.2, 110, 0.34); strikeFx(g, p, act, this, { w: 4, ring: 20 }); },
       step(cs, p, act, dt, tA) {
         if (act.chase) {
           if (act.phase !== "recovery") { chase(p, act, 520, 320, 6); p.onGround = false; }
-        } else if (act.phase === "startup") grounded(p, dt, 12);
-        else if (act.phase === "active" && !act.hopped) { act.hopped = true; if (p.onGround) { p.vy = -170; p.onGround = false; p.vx = act.dir * 90; } }
+        } else if (act.phase === "startup") {
+          const e = act.target, gap = e ? Math.abs(e.x - p.x) - e.w * e.scale / 2 - p.w / 2 : 0;
+          if (e && gap > 8 && p.onGround) p.vx = act.dir * clamp((gap - 6) / Math.max(0.03, act.startup - act.t + 0.03), 0, 300); else grounded(p, dt, 12);
+        }
+        else if (act.phase === "active" && !act.hopped) { act.hopped = true; if (p.onGround) { p.vy = -200; p.onGround = false; p.vx = act.dir * 110; } }
       },
       pose(P, act, p, k) {
         const ph = act.phase;
         const up = ph === "startup" ? easeOut(k.s) * 0.6 : ph === "active" ? 0.6 + 0.4 * easeOut(Math.min(1, k.a * 2)) : 1 - easeInOut(Math.min(1, k.r * 1.5));
-        leg(P, true, wLeg(k), lerp(0.2, 1.95, up), lerp(0.1, 0.05, up), lenAt(k, 7));
-        Object.assign(P, { lean: ph === "active" ? 0.28 : 0.1 * (ph === "startup" ? k.s : 1 - k.r), bodyY: ph === "startup" ? 1.5 * k.s : 0, sy: 1, legSpread: 1.2, armB: 0.8, elbowB: 1.3, headTilt: 0.12, tuck: 0 });
+        leg(P, true, wLeg(k), lerp(0.2, 2.25, up), lerp(0.1, -0.1, up), lenAt(k, 8.4));
+        Object.assign(P, { lean: ph === "active" ? 0.3 : 0.1 * (ph === "startup" ? k.s : 1 - k.r), bodyY: ph === "startup" ? 1.5 * k.s : -0.6 * up, sy: 1, legSpread: 1.2, armB: 0.8, elbowB: 1.3, headTilt: 0.12, tuck: 0 });
         guard(P);
       },
     },
@@ -195,8 +235,13 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     /* Локоть: вплотную после серии. Задняя рука заведена к плечу и выбрасывается локтем вперёд поверх плаща. */
     elbow: {
       name: "Локоть", startup: 0.05, active: 0.07, recovery: 0.21, cancel: 0.14, dmg: 12, knock: 170, stun: 0.5, lunge: 90, mstep: 2, limb: "elbow",
-      fx(g, p, act) { kickSound(g, 1.3); g.fx.cut(p.x + act.dir * 3, p.y - 14, p.x + act.dir * 17, p.y - 13, p.skin.accent, 4, 0.16); g.fx.cut(p.x + act.dir * 3, p.y - 14, p.x + act.dir * 17, p.y - 13, "#ffffff", 1.3, 0.1); if (p.onGround) p.vx = act.dir * this.lunge; },
-      step(cs, p, act, dt) { if (act.phase !== "active") grounded(p, dt, 12); },
+      fx(g, p, act) { kickSound(g, 1.3, 125); g.fx.cut(p.x + act.dir * 3, p.y - 14, p.x + act.dir * 17, p.y - 13, p.skin.accent, 5, 0.18); g.fx.cut(p.x + act.dir * 3, p.y - 14, p.x + act.dir * 17, p.y - 13, "#ffffff", 1.5, 0.12); strikeFx(g, p, act, this, { w: 4, ring: 20 }); if (p.onGround) p.vx = act.dir * this.lunge; },
+      step(cs, p, act, dt) {
+        if (act.phase === "startup") {   // подшаг к врагу
+          const e = act.target, gap = e ? Math.abs(e.x - p.x) - e.w * e.scale / 2 - p.w / 2 : 0;
+          if (e && gap > 8 && p.onGround) p.vx = act.dir * clamp((gap - 6) / Math.max(0.03, act.startup - act.t + 0.03), 0, 260); else grounded(p, dt, 12);
+        } else if (act.phase !== "active") grounded(p, dt, 12);
+      },
       pose(P, act, p, k) {
         const ph = act.phase;
         const out = ph === "startup" ? 0 : ph === "active" ? easeOut(Math.min(1, k.a * 2)) : 1 - easeInOut(k.r);
@@ -210,7 +255,7 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     /* Локоть с разворота: враг за спиной — герой разворачивается (turn) и бьёт локтем. */
     elbowSpin: {
       name: "Локоть с разворота", startup: 0.07, active: 0.09, recovery: 0.22, cancel: 0.15, dmg: 13, knock: 190, stun: 0.55, lunge: 80, mstep: 2, limb: "elbow",
-      fx(g, p, act) { kickSound(g, 1.3); g.fx.ring(p.x, p.y - 14, 6, 34, p.skin.accent, 0.22, 2.5); g.fx.cut(p.x + act.dir * 3, p.y - 14, p.x + act.dir * 17, p.y - 13, "#ffffff", 1.5, 0.12); if (p.onGround) p.vx = act.dir * this.lunge; },
+      fx(g, p, act) { kickSound(g, 1.3, 125); g.fx.ring(p.x, p.y - 14, 6, 34, p.skin.accent, 0.22, 2.5); g.fx.cut(p.x + act.dir * 3, p.y - 14, p.x + act.dir * 17, p.y - 13, "#ffffff", 1.5, 0.12); strikeFx(g, p, act, this, { w: 4, ring: 20 }); if (p.onGround) p.vx = act.dir * this.lunge; },
       step(cs, p, act, dt) { if (act.phase !== "active") grounded(p, dt, 12); },
       pose(P, act, p, k) {
         const ph = act.phase;
@@ -227,7 +272,7 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     sweepKick: {
       name: "Подсечка", startup: 0.08, active: 0.1, recovery: 0.3, cancel: 0.22, dmg: 11, knock: 90, stun: 0.95, lunge: 70, mstep: 2, limb: "n", stagger: true,
       fx(g, p, act) {
-        kickSound(g, 0.95); legArc(g, p, act, 16, 0.5, 1.55, false, 5); g.fx.dust(p.x + act.dir * 10, p.y, 6); if (p.onGround) p.vx = act.dir * this.lunge;
+        kickSound(g, 0.95, 105, 0.34); strikeFx(g, p, act, this, { w: 5, dust: false }); g.fx.dust(p.x + act.dir * 10, p.y, 7); if (p.onGround) p.vx = act.dir * this.lunge;
         for (const e of g.enemies) if (e.alive && e.state === "windup" && e.windT <= e.windDur * 0.5 && Math.abs(e.x - p.x) < 60) e.poise = Math.min(e.poise, 0.5);   // сбивает начатый замах
       },
       step(cs, p, act, dt) { if (act.phase !== "active") grounded(p, dt, 12); },
@@ -235,7 +280,7 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
         const ph = act.phase;
         const sw = ph === "startup" ? 0 : ph === "active" ? easeOut(k.a) : 1 - easeInOut(Math.min(1, k.r * 1.5));
         const cr = ph === "startup" ? easeOut(k.s) : ph === "active" ? 1 : 1 - easeInOut(k.r) * 0.7;
-        leg(P, true, wLeg(k), lerp(0.5, 1.5, sw), lerp(0.3, 1.55, sw), lenAt(k, 6.5));
+        leg(P, true, wLeg(k), lerp(0.5, 1.5, sw), lerp(0.3, 1.55, sw), lenAt(k, 8.0));
         Object.assign(P, { bodyY: 3.8 * cr, sy: 1 - 0.14 * cr, sx: 1 + 0.06 * cr, lean: -0.1 * cr + 0.1 * sw, legSpread: 1.1, armB: 0.2, elbowB: 0.5, headTilt: 0.1 });
         guard(P, -1.1);
       },
@@ -245,7 +290,7 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     dropKick: {
       name: "Двойной удар ногами", startup: 0.1, active: 0.24, recovery: 0.3, cancel: 0.24, dmg: 20, knock: 380, stun: 0.55, mstep: 2, limb: "nf", moveControl: 0,
       fx(g, p, act) {
-        g.sfx("dash"); kickSound(g, 1.1); g.fx.dust(p.x, p.y, 6); g.addAfterimage(p);
+        g.sfx("dash"); kickSound(g, 1.1, 140, 0.34); strikeFx(g, p, act, this, { w: 6, ring: 28 }); g.addAfterimage(p);
         if (p.onGround) { p.vx = act.dir * 560; p.vy = -190; p.onGround = false; }
       },
       step(cs, p, act, dt) {
@@ -258,8 +303,8 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
         const ext = ph === "startup" ? 0 : ph === "active" ? easeOut(Math.min(1, k.a * 3)) : 1 - easeInOut(Math.min(1, k.r * 1.6));
         const crouch = ph === "startup" ? easeOut(k.s) : 0;
         const w = ph === "startup" ? 0 : wLeg(k);
-        leg(P, true, w, lerp(0.3, 1.4, ext), lerp(0.2, 1.52, ext), lenAt(k, 7));
-        leg(P, false, w, lerp(0.2, 1.1, ext), lerp(0.1, 1.3, ext), lenAt(k, 6.8));
+        leg(P, true, w, lerp(0.3, 1.6, ext), lerp(0.2, 1.9, ext), lenAt(k, 8.6));
+        leg(P, false, w, lerp(0.2, 1.3, ext), lerp(0.1, 1.6, ext), lenAt(k, 8.2));
         Object.assign(P, { lean: ph === "startup" ? 0.12 * k.s : -0.4 * ext, bodyY: 3 * crouch - 0.5 * ext, sy: 1 - 0.1 * crouch, sx: 1 + 0.05 * crouch, armB: -1.7 * ext, elbowB: 0.4, cloak: -0.9 * ext, headTilt: -0.1 * ext, tuck: 0 });
         guard(P, lerp(-1.25, -1.6, ext));
       },
@@ -268,12 +313,12 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     /* Колено в воздухе: звено джагла — подлетает к висящему врагу и бьёт коленом. */
     airKnee: {
       name: "Колено в воздухе", startup: 0.04, active: 0.09, recovery: 0.15, cancel: 0.1, dmg: 11, knock: 50, stun: 0.45, mstep: 0, limb: "knee", moveControl: 0,
-      fx(g, p, act) { kickSound(g, 1.25); g.fx.ring(p.x + act.dir * 8, p.y - 14, 3, 20, p.skin.accent, 0.2, 2); },
+      fx(g, p, act) { kickSound(g, 1.25, 120, 0.3); strikeFx(g, p, act, this, { w: 4, ring: 20, dust: false }); },
       step(cs, p, act) { if (act.phase !== "recovery") chase(p, act, 520, 280, 2); },
       pose(P, act, p, k) {
         const ph = act.phase;
         const up = ph === "startup" ? easeOut(k.s) * 0.6 : ph === "active" ? 0.6 + 0.4 * easeOut(Math.min(1, k.a * 2)) : 1 - easeInOut(Math.min(1, k.r * 1.5));
-        leg(P, true, wLeg(k), lerp(0.3, 1.95, up), lerp(0.2, 0.05, up), lenAt(k, 7));
+        leg(P, true, wLeg(k), lerp(0.3, 2.25, up), lerp(0.2, -0.1, up), lenAt(k, 8.4));
         leg(P, false, wLeg(k) * 0.9, 0.5, -0.5, 5.2);
         Object.assign(P, { lean: 0.22 * up, bodyY: 0, armB: 0.8, elbowB: 1.3, tuck: 0, cloak: 0.5, headTilt: 0.1 });
         guard(P);
@@ -283,13 +328,13 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     /* Нога в воздухе: прямой удар ногой вперёд-вверх по висящему врагу. */
     airKick: {
       name: "Нога в воздухе", startup: 0.05, active: 0.09, recovery: 0.15, cancel: 0.1, dmg: 12, knock: 60, stun: 0.45, mstep: 0, limb: "n", moveControl: 0,
-      fx(g, p, act) { kickSound(g, 1.3); legArc(g, p, act, 15, 2.1, 1.2, false, 5); },
+      fx(g, p, act) { kickSound(g, 1.3, 135); strikeFx(g, p, act, this, { w: 5, dust: false }); },
       step(cs, p, act) { if (act.phase !== "recovery") chase(p, act, 520, 280, 0); },
       pose(P, act, p, k) {
         const ph = act.phase;
         const ext = ph === "startup" ? 0 : ph === "active" ? easeOut(Math.min(1, k.a * 2.2)) : 1 - easeInOut(Math.min(1, k.r * 1.6));
         const ch = ph === "startup" ? easeOut(k.s) : 1;
-        leg(P, true, wLeg(k), lerp(0.4, 1.9, ch), lerp(0.1, 1.68, ext), lenAt(k, 7));
+        leg(P, true, wLeg(k), lerp(0.4, 1.95, ch) + 0.3 * ext, lerp(0.1, 0.0, ch) + 2.2 * ext, lenAt(k, 8.8));
         leg(P, false, wLeg(k) * 0.9, 0.5, -0.4, 5.2);
         Object.assign(P, { lean: -0.2 * ch, bodyY: 0, armB: -1.2, elbowB: 0.5, tuck: 0, cloak: 0.4, headTilt: -0.05 });
         guard(P);
@@ -299,7 +344,7 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     /* Топор-кик: финал джагла. Нога поднята над головой и рубит сверху вниз, герой падает вместе с врагом — враг вбит в землю. */
     axeKick: {
       name: "Топор-кик", startup: 0.1, active: 0.5, recovery: 0.24, cancel: 0.2, dmg: 17, knock: 110, stun: 0.6, mstep: 0, limb: "n", smash: true, moveControl: 0,
-      fx(g, p, act) { g.sfx("slam"); kickSound(g, 0.9); legArc(g, p, act, 16, 2.5, 0.5, false, 7); g.camera.kick(0.012); },
+      fx(g, p, act) { g.sfx("slam"); kickSound(g, 0.9, 100, 0.4); strikeFx(g, p, act, this, { w: 7, ring: 30 }); g.camera.kick(0.012); },
       step(cs, p, act, dt, tA) {
         const e = act.target;
         if (act.phase === "startup") {
@@ -317,9 +362,10 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
         const ph = act.phase;
         const chop = ph === "active" ? easeIn(Math.min(1, k.a * 4)) : ph === "recovery" ? 1 : 0;
         const raise = ph === "startup" ? easeOut(k.s) : 1;
-        leg(P, true, wLeg(k) * (ph === "startup" ? raise : 1), lerp(0.3, 2.5, raise) - 2.0 * chop, lerp(0.2, 2.6, raise) - 2.25 * chop, lenAt(k, 7.4));
+        leg(P, true, wLeg(k) * (ph === "startup" ? raise : 1), lerp(0.3, 2.5, raise) - 2.0 * chop, lerp(0.2, 2.6, raise) - 2.25 * chop, lenAt(k, 8.8));
         leg(P, false, 0.8 * wLeg(k), 0.2, -0.7, 5.2);
-        Object.assign(P, { lean: lerp(-0.1, -0.32, raise) * (1 - chop) + 0.3 * chop, bodyY: 0, armB: -1.0 - 0.8 * chop, elbowB: 0.5, tuck: 0, cloak: -0.4 + 1.2 * chop, headTilt: -0.12 * raise, sy: 1 + 0.08 * chop, sx: 1 - 0.05 * chop });
+        // свободная рука согнута и прижата к корпусу (раньше торчала прямой палкой назад-вверх)
+        Object.assign(P, { lean: lerp(-0.1, -0.32, raise) * (1 - chop) + 0.3 * chop, bodyY: 0, armB: lerp(-0.2, -0.75, raise) + 1.0 * chop, elbowB: lerp(1.4, 1.9, raise), tuck: 0, cloak: -0.4 + 1.2 * chop, headTilt: -0.12 * raise, sy: 1 + 0.08 * chop, sx: 1 - 0.05 * chop });
         guard(P, -1.25 + 0.5 * chop);
       },
     },
@@ -344,8 +390,16 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
   /** Подмена выбранного приёма рукопашным (или null). cur — то, что выбрала общая логика и набор оружия. */
   martialChooseFn = function (cs, cur, target, j) {
     const g = cs.game, p = g.player;
-    if (!target || cs.martialOff || g.settings.v.martial === false) return null;
+    if (cs.martialOff || g.settings.v.martial === false) return null;
     if (cs.mForce && ATTACKS[cs.mForce]) return cs.mForce;     // для тестов: принудительный рукопашный приём
+    if (!target) {
+      // удар «в воздух» (врагов рядом нет): серия всё равно чередует клинок и ногу — приёмы выглядят одинаково с любым исходом
+      if (!p.onGround || !PLAIN_G[cur] || j.rating === "miss") return null;
+      const st = cs.time - cs.lastMeleeT < 0.75 ? cs.comboStep : 0;
+      if (st === 1 && alt(cs, "s1n", 5) !== 4) return "kickFront";
+      if (st === 2 && alt(cs, "s2n", 2)) return j.strong ? "roundKick" : "kneeStrike";
+      return null;
+    }
     const e = target, air = !p.onGround;
     const good = j.rating === "perfect" || j.rating === "good";
     const gap = Math.abs(e.x - p.x) - e.w * e.scale / 2 - p.w / 2;
@@ -363,6 +417,8 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
         if (e.jugN <= 1) return "airKnee";
         return alt(cs, "air2") ? "airKick" : (PLAIN_A[cur] && cur !== "meteor" && cur !== "dive" ? cur : "airSlash");
       }
+      // враг рядом на одной высоте — нога вместо воздушного клинка (через раз)
+      if (!hang && (cur === "airSlash" || cur === "airSpin") && dxc < 80 && Math.abs(dyc) < 45 && j.rating !== "miss" && alt(cs, "airk", 2)) return "airKick";
       // враг ниже героя: «Топор-кик» вместо падения-пике / метеора
       if (!PLAIN_A[cur]) return null;
       if (!hang && dyc > 22 && dxc < 60 && good && (cur === "dive" || cur === "meteor") && e.kind !== "brute" && alt(cs, "axeAir")) return "axeKick";
@@ -372,24 +428,37 @@ function martialChoose(cs, cur, target, j) { return martialChooseFn ? martialCho
     if (!PLAIN_G[cur]) return null;                            // комбинации и приёмы наборов оружия не трогаем
     // висящий в воздухе враг выше героя — подскок и колено
     if (hang && dyc < -20 && dxc < 130) return "kneeStrike";
-    if (Math.abs(dyc) < 40 && gap <= 24) {
+    const ok = j.rating !== "miss";                            // нога бьёт и при неточном нажатии (в сильные доли и подсечку — только точные)
+    const pick = (a, b) => { const r = a === cs.mLast && b ? b : a; cs.mLast = r; return r; };   // не одно и то же подряд
+    if (Math.abs(dyc) < 40 && gap <= 44) {
       // враг за спиной — разворот и локоть
-      if (sign(e.x - p.x) !== p.facing && gap <= 40) return "elbowSpin";
+      if (sign(e.x - p.x) !== p.facing && gap <= 40) return pick("elbowSpin");
       // враг в замахе — подсечка сбивает его
-      if (good && e.state === "windup" && e.windT <= e.windDur * 0.5) return "sweepKick";
+      if (good && e.state === "windup" && e.windT <= e.windDur * 0.5 && gap <= 30) return pick("sweepKick");
       const canLaunch = e.kind !== "brute" && e.jugCD <= 0 && cs.time - cs.lastRiseT > 2;
       if (j.strong && good) {
-        if (step === 2) return canLaunch && !alt(cs, "strong3") ? "liftKick" : "roundKick";
-        if (cur === "rise" && alt(cs, "rise")) return "liftKick";
+        if (step === 2) return pick(canLaunch && !alt(cs, "strong3") ? "liftKick" : "roundKick");
+        if (cur === "rise") return canLaunch && alt(cs, "rise") ? pick("liftKick") : pick("roundKick");
+        if (step === 1 && gap <= 36) return pick(gap <= 16 ? "kneeStrike" : "kickFront");
         return null;
       }
-      if (good && step >= 1 && gap <= 14 && (cur === "slash2" || cur === "slash3" || cur === "slash1") && alt(cs, "hug")) return step >= 2 ? "elbow" : "kneeStrike";
-      if (good && step === 1 && cur === "slash2" && alt(cs, "step1")) return "kickFront";
-      if (good && step === 2 && cur === "slash3" && alt(cs, "step2", 3)) return "sweepKick";
+      const slash = cur === "slash1" || cur === "slash2" || cur === "slash3" || cur === "thrust";
+      if (!slash) return null;
+      // серия: клинок → нога → клинок → колено/локоть/подсечка …; в начале серии — подшаг и фронт-кик с места
+      if (step === 0) {
+        if (ok && gap > 14 && alt(cs, "open", 3) === 0) return pick("kickFront", "kneeStrike");
+        if (good && gap <= 16 && alt(cs, "openK", 3) === 0) return pick("kneeStrike", "elbow");
+        return null;
+      }
+      if (step === 1) return ok && alt(cs, "s1", 5) !== 4 ? pick(gap <= 14 ? "kneeStrike" : "kickFront", gap <= 14 ? "elbow" : "kneeStrike") : null;
+      if (good && step === 2 && alt(cs, "s2", 2)) return pick(gap <= 20 ? "elbow" : "sweepKick", "kickFront");
       return null;
     }
-    // средняя дистанция вместо рывка — двойной удар ногами в прыжке
-    if (cur === "dash" && good && gap >= 50 && gap <= 140 && Math.abs(dyc) < 40 && !hang && alt(cs, "drop", 3)) return "dropKick";
+    // средняя дистанция вместо рывка — подшаг с фронт-киком или двойной удар ногами в прыжке
+    if (cur === "dash" && ok && !hang && Math.abs(dyc) < 40) {
+      if (gap <= 60 && alt(cs, "mid", 3) !== 2) return pick("kickFront", "dropKick");
+      if (good && gap >= 50 && gap <= 140 && alt(cs, "drop", 3) === 0) return pick("dropKick");
+    }
     return null;
   }
 }
