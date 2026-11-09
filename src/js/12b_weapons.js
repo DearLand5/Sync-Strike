@@ -280,6 +280,8 @@ const WEAPON_DRAW = {
       ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(23.5, 0); ctx.stroke();
       ctx.strokeStyle = rgba(accent, 0.5); ctx.lineWidth = 0.5;
       ctx.beginPath(); for (const x of WD_AXE) { ctx.moveTo(x, -1); ctx.lineTo(x + 0.7, 1); } ctx.stroke();
+      // голова топора зеркально по оси древка: лезвие — на внешней стороне (от героя, в сторону удара), обух — к герою
+      ctx.save(); ctx.scale(1, -1);
       // обух: короткий клин на обратной стороне
       ctx.beginPath(); ctx.moveTo(17.4, 1.2); ctx.lineTo(18, 3.6); ctx.lineTo(21.8, 3.9); ctx.lineTo(22.2, 1.2); ctx.closePath();
       ctx.fillStyle = "#1d1e26"; ctx.fill();
@@ -303,6 +305,7 @@ const WEAPON_DRAW = {
       ctx.strokeStyle = accent; ctx.lineWidth = 0.85; ctx.stroke();
       ctx.beginPath(); ctx.moveTo(13.4, -9.1); ctx.quadraticCurveTo(18.4, -11.2, 23.6, -9);
       ctx.strokeStyle = rgba("#ffffff", 0.22); ctx.lineWidth = 0.35; ctx.stroke();
+      ctx.restore();
     },
   },  sawed: {
     off: 0,
