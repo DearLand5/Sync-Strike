@@ -6713,15 +6713,26 @@ const THEMES = [
       c.fillStyle = g; c.fillRect(0, 0, v.w, v.floorY);
     },
     front(c, v, m, pal, R) {
-      // лепестки слетают с крон сакуры (и немного — ветром сверху) по верхним частотам
-      if (this.A.crowns && this.A.crowns.length && rand() < (0.12 + m.high * 0.6) * R.amount) {
+      // лепестки: ровный «снегопад» по всей ширине экрана (ветер слева направо) + немного — с крон сакуры.
+      // Раньше сыпались почти только с крон: на экране обычно одна сакура — лепестки кучкой с одного края.
+      const dt = Math.min(0.05, R.dt || 0.016), amb = R.amb;
+      if (!this._petalInit) {          // при входе на арену экран сразу заполнен, а не пустеет сверху вниз
+        this._petalInit = true;
+        const n = Math.round(30 * R.amount);
+        for (let k = 0; k < n; k++) amb.push(petal(rand(-40, v.w), rand(-5, v.floorY + 20), rand(4, 12)));
+      }
+      let rate = (5 + 9 * m.high) * R.amount * dt;
+      while (rate > 0) { if (rand() < rate) amb.push(petal(rand(-0.25 * v.w, v.w), -6, 16)); /* ветер сносит вправо — начало и левее экрана */ rate -= 1; }
+      if (this.A.crowns && this.A.crowns.length && rand() < (0.015 + m.high * 0.08) * R.amount) {
         const cr = this.A.crowns[(rand() * this.A.crowns.length) | 0], off = v.layerOff(0.42);
         v.repeat(off, cr.x, x => {
-          if (x < -20 || x > v.w + 20 || rand() < 0.5) return;
-          R.amb.push({ x: x + rand(-cr.r, cr.r), y: v.floorY - (v.tileH - cr.y) + rand(-6, 14), vx: rand(-10, 30), vy: rand(14, 36), life: 7, c: rand() < 0.7 ? "#ffc3e0" : "#e8e2d6", petal: true });
+          if (x < -20 || x > v.w + 20) return;
+          amb.push(petal(x + rand(-cr.r, cr.r) * 1.4, v.floorY - (v.tileH - cr.y) + rand(-10, 18), 9));
         });
       }
-      if (rand() < 0.02 * R.amount) R.amb.push({ x: rand(0, v.w), y: -5, vx: rand(-20, 30), vy: rand(20, 45), life: 7, c: "#ffc3e0", petal: true });
+      function petal(x, y, life) {
+        return { x, y, vx: rand(10, 34), vy: rand(18, 38), life, c: rand() < 0.72 ? "#ffc3e0" : "#e8e2d6", petal: true, ph: rand(0, TAU) };
+      }
     },
   },
   {
@@ -6869,7 +6880,7 @@ class ArenaRenderer {
   }
   setTheme(id) {
     const t = THEMES.find(x => x.id === id) || THEMES[0];
-    if (t !== this.theme) { this.theme = t; this.key = ""; this.amb = []; }
+    if (t !== this.theme) { if (this.theme) this.theme._petalInit = false; this.theme = t; this.key = ""; this.amb = []; }
   }
 
   /** Пересобирает тайлы параллакса при смене размеров/темы/качества. */
@@ -7039,10 +7050,11 @@ class ArenaRenderer {
       const a = amb[i];
       a.life -= dt;
       if (a.life <= 0 || a.y > v.h + 10) { amb.splice(i, 1); continue; }
-      a.x += a.vx * dt + (a.petal ? Math.sin(m.time * 2 + i) * 20 * dt : 0); a.y += a.vy * dt;
+      a.x += a.vx * dt + (a.petal ? Math.sin(m.time * 2 + (a.ph || i)) * 20 * dt : 0); a.y += a.vy * dt;
+      if (a.petal && (a.x > v.w + 12 || a.y > v.floorY + 30)) { amb.splice(i, 1); continue; }
       if (!a.petal && !a.mote) a.vy += 160 * dt;
       ctx.fillStyle = rgba(a.c, a.mote ? 0.25 + 0.35 * m.mid : Math.min(1, a.life));
-      if (a.petal) { ctx.beginPath(); ctx.ellipse(a.x, a.y, 2.5, 1.3, m.time * 2 + i, 0, TAU); ctx.fill(); }
+      if (a.petal) { ctx.beginPath(); ctx.ellipse(a.x, a.y, 2.5, 1.3, m.time * 2 + (a.ph || i), 0, TAU); ctx.fill(); }
       else ctx.fillRect(a.x, a.y, a.mote ? 1.5 : 2, a.mote ? 1.5 : 2);
     }
     if (amb.length > 160) amb.splice(0, amb.length - 160);
