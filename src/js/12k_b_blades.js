@@ -581,7 +581,7 @@
       w = lerp(a0, a1, q); arm = lerp(r0, r1, q); elb = lerp(f0, f1, q);
       if (S.flat && h > 1) { arm = 1.57; elb = 0; }
       Object.assign(P, { armB: -1.35 + 0.3 * q, cloak: -1.1 });         // левая рука резко отводит ножны назад
-      if (g) Object.assign(P, { legSpread: 1.95, bodyY: 2.6, sx: 1.14, sy: 0.9 });
+      if (g) Object.assign(P, { legSpread: 2.2, bodyY: 3, sx: 1.18, sy: 0.88 });
       P.lean = 0.5;
       if (S.spin) P.turn = -easeInOut(k.a);                 // круговой разрез: корпус делает оборот вокруг оси
     } else {
@@ -620,7 +620,7 @@
     const kb = baseAng(act, p, S.w0);
     let w = S.w0, arm = S.a0, elb = S.e0;
     // низкая подвижная стойка: корпус присел, ноги пружинят, свободная рука впереди как защита
-    if (g) Object.assign(P, { bodyY: 2.0 + 0.35 * Math.sin(act.t * 16), legSpread: 1.6 });
+    if (g) Object.assign(P, { bodyY: 2.9 + 0.45 * Math.sin(act.t * 22), legSpread: 1.95 });
     if (ph === "startup" || ph === "travel") {
       const e = easeOut(ph === "travel" ? 1 : k.s);
       // замах с «пружиной»: клинок сначала поднимается чуть выше исходного угла и только потом встаёт в замах — кадр не застывает
@@ -633,7 +633,7 @@
       }
       w = lerp(a0, a1, q); arm = lerp(r0, r1, q); elb = lerp(S.e0, S.e1, q);
       Object.assign(P, { armB: lerp(1.35, -0.9, q), lean: 0.35 });
-      if (g) Object.assign(P, { sx: 1.1, sy: 0.93, legSpread: 1.75, bodyY: 2.4 });
+      if (g) Object.assign(P, { sx: 1.14, sy: 0.9, legSpread: 2.1, bodyY: 3 });
       if (S.spin) P.turn = -easeInOut(k.a);                 // вихрь: корпус делает оборот вокруг оси
     } else {
       // перехват: клинок прокручивается на пальце и возвращается в обратный хват
