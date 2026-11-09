@@ -4,7 +4,7 @@
    Трюк — короткая игра с оружием в руке (прокрутка, перехват, вращение груза, тибури…), пока герой стоит или идёт:
      • после атаки, которая попала, трюк начинается почти сразу (0,14 с) — удар «перетекает» в трюк;
      • в покое — раз в 1,4–2,6 с, старт на доле;
-     • любое действие (атака, прыжок, уклон, бег, урон, огнестрел) прерывает трюк: поза плавно уходит в следующую
+     • трюк идёт и на ходу/бегу и в прыжке (только руки и оружие); прерывают атака, уклон, урон, огнестрел: поза плавно уходит в следующую
        (смешивание позы), угол оружия сводится к [−π, π] — клинок не «откручивается» назад после оборотов.
    Регистрация: registerTricks(id, [{ name, beats, pose(Q, k, p, T, env) }, …]) — в модуле оружия.
      Q — пустой объект позы, куда трюк пишет нужные ключи (как в позах атак); k — ход трюка 0..1;
@@ -16,6 +16,7 @@
 const WEAPON_TRICKS = {};
 const TRICK_UPPER = { armF: 1, elbowF: 1, armB: 1, wBlend: 1, wAngle: 1, headTilt: 1 };
 const TRICK_Q = {};
+const TRICK_STATES = { idle: 1, walk: 1, run: 1, jump: 1, fall: 1, land: 1 };
 function registerTricks(id, list) { WEAPON_TRICKS[id] = list; }
 
 const trickWrap = a => a - TAU * Math.round(a / TAU);
@@ -37,13 +38,13 @@ function trickUpdate(p, dt, g) {
   }
   if (p._hadAct) { p._hadAct = false; p.trickWait = p._actHit ? 0.14 : Math.max(p.trickWait, 0.9); p._fast = p._actHit; p._actHit = false; }
   const list = WEAPON_TRICKS[weaponOf("melee", g.settings.v).id];
-  const ok = list && list.length && g.state === "battle" && p.pistolT <= 0 && p.onGround && !p.scripted && p.killT <= 0 &&
-    (p.state === "idle" || p.state === "walk");
+  // трюки идут стоя, на ходу, на бегу и в прыжке (по просьбе); в движении и в воздухе — только руки и оружие (TRICK_UPPER)
+  const ok = list && list.length && g.state === "battle" && p.pistolT <= 0 && !p.scripted && p.killT <= 0 && TRICK_STATES[p.state];
   if (!ok) { if (p.trick) { trickEnd(p); p.trickWait = Math.max(p.trickWait, 0.5); } return; }
   const T = p.trick;
   if (T) {
     T.t += dt;
-    if (T.t >= T.dur) { trickEnd(p); p.trickWait = 1.4 + Math.random() * 1.2; }
+    if (T.t >= T.dur) { trickEnd(p); p.trickWait = 0.9 + Math.random() * 1.0; }
     return;
   }
   p.trickWait -= dt;

@@ -23,10 +23,23 @@ const path = require("path");
       g.waves.queue = []; g.waves.pending = []; g.waves.between = 999;
       for (const e of g.enemies) e.dead = true; g.enemies = [];
       p.tricks = 0; const names = new Set(); const t0 = performance.now();
-      await new Promise(r => { const iv = setInterval(() => { p.hp = p.maxHp; if (p.trick) names.add(p.trick.def.name); if (performance.now() - t0 > 6000) { clearInterval(iv); r(); } }, 30); });
+      await new Promise(r => { const iv = setInterval(() => { p.hp = p.maxHp; if (p.trick) names.add(p.trick.def.name); if (performance.now() - t0 > 8000) { clearInterval(iv); r(); } }, 30); });
       return { n: p.tricks, names: [...names] };
     });
-    check(idle.n >= 2, `${id}: трюки в покое за 6 с — ${idle.n} (${idle.names.join(", ")})`);
+    check(idle.n >= 2, `${id}: трюки в покое за 8 с — ${idle.n} (${idle.names.join(", ")})`);
+    // (1б) на бегу и в прыжке: бег туда-обратно с прыжками 6 с — трюки идут, в каких состояниях
+    const move = await page.evaluate(async () => {
+      const g = window.__game, p = g.player, inp = g.input; p.tricks = 0; const st = new Set(); let k = 0; const t0 = performance.now();
+      await new Promise(r => { const iv = setInterval(() => {
+        p.hp = p.maxHp; k++;
+        inp.keys.delete("KeyA"); inp.keys.delete("KeyD"); inp.keys.add(Math.floor(k / 90) % 2 ? "KeyA" : "KeyD");
+        if (k % 50 === 0 && p.onGround) inp.push("jump");
+        if (p.trick) st.add(p.state);
+        if (performance.now() - t0 > 8000) { clearInterval(iv); inp.keys.delete("KeyA"); inp.keys.delete("KeyD"); r(); }
+      }, 16); });
+      return { n: p.tricks, st: [...st] };
+    });
+    check(move.n >= 2 && move.st.some(s => s === "run" || s === "walk") && move.st.some(s => s === "jump" || s === "fall"), `${id}: трюки на бегу и в прыжке — ${move.n} (состояния: ${move.st.join(", ")})`);
     // (2) удар по манекену → трюк вскоре после конца удара; (3) атака прерывает трюк
     const hit = await page.evaluate(async () => {
       const g = window.__game, p = g.player;

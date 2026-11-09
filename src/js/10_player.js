@@ -338,18 +338,21 @@ class Player {
         // руки работают в противофазе шагам, корпус чуть покачивается, голова ловит шаг
         const sw = Math.sin(this.runPhase), bob = Math.abs(sw);
         Object.assign(P, { legPhase: this.runPhase, legAmp: 1.0, lean: 0.24 + acc + 0.04 * bob, bodyY: bob * -1.2 + pulse * 0.6, armF: -0.55 + 0.5 * sw, elbowF: 0.9 + 0.2 * bob, armB: 0.45 - 0.5 * sw, tuck: 0, sx: 1, sy: 1, cloak: 0.3 + 0.15 * bob, wBlend: 0, headTilt: 0.05 - 0.04 * bob });
+        trickPose(this, P, true);
         break;
       }
       case "jump": {
         // подъём: руки вверх и силуэт вытянут; к вершине — группировка (по скорости, а не одна поза на весь прыжок)
         const up = clamp(-this.vy / PL.jumpV, 0, 1), apex = 1 - up;
         Object.assign(P, { tuck: 0.2 + 0.35 * apex, legAmp: 0.25, legPhase: 1.2, lean: 0.1 + acc - 0.08 * up, armF: lerp(0.4, -0.7, up), elbowF: 0.6, armB: lerp(-0.4, -1.2, up), sx: 1 - 0.05 * up, sy: 1 + 0.07 * up, bodyY: 0, wBlend: 0, headTilt: -0.1 + 0.08 * apex, cloak: 0.4 * up });
+        trickPose(this, P, true);
         break;
       }
       case "fall": {
         // чем дольше падение — тем шире раскинуты руки и вытянутее силуэт
         const f = clamp(this.airT / 0.7, 0, 1);
         Object.assign(P, { tuck: 0.1, legAmp: 0.15, legPhase: 2, legSpread: 1.3 + 0.3 * f, lean: 0.05 + acc, armF: 1.4 + 0.5 * f, elbowF: -0.4, armB: -1.6 - 0.3 * f, sx: 1 - 0.03 * f, sy: 1.04 + 0.05 * f, bodyY: 0, wBlend: 0, headTilt: 0.05 });
+        trickPose(this, P, true);
         break;
       }
       case "land": {
@@ -358,6 +361,7 @@ class Player {
         const sink = k < 0.4 ? easeOut(k / 0.4) : 1 - easeInOut((k - 0.4) / 0.6) * 0.65;
         Object.assign(P, { bodyY: (1.5 + 3.2 * h) * sink, sx: 1 + (0.05 + 0.08 * h) * sink, sy: 1 - (0.05 + 0.1 * h) * sink, tuck: 0, legAmp: 0, legSpread: 1.3 + 0.35 * h, lean: 0.1 + 0.28 * h * sink, armF: 0.6 + 0.6 * h, armB: -0.6 - 0.5 * h, headTilt: 0.1 * h * sink, cloak: 0.5 * sink });
         if (h > 0.7) Object.assign(P, { armF: 0.2, elbowF: 0.1, armB: 0.1 });
+        else trickPose(this, P, true);
         rate = 30;
         break;
       }
