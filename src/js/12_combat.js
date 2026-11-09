@@ -71,6 +71,9 @@ class CombatSystem {
     this.lastPress = null;     // прошлое нажатие атаки {song, beat, period, good} — для «Шквала» на полдоли
     this.combos = {};          // сколько раз сработала каждая комбинация (итоги, тесты)
     this.styles = {}; this.lastStyle = null;   // визуальные стили приёмов (12c_styles)
+    this.mAlt = {};            // чередование рукопашных ударов и обычных на «развилках» выбора (12f_martial, alt)
+    this.mForce = null;        // для тестов: принудительный рукопашный приём
+    this.juggles = 0; this.smashes = 0;   // подбросов врагов и вбиваний в землю (тесты, итоги)
   }
 
   /* ---------- ввод ---------- */
@@ -254,7 +257,8 @@ class CombatSystem {
   /** Выбор приёма: общая логика, затем подмена набором выбранного оружия (12d_kits). */
   chooseAttack(target, j) {
     const name = this._chooseBase(target, j);
-    return kitChoose(this, name, target, j) || name;
+    const cur = kitChoose(this, name, target, j) || name;
+    return martialChoose(this, cur, target, j) || cur;      // рукопашные удары и джагл (12f_martial)
   }
 
   _chooseBase(target, j) {
@@ -309,6 +313,7 @@ class CombatSystem {
   updateAction(p, act, dt) {
     const g = this.game, def = act.def;
     act.t += dt;
+    if (!p.onGround && !act.noGravity && this.floatOn(p)) p.vy -= PL.grav * 0.5 * dt;     // рядом висит подброшенный враг: герой тоже «плавает» (джагл)
     const tA = act.startup + act.travel;           // начало активной фазы
     act.phase = act.t < act.startup ? "startup" : act.t < tA ? "travel" : act.t < tA + act.active ? "active" : "recovery";
     // приёмы набора оружия: своя механика (kind "custom" — только она) и эффект в момент удара
@@ -496,7 +501,8 @@ class CombatSystem {
   _meleeHits(p, act, spin, dive = false) {
     const g = this.game, def = act.def;
     const reach = def.reach;
-    const box = dive
+    const box = def.hitBox ? def.hitBox(p, act)      // рукопашные: коробка там, где нарисована нога/колено/локоть
+      : dive
       ? { x: p.x - 14, y: p.y - 10, w: 28, h: 26 }
       : spin
         ? { x: p.x - reach, y: p.y - 38, w: reach * 2, h: 40 }
@@ -609,7 +615,11 @@ class CombatSystem {
     const knock = (def.hits && (act.sub || 0) < def.hits - 1 ? def.knock * 0.2 : def.knock) * (act.dmgK ? 0.4 + 0.6 * act.dmgK : 1);
     const broke = e.damage(dmg, dirX, knock * (act.empowered ? 1.3 : 1), g, def.stun);
     const killed = !e.alive;
-    if (def.launch && !killed && e.kind !== "brute") { e.vy = -430; e.vx = dirX * 40; e.onGround = false; }
+    if (!killed) {
+      if (def.launch) this.launchEnemy(e, dirX, def.launchV);       // подброс (Восходящий разрез, Подбив): враг «висит» — джагл
+      else if (e.jugT > 0 && !e.onGround) this.juggleHit(e, dirX);  // любое попадание по висящему врагу подбрасывает его чуть выше
+      if (def.smash) this.smashEnemy(e, act);                        // Топор-кик: вбить в землю
+    }
     const perfect = j.rating === "perfect";
     // комбо и очки
     if (!extra) this.combo++;
@@ -647,6 +657,77 @@ class CombatSystem {
     } else if (act.name === "slash3") this.flashLabel("ВИХРЬ");
     if (act.name === "charged") this.flashLabel("ЗАРЯД");
     return broke;
+  }
+
+  /* ---------- джагл: подброс и воздушные удары ----------
+     Подброшенный враг (Enemy.jugT > 0) «висит» с пониженной гравитацией и оглушён, пока по нему попадают: каждое попадание в воздухе
+     чуть поднимает его (всё слабее), не больше JUG.hits ударов и JUG.age секунд, затем он падает; после приземления откат JUG.cd.
+     Громилу не подбросить. Герой рядом с висящим врагом падает вдвое медленнее (floatOn) и подпрыгивает с каждым попаданием. */
+  launchEnemy(e, dirX, vy = 320) {
+    if (!e.alive || e.executed || e.kind === "brute") return false;
+    const armored = e.state === "attack" || (e.state === "windup" && e.windT > e.windDur * 0.5);
+    if (armored) return false;                                   // начатый удар не прерывается и не подбрасывается
+    if (e.onGround && e.jugCD > 0) return false;
+    if (e.onGround || e.jugT <= 0) { e.jugN = 0; e.jugAge = 0; }
+    if (e.jugN >= JUG.hits) return false;
+    e.jugN++;
+    e.cancelAttack(this.game);
+    e.setState("hurt"); e.hurtDur = 0.6; e.staggerImmune = Math.max(e.staggerImmune, 0.5);
+    e.vy = -vy; e.vx = dirX * 40; e.onGround = false; e.jugT = JUG.hold;
+    this.juggles++;
+    const p = this.game.player;
+    if (!p.onGround) p.vy = Math.min(p.vy, -190);
+    return true;
+  }
+  /** Попадание по висящему врагу: небольшой подброс (с каждым разом ниже), счётчик воздушных ударов. */
+  juggleHit(e, dirX) {
+    if (e.kind === "brute" || e.jugT <= 0) return;
+    if (e.jugN >= JUG.hits) { e.jugT = 0; return; }               // предел джагла: дальше падает
+    e.jugN++;
+    e.cancelAttack(this.game);
+    e.setState("hurt"); e.hurtDur = 0.6; e.stateT = 0;
+    e.vy = -Math.max(80, 190 - 24 * e.jugN); e.vx = dirX * 30; e.jugT = JUG.hold;
+    const p = this.game.player;
+    if (!p.onGround) p.vy = Math.min(p.vy, -190);                 // герой поднимается вместе с ударом
+  }
+  /** Вбить в землю (Топор-кик): враг летит вниз, ударная волна при приземлении. */
+  smashEnemy(e, act) {
+    if (!e.alive || e.kind === "brute" || e.onGround) return;
+    e.jugT = 0; e.slamV = 1; e.vy = 700; e.vx = 0; e.slamAct = act;
+    e.setState("hurt"); e.hurtDur = 0.8; e.stateT = 0;
+    this.smashes++;
+  }
+  /** Враг приземлился после джагла или вбивания: пыль; вбитый — ударная волна и добавочный урон по нему и соседям. */
+  enemyLanded(e) {
+    const g = this.game, col = g.player.skin.accent;
+    const slam = e.slamV, act = e.slamAct;
+    e.slamV = 0; e.slamAct = null;
+    const hadJug = e.jugAge > 0;
+    e.jugT = 0; e.jugN = 0; e.jugAge = 0; e.jugCD = JUG.cd;
+    g.fx.dust(e.x, e.y, slam ? 10 : 5);
+    if (!e.alive) return;
+    if (slam) {
+      g.fx.shockwave(e.x, e.y, col, 110); g.fx.ring(e.x, e.y - 3, 5, 54, "#ffffff", 0.3, 3);
+      g.fx.sparks(e.x, e.y, 12, col, 280, -Math.PI / 2, 2.4, 0.4);
+      g.camera.shake(0.3); g.camera.kick(0.02); g.sfx("slam");
+      e.hurtDur = 0.8; e.stateT = 0;
+      if (act) {
+        // добавочный урон вбитому и ударная волна по соседям
+        const sdef = { name: "axeKick", kind: "melee", dmg: 9, knock: 160, stun: 0.5, martial: true };
+        const mk = a => ({ name: "axeKick", def: sdef, judge: act.judge, power: act.power, empowered: false, hit: new Set(), dmgK: 1, comboCounted: true, stopped: true, beatFx: true, onBeat: false, hitSound: false, sub: 0, t: 0, startup: 0, active: 0, recovery: 0, travel: 0, phase: "active", target: a });
+        this._applyHit(e, mk(e), sign(e.x - g.player.x) || 1, e.x, e.centerY);
+        for (const o of g.enemies) {
+          if (o === e || !o.targetable || Math.abs(o.x - e.x) > 60 || Math.abs(o.y - e.y) > 30) continue;
+          this._applyHit(o, mk(o), sign(o.x - e.x) || 1, o.x, o.centerY);
+        }
+      }
+    } else if (hadJug) { e.hurtDur = 0.4; e.stateT = 0; g.sfx("land", 0.5); }
+  }
+  /** Есть ли рядом висящий в воздухе враг (герой в воздухе тогда падает вдвое медленнее — не дольше 2,4 с). */
+  floatOn(p) {
+    if (p.airT > 2.4) return false;
+    for (const e of this.game.enemies) if (e.jugT > 0 && !e.onGround && e.alive && Math.abs(e.x - p.x) < 200) return true;
+    return false;
   }
 
   _onKill(e, act, cinematic = false) {

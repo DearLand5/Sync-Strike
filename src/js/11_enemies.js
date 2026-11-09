@@ -19,6 +19,11 @@ const MELEE_HIT_DELAY = 0.04;
 /** Длительность «смерти» до исчезновения: тяжёлый Молот падает дольше. */
 const DEAD_DUR = { blade: 0.5, gunner: 0.55, swift: 0.45, brute: 0.85 };
 
+/* Джагл (подброс и воздушные удары, 12_combat/12f_martial): подброшенный враг «висит» с пониженной гравитацией, пока по нему попадают.
+   grav — гравитация в джагле, hits — сколько попаданий в воздухе максимум (дальше падает), age — предел всего полёта (с), ceil — потолок высоты,
+   hold — сколько секунд после последнего удара ещё висит, cd — через сколько секунд после приземления можно подбросить снова. */
+const JUG = { grav: 760, hits: 6, age: 2.6, ceil: 100, hold: 0.8, cd: 1.5 };
+
 let _enemyId = 1;
 class Enemy {
   constructor(kind, x, y, diff) {
@@ -60,6 +65,8 @@ class Enemy {
     this.deathStyle = null;   // split | slam | shot | topple — особая смерть после добивания
     this.deathDir = 1; this.deathRot = 0; this.tdPose = null;
     this.elite = false; this.power = 1;
+    this.jugT = 0; this.jugN = 0; this.jugAge = 0; this.jugCD = 0;   // джагл: запас «висения», воздушных ударов, возраст полёта, откат
+    this.slamV = 0; this.landed = false;                             // вбит в землю (Топор-кик); только что приземлился
   }
 
   /** Элитный враг: больше HP и стойкости, сильнее бьёт, чуть крупнее; отмечен знаком над головой. */
@@ -100,7 +107,7 @@ class Enemy {
   }
 
   die(dirX, game) {
-    this.alive = false;
+    this.alive = false; this.jugT = 0; this.slamV = 0;
     this.cancelAttack(game);
     this.setState("dead");
     this.deathDir = dirX || 1;
@@ -124,6 +131,7 @@ class Enemy {
     this.dropT = Math.max(0, this.dropT - dt);
     this.poise = Math.min(this.poiseMax, this.poise + dt * this.poiseMax * 0.25);
     this.staggerImmune = Math.max(0, (this.staggerImmune || 0) - dt);
+    this.jugCD = Math.max(0, this.jugCD - dt);
 
     if (this.executed) {      // добивание: позиции задаёт сценарий
       this.flash = Math.max(0, this.flash - dt * 6);      // под замедлением вспышка не должна висеть: силуэт врага остаётся читаемым
@@ -170,17 +178,27 @@ class Enemy {
         break;
       case "hurt":
         this.vx = damp(this.vx, 0, 5, dt);
+        if (this.jugT > 0 && !this.onGround) this.hurtDur = Math.max(this.hurtDur || 0, this.stateT + 0.15);   // в джагле оглушён, пока висит
         if (this.stateT > (this.hurtDur || 0.3)) this.setState("think");
         break;
     }
     this._physics(dt);
+    if (this.landed) { this.landed = false; if (this.jugAge > 0 || this.slamV) game.combat.enemyLanded(this); }
     this.groundY = this.onGround ? this.y : groundBelow(this.x, this.y);
     this.queuePose(dt, game);
   }
 
   _physics(dt) {
-    this.vy = Math.min(this.vy + 1500 * dt, 700);
+    const was = this.onGround;
+    let grav = 1500;
+    if (this.jugT > 0 && !was && !this.slamV) {      // джагл: пониженная гравитация, предел по времени и высоте
+      grav = JUG.grav; this.jugT -= dt; this.jugAge += dt;
+      if (this.jugAge > JUG.age) this.jugT = 0;
+      if (this.y < -JUG.ceil && this.vy < 0) this.vy = Math.max(this.vy, -20);
+    }
+    this.vy = Math.min(this.vy + grav * dt, 700);
     moveBody(this, dt);
+    if (!was && this.onGround) this.landed = true;
   }
 
   _walk(dir, speed, dt, game) {
@@ -439,6 +457,7 @@ class Enemy {
         // реакция на удар: резкий отклон назад (hitKick), согнутые колени, затем неустойчивая стойка до конца оглушения
         const hk = this.hitKick;
         Object.assign(P, { lean: -0.22 - 0.35 * hk, armF: -0.6 - 0.4 * hk, armB: -1.0 - 0.3 * hk, headTilt: -0.3, bodyY: 1.5 + 1.2 * hk, sx: 1 - 0.06 * hk, sy: 0.96 + 0.04 * hk, tuck: this.onGround ? 0 : 0.5 });
+        if (!this.onGround && this.jugT > 0) Object.assign(P, { lean: -0.5 - 0.2 * hk, armF: -1.3, armB: -1.7, bodyY: 0.5, tuck: 0.9, legAmp: 0.2, legPhase: 1.5, headTilt: -0.4 });   // висит в воздухе: откинут, руки раскинуты
         rate = 34;
         break;
       }

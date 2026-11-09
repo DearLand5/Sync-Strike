@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS = {
   windowScale: 1.0,         // 0.7..1.5
   autoSync: true,           // автоподстройка latencyMs по ударам в бою
   dirSnap: "bar",           // Режиссёр: привязка границ частей — beat | bar | bar4 | free
+  martial: true,            // рукопашные удары ногами, коленями, локтями вплетаются в серию (12f_martial)
   assist: true,             // буферизация ввода к доле
   btnScale: 1.0,            // общий размер кнопок 0.6..1.5
   btnAlpha: 0.55,           // прозрачность кнопок 0.1..1

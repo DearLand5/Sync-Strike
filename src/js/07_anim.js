@@ -28,7 +28,16 @@ const BASE_POSE = {
   bodyY: 0, sx: 1, sy: 1, lean: 0, legPhase: 0, legAmp: 0, legSpread: 1, tuck: 0,
   armF: 0.35, elbowF: 0.4, armB: -0.3, wAngle: 0, wBlend: 0, headTilt: 0, cloak: 0, eye: 0, spin: 0,
   turn: 0,    // поворот вокруг вертикальной оси в оборотах (0.5 — спиной): силуэт сужается и зеркалится, а не сплющивается
+  // рукопашные удары (12f_martial): нога из двух звеньев вместо обычной. nK/fK — вес 0..1 (ближняя/дальняя нога),
+  // nA/fA — угол бедра от «вниз» (π/2 вперёд, π вверх, <0 назад), nB/fB — угол голени (абсолютный, тем же отсчётом), nL/fL — длина звена
+  nK: 0, nA: 0, nB: 0, nL: 7, fK: 0, fA: 0, fB: 0, fL: 7,
+  armFront: 0,  // >0.5 — задняя рука рисуется поверх плаща (удар локтем)
+  elbowB: 0.5,  // сгиб локтя задней руки
 };
+/** Ключи позы, которые сами возвращаются к значению по умолчанию, если поза их не задаёт (иначе «залипали» бы после удара). */
+const POSE_DECAY = { nK: 0, fK: 0, armFront: 0, elbowB: 0.5 };
+/** Ноги ударов: [вес, бедро, голень, длина]. */
+const POSE_LEGS = [["nK", "nA", "nB", "nL"], ["fK", "fA", "fB", "fL"]];
 
 class AnimState {
   constructor() {
@@ -44,6 +53,8 @@ const AnimationSystem = {
   blend(st, target, rate, dt) {
     const p = st.pose;
     const k = 1 - Math.exp(-rate * dt);
+    // нога только входит в удар: сразу в позу удара (иначе бедро ехало бы из старого, забытого угла)
+    for (const L of POSE_LEGS) if (target[L[0]] > 0.02 && p[L[0]] < 0.03) { p[L[1]] = target[L[1]]; p[L[2]] = target[L[2]]; p[L[3]] = target[L[3]]; }
     for (const key in target) {
       const v = target[key];
       if (typeof v === "number") p[key] = key === "legPhase" || key === "spin" || key === "turn" ? v : p[key] + (v - p[key]) * k;
@@ -52,6 +63,8 @@ const AnimationSystem = {
     // вращение (кувырки, сальто) задаётся напрямую — плавный возврат дал бы обратный оборот
     if (target.spin == null) p.spin = 0;
     if (target.turn == null) p.turn = 0;
+    // ноги и рука ударов плавно возвращаются к обычным
+    for (const key in POSE_DECAY) if (target[key] == null) { const d = POSE_DECAY[key]; p[key] = Math.abs(p[key] - d) < 0.01 ? d : p[key] + (d - p[key]) * k; }
   },
   /** Вторичная анимация с подшагами 1/120 с — результат не зависит от частоты кадров. */
   secondary(st, ch, dt) {
@@ -102,6 +115,14 @@ function rigJoints(p, legLen = 8, hunch = 0) {
   const ex = sh.x + Math.sin(p.armF) * 6, ey = sh.y + Math.cos(p.armF) * 6;
   const hx = ex + Math.sin(p.armF + p.elbowF) * 6, hy = ey + Math.cos(p.armF + p.elbowF) * 6;
   return { hipY, sh, elbow: { x: ex, y: ey }, hand: { x: hx, y: hy }, head: rot(0.8, hipY - 17.5), rot };
+}
+
+/** Нога удара в локальных координатах (x вперёд, y вниз, пол y=0): бедро, колено, стопа. near — ближняя нога (рисуется поверх). */
+function kickLeg(p, near, legLen = 8) {
+  const a = near ? p.nA : p.fA, b = near ? p.nB : p.fB, L = (near ? p.nL : p.fL) || 7;
+  const hx = near ? 1.8 : -1.8, hy = -(legLen + 1) + p.bodyY + 1;
+  const kx = hx + Math.sin(a) * L, ky = hy + Math.cos(a) * L;
+  return { hx, hy, kx, ky, ex: kx + Math.sin(b) * L, ey: ky + Math.cos(b) * L };
 }
 
 /** mixHex с кэшем: в отрисовке цвета повторяются каждый кадр, строки не пересобираем. */
@@ -197,6 +218,8 @@ const CharacterRenderer = {
       const lift = Math.max(0, -Math.cos(ph)) * p.legAmp * 3 + p.tuck * 5;
       const fy = -lift;
       const hx = side * 1.8;
+      const kw = (side > 0 ? p.nK : p.fK) || 0;
+      if (kw > 0.01) { this._kickLeg(ctx, p, side, hipY, fx, fy, kw, side > 0 ? ink : mixc(ink, "#000000", 0.4), tint ? null : accent); continue; }
       ctx.beginPath();
       ctx.moveTo(hx, hipY + 1);
       ctx.quadraticCurveTo(hx + (fx - hx) * 0.5 + 1.8, (hipY + fy) * 0.5, fx, fy);
@@ -225,7 +248,8 @@ const CharacterRenderer = {
     const fl = st.cloak * 5;
     const wide = brute ? 1.35 : (skin && skin.wide) || 1;
     // задняя рука
-    this._arm(ctx, p.armB, 0.5, shoulderY, mixc(ink, "#000000", 0.4), wide, null);
+    const elB = p.elbowB == null ? 0.5 : p.elbowB;
+    if (!(p.armFront > 0.5)) this._arm(ctx, p.armB, elB, shoulderY, mixc(ink, "#000000", 0.4), wide, null);
     // снаряжение позади плаща (ножны, крылья, батарея)
     if (!tint && back) this._backGear(ctx, back, 0, accent, wide, shoulderY, hipY, hemY, fl, hq);
     // подкладка плаща — второй слой, чуть шире и с оттенком неона
@@ -276,6 +300,10 @@ const CharacterRenderer = {
     this._head(ctx, ch, skin, look, maskC, accent, tint, hq);
     ctx.restore();
     // передняя рука и оружие
+    if (p.armFront > 0.5) {      // локоть вперёд — поверх плаща, светлее и с неоновой точкой на локте (иначе чёрное на чёрном)
+      this._arm(ctx, p.armB, elB, shoulderY, tint ? ink : mixc(ink, accent, 0.3), wide, tint ? null : accent);
+      if (!tint) { ctx.fillStyle = rgba(accent, 0.9); ctx.beginPath(); ctx.arc(1 + Math.sin(p.armB) * 6, shoulderY + 0.5 + Math.cos(p.armB) * 6, 1.3, 0, TAU); ctx.fill(); }
+    }
     this._arm(ctx, p.armF, p.elbowF, shoulderY, ink, wide, tint ? null : accent);
     if (!tint) this._weapon(ctx, ch, p, J, accent, hq);
     ctx.restore();
@@ -288,6 +316,21 @@ const CharacterRenderer = {
       this.draw(ctx, ch, { tint: "#ffffff" });
       ctx.restore();
     }
+  },
+
+  /** Нога удара из двух звеньев (бедро + голень); w — вес относительно обычной ноги (плавный вход/выход). */
+  _kickLeg(ctx, p, side, hipY, fx, fy, w, color, accent) {
+    const near = side > 0, a = near ? p.nA : p.fA, b = near ? p.nB : p.fB, L = (near ? p.nL : p.fL) || 7;
+    const hx = side * 1.8, hy = hipY + 1;
+    const kx = hx + Math.sin(a) * L, ky = hy + Math.cos(a) * L;
+    const ex = kx + Math.sin(b) * L, ey = ky + Math.cos(b) * L;
+    const mx = lerp((hx + fx) * 0.5 + 1.2, kx, w), my = lerp((hy + fy) * 0.5, ky, w);
+    const px = lerp(fx, ex, w), py = lerp(fy, ey, w);
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(mx, my); ctx.lineTo(px, py);
+    ctx.strokeStyle = color; ctx.lineWidth = 2.6; ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.ellipse(px, py, 2.0, 1.15, Math.atan2(py - my, px - mx) - Math.PI / 2, 0, TAU); ctx.fill();
+    if (accent && near) { ctx.fillStyle = rgba(accent, 0.7); ctx.beginPath(); ctx.arc(px, py, 0.85, 0, TAU); ctx.fill(); }
   },
 
   /** Рука из двух звеньев; brace — цвет неонового наруча у запястья (null — без него). */

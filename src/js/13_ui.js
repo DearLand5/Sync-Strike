@@ -411,6 +411,7 @@ class UIManager {
     this.bindCheck("set-fps", "showFps");
     this.bindCheck("set-assist", "assist");
     this.bindCheck("set-autosync", "autoSync");
+    this.bindCheck("set-martial", "martial");
     document.querySelectorAll("#seg-quality [data-q]").forEach(b => b.addEventListener("click", () => { S.set("quality", b.dataset.q); this.refreshSettings(); }));
     document.querySelectorAll("#seg-slowmo [data-s]").forEach(b => b.addEventListener("click", () => { S.set("slowmoMode", b.dataset.s); this.refreshSettings(); this.sfx("uiClick"); }));
     document.querySelectorAll("#seg-sfx [data-x]").forEach(b => b.addEventListener("click", () => { S.set("sfxStyle", b.dataset.x); this.refreshSettings(); this.sfx("hit"); }));
