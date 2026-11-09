@@ -1079,6 +1079,7 @@ class CombatSystem {
     for (let i = P.length - 1; i >= 0; i--) {
       const b = P[i];
       b.life -= dt;
+      if (b.grav) b.vy += b.grav * dt;      // снаряды по дуге (болты арбалета, 12k_f_guns3)
       b.x += b.vx * dt; b.y += b.vy * dt;
       let remove = b.life <= 0 || b.x < 0 || b.x > WORLD.w || b.y > 4 || b.y < -500;
       if (b.wave) b.y = -5;
@@ -1115,6 +1116,7 @@ class CombatSystem {
 
   drawProjectiles(ctx, hq) {
     for (const b of this.projectiles) {
+      if (b.draw) { b.draw(ctx, b, hq); continue; }      // своя отрисовка снаряда (12k_f_guns3)
       const sp = Math.hypot(b.vx, b.vy) || 1;
       const mine = b.owner !== "enemy", len = b.wave ? 0 : b.owner === "pellet" ? 14 : mine ? 22 : 12;
       if (b.wave) {
