@@ -62,17 +62,18 @@
         const qx = fbm(X + sx, Y, o.px, 3), qy = fbm(X + 5.2, Y + 1.3 + sx, o.px, 3);
         const n = fbm(X + 1.9 * qx, Y + 1.9 * qy, o.px, 4);
         const rd = 1 - Math.abs(2 * vnoise((X + 3.1 * qx) * 4, (Y + 2.3 * qy) * 4, o.px * 4) - 1);   // тонкие пряди (гребни)
-        const dk = fbm(X * 1.3 + 2.4 * qy + 11.7, Y * 1.3 + 2.1 * qx, Math.round(o.px * 1.3) || 1, 4);
+        // ВАЖНО: по X масштаб не меняем — период решётки должен быть ровно o.px, иначе на шве тайлов шум рвётся (резкая вертикальная граница тёмных масс)
+        const dk = fbm(X + 2.4 * qy + 11.7, Y * 1.3 + 2.1 * qx, o.px, 4);
         let fall = 1;
         if (o.radial) { const ex = (xN - 0.5) * 2, ey = (yN - 0.5) * 2, r = Math.sqrt(ex * ex + ey * ey); fall = 1 - sstep(0.35, 1, r); }
         const pl = prof ? prof[0] : 1, pd = prof ? prof[1] : 1;
-        const la = sstep(0.42, 0.8, n) * (0.65 + 0.5 * rd * rd * rd) * o.light * pl * fall;
+        const la = sstep(0.42, 0.8, n) * (0.78 + 0.3 * rd * rd) * o.light * pl * fall;
         const da = sstep(0.44, 0.78, dk) * o.dark * pd * fall;
         const A = da + la * (1 - da);
         const k = (i + j * w) * 4;
         if (A < 0.004) { d[k + 3] = 0; continue; }
         const lc = la * (1 - da) / A;                     // доля светлого дыма в цвете
-        const grey = 8 + 200 * lc + 14 * rd * lc;
+        const grey = 8 + 200 * lc + 6 * rd * lc;
         d[k] = grey; d[k + 1] = grey + 3 * lc; d[k + 2] = grey + 8 * lc; d[k + 3] = Math.min(255, A * 255);
       }
     }
@@ -84,7 +85,7 @@
     const tmp = document.createElement("canvas"); tmp.width = W; tmp.height = H;
     const tc = tmp.getContext("2d"), prof = o.prof;
     tc.putImageData(smokeImage(tc, W, H, Object.assign({}, o, { py: o.py * (y1 - y0), prof: prof ? (yN => prof(y0 + yN * (y1 - y0))) : null })), 0, 0);
-    c.save(); c.imageSmoothingEnabled = true; c.drawImage(tmp, 0, 0, W, H, 0, H0 * q, W * q, H * q); c.restore();
+    c.save(); c.imageSmoothingEnabled = true; c.drawImage(tmp, 0, 0, W, H, 0, H0 * q, w, H * q); c.restore();   // ширина назначения ровно w: период шума = ширина тайла, шов не смещается
     tmp.width = 0; tmp.height = 0;
   };
   /** Спрайт клуба дыма (для клубов вокруг окна и тел теней): края тают по эллипсу. Холст пересоздаётся в build. */
