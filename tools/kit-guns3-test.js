@@ -63,7 +63,7 @@ fs.mkdirSync(shots, { recursive: true });
     };
     // следующая сильная / не сильная доля после 0.9 с
     window.__beatKind = (strong) => {
-      const cl = g.clock, m = cl.map; let t = cl.nextBeatAfter(g.songNow, 0.9), i = 0;
+      const cl = g.clock, m = cl.map; let t = cl.nextBeatAfter(g.songNow, 1.2), i = 0;
       while (i++ < 16) { const k = m.beats.findIndex(b => Math.abs(b + cl.correction - t) < 1e-3); if (k >= 0 && !!m.strong[k] === strong) break; t = cl.nextBeatAfter(t, 0.05); }
       return t;
     };
