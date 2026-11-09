@@ -389,5 +389,6 @@ function drawWeaponPreview(c, id, skin, size, act = "idle") {
   else Object.assign(P, { armF: 0.55, elbowF: 0.5, lean: 0.05 });
   if (id === "kusari") { ch.wExt = act === "strike" ? 1 : 0; ch.kuX = 23; ch.kuY = 6; ch.kuB = -4; ch.kuS = 5; }     // на карточке цепь короче: груз у края кадра
   if (id === "smg") P.armB = 1.45;
+  if (WEAPON_DRAW[id] && WEAPON_DRAW[id].preview) WEAPON_DRAW[id].preview(P, ch, act);     // свой вид на карточке (вторая рука, подвижные части)
   CharacterRenderer.draw(c, ch);
 }

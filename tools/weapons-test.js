@@ -74,6 +74,9 @@ const path = require("path");
   console.log("— ближний бой —");
   for (const [id] of ids.filter(x => x[1] === "melee")) {
     await use(id, "pistol");
+    // демо-трек ~118 с: на длинном списке оружия серия попадала бы на зацикливание — перематываем в начало, когда до конца < 25 с
+    await page.evaluate(() => { const g = window.__game; if (g.songNow > g.clock.map.duration - 25) g.audio.seek(2); });
+    await wait(400);
     const nm = await page.evaluate(id => window.WEAPONS_REF[id].name, id);
     // 1) серия: Крест на 4-м ударе, урон за нажатие
     await page.evaluate(() => { window.__setup(28); window.__beatsNS(4); });
@@ -125,6 +128,8 @@ const path = require("path");
   console.log("— огнестрел —");
   for (const [id] of ids.filter(x => x[1] === "gun")) {
     await use("dagger", id);
+    await page.evaluate(() => { const g = window.__game; if (g.songNow > g.clock.map.duration - 25) g.audio.seek(2); });
+    await wait(400);
     const nm = await page.evaluate(id => window.WEAPONS_REF[id].name, id);
     // 1) 4 выстрела издалека в такт (с подгонкой): урон за нажатие
     await page.evaluate(() => { window.__setup(380); window.__beats(5, -0.02); });
